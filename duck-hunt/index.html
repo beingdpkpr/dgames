@@ -156,7 +156,7 @@ function nextRound() {
   S.round++; S.cfg = roundConfig(S.round);
   S.ammo = S.cfg.ammo; S.spawned = S.resolved = S.hits = S.escaped = 0; S.combo = 0;
   S.ducks = S.ducks.filter(d => d.state !== 'flying');
-  S.phase = 'intro'; S.timer = 1.8; S.dog = null;
+  S.phase = 'intro'; S.timer = 1.8; if (S.dog && S.dog.mode === 'laugh') S.dog = null;
   emit('phase'); emit('round'); emit('hud');
 }
 
@@ -167,24 +167,49 @@ function endGame() {
 
 function roundOver() {
   if (S.hits >= S.cfg.required) { S.phase = 'clear'; S.timer = 2.0; emit('clear'); }
-  else { S.phase = 'fail'; S.timer = 3.6; S.dog = { t: 0 }; emit('dog'); }
+  else { S.phase = 'fail'; S.timer = 3.6; S.dog = { mode: 'laugh', t: 0 }; emit('dog'); }
   emit('phase');
 }
 
+// Flight patterns. Each duck picks one at spawn; later rounds lean toward the twitchy ones.
+//   glide   - the classic lazy sine wave
+//   swoop   - long slow arcs across most of the sky
+//   dart    - low flutter with bursts of speed and cruising lulls
+//   erratic - jinks: new vertical push and speed every fraction of a second
+//   dive    - V-shapes, bouncing hard between the top and bottom of the sky band
+function pickPattern(round) {
+  const r = Math.random();
+  if (round <= 2) return r < 0.55 ? 'glide' : r < 0.85 ? 'swoop' : 'dart';
+  if (round <= 5) return r < 0.28 ? 'glide' : r < 0.48 ? 'swoop' : r < 0.7 ? 'dart' : r < 0.88 ? 'erratic' : 'dive';
+  return r < 0.14 ? 'glide' : r < 0.28 ? 'swoop' : r < 0.54 ? 'dart' : r < 0.8 ? 'erratic' : 'dive';
+}
+
 function spawnDuck() {
-  const sc = view.scale, size = DUCK_SIZE * sc, cfg = S.cfg;
-  const dir = Math.random() < 0.5 ? 1 : -1;
+  const sc = view.scale, size = DUCK_SIZE * sc, cfg = S.cfg, h = view.h;
+  const pattern = pickPattern(S.round);
   const speed = DUCK_BASE_SPEED * sc * cfg.speed * rand(0.85, 1.15);
-  const baseY = view.h * rand(0.16, 0.56);
+  const flush = S.round >= 2 && Math.random() < 0.3;      // bursts up out of the reeds instead of entering from the side
+  const flushX = view.w * rand(0.2, 0.8);
+  const dir = flush ? (flushX < view.w / 2 ? 1 : -1) : Math.random() < 0.5 ? 1 : -1;   // flushed ducks cross toward the far side
   const d = {
-    x: dir > 0 ? -size * 2.5 : view.w + size * 2.5, y: baseY, baseY, vyVis: 0,
-    vx: dir * speed, vy: rand(-18, 18), dir, size,
+    pattern, flush, dir, size, speed, spd: 1, spdTarget: 1, burstT: rand(0.3, 0.8), jinkT: rand(0.2, 0.5),
+    x: flush ? flushX : dir > 0 ? -size * 2.5 : view.w + size * 2.5,
+    y: 0, baseY: h * rand(0.16, 0.56), targetY: 0, cruiseVy: rand(-18, 18), vx: dir * speed, vy: rand(-18, 18), vyVis: 0,
     amp: rand(25, 70) * sc, freq: rand(0.45, 1.1), phase: rand(0, TAU),
     flap: rand(0, TAU), flapRate: 16 + rand(0, 5) + cfg.speed * 3,
-    state: 'flying', rot: 0, rotV: 0, rotTarget: 0, t: 0, fade: 1, restT: 0, flee: false,
+    state: 'flying', rot: 0, rotV: 0, rotTarget: 0, t: 0, fade: 1, restT: 0, flee: false, spooked: 0,
     turns: cfg.zigzag && Math.random() < 0.5 ? 1 + Math.floor(Math.random() * 2) : 0,
     nextTurn: view.w * rand(0.3, 0.7)
   };
+  if (pattern === 'swoop') { d.amp = rand(80, 140) * sc; d.freq = rand(0.2, 0.4); d.baseY = h * rand(0.28, 0.45); }
+  else if (pattern === 'dart') { d.amp = rand(8, 20) * sc; d.freq = rand(1.5, 2.5); d.spdTarget = 1.5; }
+  else if (pattern === 'erratic') { d.amp = rand(15, 40) * sc; d.freq = rand(0.8, 1.4); }
+  else if (pattern === 'dive') { d.amp = rand(10, 25) * sc; d.freq = rand(1.0, 1.4); d.baseY = h * rand(0.12, 0.22); d.vy = d.cruiseVy = rand(150, 230) * sc * (Math.random() < 0.5 ? 1 : -1); }
+  if (flush) {
+    d.targetY = h * rand(0.2, 0.5); d.baseY = view.groundY + 10 * sc; d.vy = -rand(300, 400) * sc;
+    d.spd = 0.45; d.vx = dir * speed * d.spd; d.turns = 0;
+  }
+  d.y = d.baseY;
   S.ducks.push(d); S.spawned++;
   emit('spawn', d);
   return d;
@@ -195,12 +220,22 @@ function updateDucks(dt) {
   for (let i = S.ducks.length - 1; i >= 0; i--) {
     const d = S.ducks[i];
     if (d.state === 'flying') {
-      d.t += dt; d.flap += d.flapRate * dt;
+      d.t += dt; d.flap += d.flapRate * dt * (0.7 + d.spd * 0.4);
+      if (d.pattern === 'dart') { d.burstT -= dt; if (d.burstT <= 0) { d.spdTarget = d.spdTarget > 1 ? 0.7 : 1.6; d.burstT = rand(0.5, 1.1); } }
+      else if (d.pattern === 'erratic' && !d.flush) { d.jinkT -= dt; if (d.jinkT <= 0) { d.vy = rand(-1, 1) * 240 * sc; d.spdTarget = rand(0.7, 1.4); d.jinkT = rand(0.35, 0.8); } }
+      d.spd += (d.spdTarget - d.spd) * Math.min(1, dt * 4);
+      if (d.spooked > 0) d.spooked -= dt;
+      d.vx = d.dir * d.speed * (d.spd + (d.spooked > 0 ? 0.6 : 0));
       d.x += d.vx * dt;
       if (d.flee) d.baseY -= 520 * sc * dt;
-      else d.baseY = clamp(d.baseY + d.vy * dt, view.h * 0.1, view.h * 0.62);
+      else if (d.flush) { d.baseY += d.vy * dt; if (d.baseY <= d.targetY) { d.flush = false; d.vy = d.cruiseVy; if (d.pattern === 'dart') d.spdTarget = 1.6; } }
+      else {
+        d.baseY += d.vy * dt;
+        const lo = view.h * 0.1, hi = view.h * 0.62, k = d.pattern === 'dive' ? 1 : 0.5;   // divers bounce hard off the band edges
+        if (d.baseY < lo) { d.baseY = lo; d.vy = Math.abs(d.vy) * k; } else if (d.baseY > hi) { d.baseY = hi; d.vy = -Math.abs(d.vy) * k; }
+      }
       const py = d.y;
-      d.y = d.baseY + Math.sin(d.t * d.freq * TAU + d.phase) * d.amp;
+      d.y = d.baseY + Math.sin(d.t * d.freq * TAU + d.phase) * d.amp * (d.flush ? 0.3 : 1);
       d.vyVis += ((d.y - py) / dt - d.vyVis) * Math.min(1, dt * 10);
       if (d.turns > 0 && !d.flee && ((d.dir > 0 && d.x > d.nextTurn) || (d.dir < 0 && d.x < d.nextTurn))) {
         d.dir = -d.dir; d.vx = -d.vx; d.turns--;
@@ -222,9 +257,21 @@ function updateDucks(dt) {
     } else {
       d.restT += dt;
       d.rot += (d.rotTarget - d.rot) * Math.min(1, dt * 12);
-      if (d.restT > 1.4) { d.fade -= dt * 1.4; if (d.fade <= 0) S.ducks.splice(i, 1); }
+      if (d.restT > 0.5 && !S.dog && S.phase !== 'fail' && S.phase !== 'over') { dogRetrieve(d); break; }
+      if (d.restT > 6) { d.fade -= dt * 1.4; if (d.fade <= 0) S.ducks.splice(i, 1); }   // fallback if the dog never comes
     }
   }
+}
+
+// The dog surfaces where a duck landed and holds it up; a second duck lying nearby comes along too.
+function dogRetrieve(first) {
+  const sc = view.scale, held = [first];
+  for (const o of S.ducks) if (o !== first && o.state === 'fallen' && held.length < 2 && Math.abs(o.x - first.x) < 260 * sc) held.push(o);
+  S.ducks = S.ducks.filter(o => !held.includes(o));
+  const x = held.reduce((a, o) => a + o.x, 0) / held.length;
+  S.dog = { mode: 'retrieve', t: 0, x: clamp(x, 100 * sc, view.w - 100 * sc), held, dur: 2.6 };
+  spawnDust(x, view.groundY + 6 * sc, 8, 'dust');
+  emit('retrieve', S.dog);
 }
 
 function checkHit(mouseX, mouseY) {
@@ -260,7 +307,15 @@ function shoot(mouseX, mouseY) {
   spawnDust(mouseX, mouseY, 3, 'smoke');
   emit('shot');
   const d = checkHit(mouseX, mouseY);
-  if (d) killDuck(d, mouseX, mouseY); else { S.combo = 0; emit('miss'); }
+  if (d) killDuck(d, mouseX, mouseY);
+  else {
+    S.combo = 0;
+    for (const f of S.ducks) {   // a near miss spooks the duck into a burst away from the shot
+      if (f.state !== 'flying' || f.flush || Math.hypot(f.x - mouseX, f.y - mouseY) > 170 * view.scale) continue;
+      f.spooked = 0.7; f.vy = (f.y < mouseY ? -1 : 1) * 220 * view.scale;
+    }
+    emit('miss');
+  }
   if (S.ammo === 0) {
     // Out of shells: ducks not yet released never come, and the airborne ones flee upward.
     S.resolved += S.cfg.ducks - S.spawned; S.spawned = S.cfg.ducks;
@@ -311,6 +366,7 @@ function update(dt) {
   S.wind = Math.sin(S.time * 0.5) * 0.6 + Math.sin(S.time * 1.31) * 0.4;
   S.shake = Math.max(0, S.shake - dt * 40 * view.scale);
   if (S.flash) { S.flash.t += dt; if (S.flash.t > 0.12) S.flash = null; }
+  if (S.dog) { S.dog.t += dt; if (S.dog.mode === 'retrieve' && S.dog.t >= S.dog.dur) S.dog = null; }
   updateDucks(dt); updateParticles(dt);
   switch (S.phase) {
     case 'intro':
@@ -330,7 +386,7 @@ function update(dt) {
       S.timer -= dt; if (S.timer <= 0) nextRound();
       break;
     case 'fail':
-      S.timer -= dt; if (S.dog) S.dog.t += dt;
+      S.timer -= dt;
       if (S.timer <= 0) endGame();
       break;
   }
@@ -530,7 +586,7 @@ if (typeof document !== 'undefined') (function () {
     else wingA = -2.6;
     const pitch = d.state === 'flying' ? clamp(Math.atan2(d.vyVis, Math.abs(d.vx)) * 0.55, -0.6, 0.6) : 0;
     c.save(); c.translate(d.x, d.y); c.globalAlpha = d.fade;
-    if (d.state !== 'fallen') {   // soft drop shadow: an offset, translucent copy of the body mass
+    if (d.state === 'flying' || d.state === 'dying') {   // soft drop shadow: an offset, translucent copy of the body mass
       c.save(); c.translate(7 * sc, 13 * sc); c.rotate(d.rot); c.scale(d.dir, 1); c.rotate(pitch);
       c.fillStyle = 'rgba(15,8,25,0.14)'; c.beginPath(); c.ellipse(0, 0, s * 1.35, s * 0.85, 0, 0, TAU); c.fill();
       c.beginPath(); c.arc(s * 1.0, -s * 0.55, s * 0.55, 0, TAU); c.fill();
@@ -569,43 +625,60 @@ if (typeof document !== 'undefined') (function () {
     }
   }
   function drawDog() {
-    if (!S.dog) return;
-    const c = ctx, sc = view.scale, t = S.dog.t, gy = view.groundY;
+    const dog = S.dog; if (!dog) return;
+    const c = ctx, sc = view.scale, t = dog.t, gy = view.groundY, laugh = dog.mode === 'laugh';
     const ease = (u) => 1 - Math.pow(1 - clamp(u, 0, 1), 3);
-    const up = ease(t / 0.5) * (1 - ease((0.5 - S.timer) / 0.5));
-    const bob = t > 0.5 && S.timer > 0.5 ? Math.abs(Math.sin(t * 11)) * 6 * sc : 0;
-    c.save(); c.translate(view.w * 0.5 + para.x * 6 * sc, gy + 140 * sc - up * 205 * sc - bob); c.scale(sc, sc);
+    const remain = laugh ? S.timer : dog.dur - t;
+    const up = ease(t / 0.5) * (1 - ease((0.5 - remain) / 0.5));
+    const active = t > 0.5 && remain > 0.5;
+    const bob = !active ? 0 : laugh ? Math.abs(Math.sin(t * 11)) * 6 * sc : Math.sin(t * 5) * 3 * sc;
+    const wx = (laugh ? view.w * 0.5 : dog.x) + para.x * 6 * sc, wy = gy + 140 * sc - up * 205 * sc - bob;
+    c.save(); c.translate(wx, wy); c.scale(sc, sc);
     c.strokeStyle = 'rgba(255,215,160,.45)'; c.lineWidth = 3;   // rim light so the silhouette separates from the trees
     c.beginPath(); c.ellipse(0, -20, 42, 46, 0, 0, TAU); c.stroke();
     c.beginPath(); c.ellipse(20, -88, 27, 25, 0, 0, TAU); c.stroke();
     c.beginPath(); c.ellipse(46, -80, 20, 12, 0.15, 0, TAU); c.stroke();
     c.beginPath(); c.ellipse(-2, -82, 11, 22, 0.5, 0, TAU); c.stroke();
+    if (!laugh) { c.beginPath(); c.ellipse(30, -140, 9, 50, 0.3, 0, TAU); c.stroke(); }
     c.fillStyle = COLORS.dog;
     c.beginPath(); c.ellipse(0, -20, 42, 46, 0, 0, TAU); c.fill();                     // chest
     c.beginPath(); c.ellipse(-30, 10, 28, 40, 0.3, 0, TAU); c.fill();                  // haunch
+    if (!laugh) { c.beginPath(); c.ellipse(30, -140, 9, 50, 0.3, 0, TAU); c.fill(); c.beginPath(); c.arc(44, -190, 8, 0, TAU); c.fill(); }   // raised arm and paw
     c.beginPath(); c.ellipse(20, -88, 27, 25, 0, 0, TAU); c.fill();                    // head
     c.beginPath(); c.ellipse(46, -80, 20, 12, 0.15, 0, TAU); c.fill();                 // snout
     c.beginPath(); c.ellipse(-2, -82, 11, 22, 0.5, 0, TAU); c.fill();                  // ear
     c.beginPath(); c.arc(62, -85, 4.5, 0, TAU); c.fill();                              // nose
-    c.beginPath(); c.ellipse(40, -50, 12, 9, 0.2, 0, TAU); c.fill();                   // raised paw
+    if (laugh) { c.beginPath(); c.ellipse(40, -50, 12, 9, 0.2, 0, TAU); c.fill(); }    // paw on the ground
     c.strokeStyle = '#f6ead0'; c.lineWidth = 2.4; c.lineCap = 'round';
-    c.beginPath(); c.arc(14, -95, 5, Math.PI * 1.15, Math.PI * 1.85); c.stroke();     // squinting eyes
+    c.beginPath(); c.arc(14, -95, 5, Math.PI * 1.15, Math.PI * 1.85); c.stroke();     // happy eyes
     c.beginPath(); c.arc(30, -95, 5, Math.PI * 1.15, Math.PI * 1.85); c.stroke();
-    c.fillStyle = '#c94a4a'; c.beginPath(); c.moveTo(38, -74); c.quadraticCurveTo(52, -60, 62, -72); c.quadraticCurveTo(50, -66, 38, -74); c.fill();   // open mouth
-    if (t > 0.55 && S.timer > 0.4) {
-      const pop = Math.min(1, (t - 0.55) * 6);
-      c.save(); c.translate(80, -150); c.scale(pop, pop);
-      c.fillStyle = COLORS.bubble; c.strokeStyle = '#3b2311'; c.lineWidth = 2.5;
-      const bw = 168, bh = 46;
-      c.beginPath(); c.moveTo(-bw / 2 + 10, -bh / 2); c.lineTo(bw / 2 - 10, -bh / 2); c.quadraticCurveTo(bw / 2, -bh / 2, bw / 2, -bh / 2 + 10);
-      c.lineTo(bw / 2, bh / 2 - 10); c.quadraticCurveTo(bw / 2, bh / 2, bw / 2 - 10, bh / 2); c.lineTo(-bw / 2 + 36, bh / 2); c.lineTo(-bw / 2 + 20, bh / 2 + 16); c.lineTo(-bw / 2 + 22, bh / 2);
-      c.lineTo(-bw / 2 + 10, bh / 2); c.quadraticCurveTo(-bw / 2, bh / 2, -bw / 2, bh / 2 - 10); c.lineTo(-bw / 2, -bh / 2 + 10); c.quadraticCurveTo(-bw / 2, -bh / 2, -bw / 2 + 10, -bh / 2);
-      c.closePath(); c.fill(); c.stroke();
-      c.fillStyle = '#3b2311'; c.font = 'italic bold 19px Georgia, serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.fillText('Heh heh heh!', 0, 1);
-      c.restore();
+    if (laugh) {
+      c.fillStyle = '#c94a4a'; c.beginPath(); c.moveTo(38, -74); c.quadraticCurveTo(52, -60, 62, -72); c.quadraticCurveTo(50, -66, 38, -74); c.fill();   // open mouth
+      if (t > 0.55 && S.timer > 0.4) {
+        const pop = Math.min(1, (t - 0.55) * 6);
+        c.save(); c.translate(80, -150); c.scale(pop, pop);
+        c.fillStyle = COLORS.bubble; c.strokeStyle = '#3b2311'; c.lineWidth = 2.5;
+        const bw = 168, bh = 46;
+        c.beginPath(); c.moveTo(-bw / 2 + 10, -bh / 2); c.lineTo(bw / 2 - 10, -bh / 2); c.quadraticCurveTo(bw / 2, -bh / 2, bw / 2, -bh / 2 + 10);
+        c.lineTo(bw / 2, bh / 2 - 10); c.quadraticCurveTo(bw / 2, bh / 2, bw / 2 - 10, bh / 2); c.lineTo(-bw / 2 + 36, bh / 2); c.lineTo(-bw / 2 + 20, bh / 2 + 16); c.lineTo(-bw / 2 + 22, bh / 2);
+        c.lineTo(-bw / 2 + 10, bh / 2); c.quadraticCurveTo(-bw / 2, bh / 2, -bw / 2, bh / 2 - 10); c.lineTo(-bw / 2, -bh / 2 + 10); c.quadraticCurveTo(-bw / 2, -bh / 2, -bw / 2 + 10, -bh / 2);
+        c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = '#3b2311'; c.font = 'italic bold 19px Georgia, serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillText('Heh heh heh!', 0, 1);
+        c.restore();
+      }
+    } else {
+      c.beginPath(); c.arc(50, -76, 7, Math.PI * 0.1, Math.PI * 0.9); c.stroke();      // closed grin
     }
     c.restore();
+    if (!laugh) {   // the retrieved duck(s) dangle from the raised paw, head up
+      const n = dog.held.length, px = wx + 44 * sc, py = wy - 190 * sc;
+      for (let i = 0; i < n; i++) {
+        const h = dog.held[i], s = h.size, k = i - (n - 1) / 2;
+        drawDuck({ size: s, state: 'held', dir: 1, fade: 1, flap: 0, vyVis: 0, vx: 1,
+          x: px + k * 34 * sc + Math.sin(t * 5 + i) * 2 * sc, y: py + s * 1.05, rot: -Math.PI / 2 + 0.45 + k * 0.25 + Math.sin(t * 5 + i) * 0.06 });
+      }
+    }
   }
   function drawFlash() {
     const c = ctx, f = S.flash;
@@ -736,6 +809,7 @@ if (typeof document !== 'undefined') (function () {
   on('bounce', () => { const a = audio(); if (!a) return; const t = a.currentTime; tone(a, t, 0.1, 'sine', 90, 45, 0.35); burst(a, t, 0.08, 500, 120, 0.25); });
   on('empty', () => { const a = audio(); if (!a) return; burst(a, a.currentTime, 0.03, 3000, 2500, 0.3, 'highpass'); });
   on('dog', () => { const a = audio(); if (!a) return; const t = a.currentTime + 0.55; for (let i = 0; i < 4; i++) tone(a, t + i * 0.19, 0.12, 'square', 300 - i * 18, 210, 0.16, ['lowpass', 1400, 0.7]); });
+  on('retrieve', () => { const a = audio(); if (!a) return; const t = a.currentTime + 0.35; tone(a, t, 0.09, 'square', 190, 120, 0.2, ['lowpass', 900, 0.7]); tone(a, t + 0.12, 0.09, 'square', 190, 120, 0.2, ['lowpass', 900, 0.7]); });
   on('clear', () => { const a = audio(); if (!a) return; const t = a.currentTime; [523, 659, 784].forEach((f, i) => tone(a, t + i * 0.12, 0.25, 'triangle', f, f, 0.2)); });
 
   // ---- input ----

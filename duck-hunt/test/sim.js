@@ -18,7 +18,7 @@ const assert = (ok, msg) => { if (!ok) { failures++; console.log('FAIL', msg); }
 const DT = 1 / 60;
 const flying = () => S.ducks.filter(d => d.state === 'flying');
 const events = {};
-for (const ev of ['dog', 'clear', 'escape', 'hit', 'miss', 'high', 'empty']) { events[ev] = 0; g.on(ev, () => events[ev]++); }
+for (const ev of ['dog', 'clear', 'escape', 'hit', 'miss', 'high', 'empty', 'retrieve']) { events[ev] = 0; g.on(ev, () => events[ev]++); }
 const resetEvents = () => { for (const k in events) events[k] = 0; };
 
 // 1. Round scaling.
@@ -50,6 +50,24 @@ assert(g.checkHit(300, 300) === null, 'shot behind the tail misses');
 a.state = 'dying';
 assert(g.checkHit(400, 300) === null, 'dying duck cannot be hit again');
 
+// 2b. Flight patterns: every pattern shows up, flush ducks climb to cruise and never leave through the sky.
+g.startGame(); for (let i = 0; i < 5; i++) g.nextRound(); S.phase = 'play';
+const seen = {}; let flushes = 0;
+for (let i = 0; i < 400; i++) { S.ducks.length = 0; const d = g.spawnDuck(); seen[d.pattern] = (seen[d.pattern] || 0) + 1; if (d.flush) flushes++; }
+for (const pat of ['glide', 'swoop', 'dart', 'erratic', 'dive']) assert(seen[pat] > 10, `pattern ${pat} spawns at round 6 (${seen[pat] || 0}/400)`);
+assert(flushes > 60, `flush spawns happen (${flushes}/400)`);
+{
+  let escapedTop = 0, cruised = 0; g.on('escape', (d) => { if (d.y < 0) escapedTop++; });
+  for (let i = 0; i < 40; i++) {
+    S.ducks.length = 0; S.resolved = 0; S.spawned = 0; S.phase = 'play'; const d = g.spawnDuck(); d.flush = true; d.baseY = S.view ? 0 : g.view.groundY + 10; d.targetY = g.view.h * 0.3; d.vy = -350; d.turns = 0;
+    for (let t = 0; t < 6 && S.ducks.length; t += DT) g.update(DT);
+    if (!d.flush) cruised++;
+  }
+  assert(cruised === 40, `flushed ducks reach cruise (${cruised}/40)`);
+  assert(escapedTop === 0, 'no duck escapes through the top of the sky');
+}
+console.log('patterns at round 6:', JSON.stringify(seen), 'flush', flushes);
+
 // Helper: step the sim until a predicate holds or the time budget runs out.
 function runUntil(pred, seconds, each) {
   let t = 0;
@@ -71,7 +89,14 @@ assert(t3 > 0, 'perfect shooter reaches round 2');
 assert(events.clear === 1 && events.dog === 0, 'round clear fired once, no dog');
 assert(events.hit === cfg1.ducks && events.miss === 0, `every duck hit (${events.hit}/${cfg1.ducks}), no misses`);
 assert(S.score > 0 && S.highScore === S.score && events.high > 0, 'score and high score updated');
-console.log('perfect shooter: round 2 after', t3.toFixed(1), 's, score', S.score);
+assert(events.retrieve > 0 && events.retrieve <= cfg1.ducks, `dog retrieved the downed ducks (${events.retrieve} trips)`);
+runUntil(() => false, 4); assert(!S.ducks.some(d => d.state === 'fallen'), 'no duck left lying in the grass 4s into the next round');
+console.log('perfect shooter: round 2 after', t3.toFixed(1), 's, score', S.score, '| dog trips', events.retrieve);
+
+// 3b. A near miss spooks a flying duck; a far miss does not.
+g.startGame(); S.phase = 'play'; S.ducks.length = 0;
+{ const d = g.spawnDuck(); d.x = 600; d.y = 300; d.flush = false; g.shoot(600, 420); assert(d.spooked > 0 && d.vy < 0, 'near miss below the duck pushes it up and spooks it');
+  const e = g.spawnDuck(); e.x = 200; e.y = 300; e.flush = false; g.shoot(900, 300); assert(!(e.spooked > 0), 'far miss leaves the duck alone'); }
 
 // 4. No shooting: dog laughs, game over.
 g.startGame(); resetEvents();

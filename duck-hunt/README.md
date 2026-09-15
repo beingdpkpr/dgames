@@ -3,9 +3,10 @@
 Single-file click-to-shoot duck hunt with a painterly, atmospheric look. Open `index.html` in any browser; no network, no assets.
 
 ## Play
-- Ducks cross the marsh from either side on sine-wave paths. Click (or tap) to shoot.
-- Each round gives you a fixed number of shells and a quota of hits. Make the quota to advance; miss it and the dog surfaces to laugh at you, then it is game over.
-- Consecutive hits build a combo (up to ×3). Every duck that reaches the far edge is a miss.
+- Ducks cross the marsh from either side, or flush up out of the reeds. Each picks a flight pattern at random: a lazy glide, long swooping arcs, a low dart with bursts of speed, erratic jinks, or hard V-shaped dives. Later rounds lean toward the twitchy ones. Click (or tap) to shoot.
+- Each round gives you a fixed number of shells and a quota of hits. Make the quota to advance; miss it and the same dog surfaces to laugh at you, then it is game over.
+- Consecutive hits build a combo (up to ×3). Every duck that reaches the far edge is a miss. A shot that misses close to a duck spooks it into a burst away from the blast.
+- Downed ducks land in the reeds and the dog surfaces to hold each one up, two at a time if they fell close together.
 - Rounds scale: more ducks, faster flight, up to three in the air at once, and from round 4 some double back mid-flight. The sky slides from dawn to dusk over the first nine rounds.
 - Best score and the mute setting are remembered in the browser. **M** toggles sound; **Enter** or **Space** starts from the overlays.
 
@@ -16,6 +17,7 @@ Everything is drawn on one canvas from layered shapes: gradient sky with sun, dr
 `node test/sim.js` loads the simulation half of `index.html` (everything above the `UI` marker has no DOM dependency) and:
 - checks round scaling for rounds 1 to 25 never gets easier and the caps hold;
 - checks hit detection picks the nearest flying duck and ignores misses and dying ducks;
-- plays round 1 with a perfect shooter and asserts it reaches round 2;
+- checks every flight pattern spawns, flushed ducks level out, and a near miss spooks a duck while a far one does not;
+- plays round 1 with a perfect shooter and asserts it reaches round 2 and the dog retrieves every downed duck;
 - never shoots and asserts the dog appears and the game ends;
 - shoots at random and asserts ammo never goes negative, counters stay consistent, and a round ends within 4 s of the last shell.
