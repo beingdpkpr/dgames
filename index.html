@@ -272,7 +272,8 @@ function makeStumps(z) {
   g.position.set(0, 0, z); scene.add(g); return g;
 }
 const stumps = makeStumps(STUMPS_Z);
-makeStumps(BOWL_STUMPS_Z);
+const farStumps = makeStumps(BOWL_STUMPS_Z);
+let farStumpsFall = null;
 
 // ---------- stadium ----------
 (function stadium() {
@@ -300,6 +301,46 @@ makeStumps(BOWL_STUMPS_Z);
     s.position.set(0, 2.75, z); scene.add(s);
   }
 })();
+
+// ---------- crowd: instanced spectators on every tier, they jump for boundaries and wickets ----------
+let crowdCheer = -10;
+const crowd = (function () {
+  const bodyGeo = new THREE.BoxGeometry(0.46, 0.85, 0.4); bodyGeo.translate(0, 0.42, 0);
+  const headGeo = new THREE.SphereGeometry(0.17, 6, 5); headGeo.translate(0, 1.0, 0);
+  const items = [];
+  for (let i = 0; i < 7; i++) {
+    const r = 96 + i * 3.2 + 1.6, y = i * 2.2 + 2.6, n = Math.floor(2 * Math.PI * r / 1.15);
+    for (let k = 0; k < n; k++) {
+      if (Math.random() > 0.82) continue;
+      const a = k / n * Math.PI * 2 + rand(-0.004, 0.004);
+      items.push({ x: FIELD_CENTER.x + Math.cos(a) * r, y, z: FIELD_CENTER.z + Math.sin(a) * r, a: -a - Math.PI / 2, jump: rand(0.15, 0.4), ph: rand(0, 6) });
+    }
+  }
+  const bodies = new THREE.InstancedMesh(bodyGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), items.length);
+  const heads = new THREE.InstancedMesh(headGeo, new THREE.MeshLambertMaterial({ color: 0xd9a066 }), items.length);
+  const m = new THREE.Matrix4(), col = new THREE.Color();
+  items.forEach((it, i) => {
+    m.makeRotationY(it.a); m.setPosition(it.x, it.y, it.z);
+    bodies.setMatrixAt(i, m); heads.setMatrixAt(i, m);
+    col.setHSL(Math.random(), rand(0.45, 0.8), rand(0.35, 0.6)); bodies.setColorAt(i, col);
+  });
+  bodies.instanceColor.needsUpdate = true;
+  scene.add(bodies, heads);
+  return { items, bodies, heads, m, animating: false };
+})();
+function updateCrowd(dt) {
+  const t = simTime - crowdCheer;
+  if (t > 2.2 && !crowd.animating) return;
+  crowd.animating = t <= 2.2;
+  const { items, bodies, heads, m } = crowd;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const j = crowd.animating ? Math.max(0, Math.sin(t * 7 + it.ph)) * it.jump * (1 - t / 2.2) : 0;
+    m.makeRotationY(it.a); m.setPosition(it.x, it.y + j, it.z);
+    bodies.setMatrixAt(i, m); heads.setMatrixAt(i, m);
+  }
+  bodies.instanceMatrix.needsUpdate = true; heads.instanceMatrix.needsUpdate = true;
+}
 
 // =====================================================================
 //  Simple players (bowler, fielders): primitives with hinged limbs
@@ -503,6 +544,7 @@ function playBat(q) {
   o.connect(g2); g2.connect(a.destination); o.start(t); o.stop(t + 0.15);
 }
 function playCrowd(big) {
+  crowdCheer = simTime;
   const a = audio(); if (!a || muted) return; const t = a.currentTime; const dur = big ? 2.2 : 1.4;
   const src = a.createBufferSource(); src.buffer = noise(dur);
   const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = big ? 1100 : 800;
@@ -656,10 +698,10 @@ function resetBallScene() {
   bowler.position.set(0.7, 0, BOWL[bowlerType].start); bowler.rotation.set(0, Math.PI, 0);
   u.armR.rotation.x = u.armL.rotation.x = u.legL.rotation.x = u.legR.rotation.x = 0;
   ball.pos.set(0.44, 1.0, bowler.position.z);
-  stumps.rotation.set(0, 0, 0); stumpsFall = null;
+  stumps.rotation.set(0, 0, 0); stumpsFall = null; farStumps.rotation.set(0, 0, 0); farStumpsFall = null; throwPlan = null;
   for (const f of allFielders) { f.catching = false; f.attempted = false; f.dived = false; f.fumbled = false; f.prevD = 1e9; f.role = 'hold'; f.spd = 0; if (!f.isBowler) f.target.copy(f.home); }
   trailReset();
-  runners.active = false; runners.t = 0; runners.stopAt = undefined;
+  runners.active = false; runners.t = 0; runners.stopAt = undefined; runners.frozen = false;
   striker.group.position.set(0, 0, 0); striker.group.rotation.y = 0; poseRig(striker, stancePose(0));
   nonStriker.group.position.set(1.3, 0, FAR_CREASE_Z - 0.3); nonStriker.group.rotation.y = Math.PI; poseRig(nonStriker, runPose(0, 0.1));
 }
@@ -895,7 +937,7 @@ function updateRunners() {
   const L = Math.abs(FAR_CREASE_Z - CREASE_Z);
   const dist = Math.min(within * runners.SPEED, L + 1.0);
   const frac = clamp(dist / L, 0, 1);
-  const moving = tt > 0 && tt === t && dist < L + 1.0;
+  const moving = tt > 0 && tt === t && dist < L + 1.0 && !runners.frozen;
   const phase = tt * 9;
   const toFar = run % 2 === 0;                       // striker heads to the far end on even runs
   const zS = toFar ? lerp(CREASE_Z, FAR_CREASE_Z, frac) : lerp(FAR_CREASE_Z, CREASE_Z, frac);
@@ -947,9 +989,46 @@ function aimAt(f, smp) {
   const err = 0.5 + 1.1 * Math.max(0, smp.t - 0.2);
   f.target.set(smp.x + f.errX * err, 0, smp.z + f.errZ * err);
 }
-function fieldedRuns(f, extra) {
-  const T = (simTime - ball.hitTime) + 0.5 + extra + Math.hypot(f.pos.x, f.pos.z) / 28;
-  return clamp(Math.floor((T - 0.6) / 3.0), 0, 3);
+// The fielder throws at the end the striker is heading for. Batters who are nearly home make it;
+// batters caught well short turn back; in between they take on the throw and a direct hit runs them out.
+let throwPlan = null;
+const THROW_SPEED = 28;
+function startThrow(f, extra) {
+  const pickup = 0.5 + extra;
+  const rel = t => t - runners.t - 0.45;                       // the batters' running clock
+  const guess = Math.max(0, rel(simTime + pickup + Math.hypot(f.pos.x, f.pos.z) / THROW_SPEED));
+  const endZ = Math.floor(guess / runners.RUN) % 2 === 0 ? BOWL_STUMPS_Z : STUMPS_Z;
+  const dist = Math.hypot(f.pos.x, f.pos.z - endZ), tFly = dist / THROW_SPEED;
+  const tArrive = simTime + pickup + tFly;
+  const r = Math.max(0, rel(tArrive));
+  const done = Math.floor(r / runners.RUN), frac = (r - done * runners.RUN) / runners.RUN;
+  let res;
+  if (frac >= 0.9) res = { runs: done + 1 };
+  else if (frac < 0.7) res = { runs: done };
+  else if (Math.random() < 0.35) res = { runout: true, runs: done, f, endZ };
+  else res = { runs: done + 1 };
+  res.runs = Math.min(res.runs, 4);
+  throwPlan = { endZ, tArrive, tFly, res, throwAt: simTime + pickup, from: f.pos.clone() };
+  ball.phase = 'throw'; ball.rolling = false; ball.vel.set(0, 0, 0); ball.pos.set(f.pos.x, 0.9, f.pos.z);
+  ball.bounced = true;
+}
+function updateThrow() {
+  if (!throwPlan || state !== 'live') return;
+  const p = throwPlan;
+  if (!p.flying && simTime >= p.throwAt) {
+    p.flying = true;
+    const dx = 0 - p.from.x, dz = p.endZ - p.from.z;
+    ball.vel.set(dx / p.tFly, (0.7 - 0.9) / p.tFly + 0.5 * G * p.tFly, dz / p.tFly);
+  }
+  if (simTime >= p.tArrive) {
+    ball.vel.set(0, 0, 0); ball.pos.set(0, 0.7, p.endZ); ball.rolling = true;
+    if (p.res.runout) {
+      if (p.endZ === STUMPS_Z) stumpsFall = simTime; else farStumpsFall = simTime;
+      playStumps();
+      endBall({ wicket: `Run out by ${fielderLabel(p.res.f)}`, how: `run out (${p.res.f.isBowler ? curBowler.name : p.res.f.who})`, runout: true });
+    } else endBall({ runs: p.res.runs });
+    throwPlan = null;
+  }
 }
 function fielderLabel(f) { return f.isBowler ? curBowler.name : `${f.who} at ${f.name.toLowerCase()}`; }
 function fielderInjured(f) {
@@ -979,6 +1058,7 @@ function endBall(res) {
     if (res.how.startsWith('b ')) playStumps(); else playCrowd(false);
     newBatter();
     runners.stopAt = Math.max(0, simTime - runners.t - 0.45);
+    if (res.runout) runners.frozen = true;
   } else if (res.six) {
     match.runs += 6; cur.runs += 6; match.sixes++; sym = '6'; showMsg('SIX!', 'six'); playCrowd(true);
     runners.stopAt = 0.5;
@@ -1192,7 +1272,7 @@ function checkEvents() {
     if ((b.phase === 'delivery' || b.phase === 'miss') && b.prev.z < STUMPS_Z && b.pos.z >= STUMPS_Z) {
       if (Math.abs(b.pos.x) < 0.17 && b.pos.y < 0.78) { stumpsFall = simTime; b.vel.multiplyScalar(0.25); b.vel.y = 1.5; b.phase = 'bowled'; endBall({ wicket: 'Bowled', how: `b ${curBowler.name}` }); return; }
     }
-    if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.3) < 0.3 && b.pos.y > 0.25 && b.pos.y < 2.0) {
+    if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.3) < 0.22 && b.pos.y > 0.75 && b.pos.y < 2.0) {
       // struck on the body or helmet: ball dead, the batter may be shaken up or forced off
       const helmet = b.pos.y > 1.4, sp = b.vel.length();
       b.vel.set(rand(-1, 1), 1.5, -2); b.phase = 'blow'; flinchUntil = simTime + 1.6; swing = null;
@@ -1208,6 +1288,7 @@ function checkEvents() {
     return;
   }
   if (state !== 'live') return;
+  if (b.phase === 'throw') { updateThrow(); return; }
   // boundary
   const dc = Math.hypot(b.pos.x - FIELD_CENTER.x, b.pos.z - FIELD_CENTER.z);
   if (dc > BOUNDARY_R) { endBall(b.bounced ? { four: true } : { six: true }); return; }
@@ -1243,8 +1324,7 @@ function checkEvents() {
         b.vel.set(vx * c - vz * sn, 0.8, vx * sn + vz * c); b.rolling = false;
         planFielding();
       } else {
-        b.vel.set(0, 0, 0); b.rolling = true;
-        endBall({ runs: fieldedRuns(f, 0) });
+        startThrow(f, 0);
         return;
       }
     } else if (b.bounced && b.pos.y < 1.2 && !f.dived && f.prevD < d && f.prevD >= FIELD_REACH && f.prevD < 2.8 && Math.hypot(b.vel.x, b.vel.z) > 8) {
@@ -1253,8 +1333,8 @@ function checkEvents() {
       if (!f.isBowler && !f.subbed && Math.random() < 0.05) fielderInjured(f);
       if (Math.random() < 0.5 * clamp(18 / Math.hypot(b.vel.x, b.vel.z), 0.4, 1)) {
         showTiming(`Diving stop by ${fielderLabel(f)}!`, '#7ef29a');
-        f.pos.x = b.pos.x; f.pos.z = b.pos.z; b.vel.set(0, 0, 0); b.rolling = true;
-        endBall({ runs: fieldedRuns(f, 1.0) });
+        f.pos.x = b.pos.x; f.pos.z = b.pos.z;
+        startThrow(f, 1.0);
         return;
       }
       showTiming(`${fielderLabel(f)} dives... misses!`, '#ff8a80');
@@ -1341,12 +1421,12 @@ let acc = 0, lastT = performance.now();
 function tick(dt) {
   simTime += dt;
   updateBowler(dt);
-  if (state === 'live' && simTime - lastPlan > 0.3) planFielding();
+  if (state === 'live' && ball.phase !== 'throw' && simTime - lastPlan > 0.3) planFielding();
   if (state === 'flight' || state === 'live' || state === 'dead') {
     acc += dt;
     while (acc >= SUB) {
       acc -= SUB;
-      if (ball.phase !== 'idle' && ball.phase !== 'blow') stepBall(SUB);
+      if (ball.phase !== 'idle' && ball.phase !== 'blow' && !(ball.phase === 'throw' && !(throwPlan && throwPlan.flying))) stepBall(SUB);
       checkEvents();
     }
     if (ball.phase !== 'idle') trailPush(ball.pos);
@@ -1369,6 +1449,8 @@ function tick(dt) {
   aimGroup.visible = state === 'runup' || state === 'flight';
   aimGroup.rotation.y = -aimTheta;
   if (stumpsFall !== null) stumps.rotation.x = -clamp((simTime - stumpsFall) / 0.3, 0, 1) * 1.35;
+  if (farStumpsFall !== null) farStumps.rotation.x = clamp((simTime - farStumpsFall) / 0.3, 0, 1) * 1.35;
+  updateCrowd(dt);
 
   renderer.render(scene, camera);
 }

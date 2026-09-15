@@ -17,8 +17,14 @@ The timing bar under the pitch fills as the ball comes in: press as the marker r
 ## Bowling
 Fast bowlers mix seam-up, outswing, inswing, bouncers, yorkers, slower balls and cutters. Off-spinners bowl off-breaks, arm balls, doosras and a quicker one; leg-spinners bowl leg-breaks, googlies, top-spinners and flippers. Swing and drift act in the air; turn and seam act off the pitch.
 
+## Crowd
+About four thousand spectators fill the seven tiers and jump for boundaries and wickets.
+
 ## Fielding
 Every fielder predicts the ball's path and runs for the earliest point they can reach, with a judgement error that shrinks as the ball nears. Hard-hit balls must come straight to hand or need a dive; misfields happen.
+
+## Run outs
+Once a ball is fielded it is thrown at the end the striker is running to. Batters nearly home make it, batters well short turn back, and in between they take on the throw: a direct hit runs them out.
 
 ## Injuries
 A missed ball can strike the batter. A blow to the body or helmet leaves them bruised (less power, tighter timing) or forces them to retire hurt, bringing in the next batter without costing a wicket. Fielders can get hurt diving and are replaced by the twelfth man; a bowler can pull up before an over and a part-timer takes it. In a tournament your injured players miss the next round.
