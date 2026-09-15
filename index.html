@@ -807,8 +807,8 @@ function release() {
   const lenZ = -rand(V.len[0], V.len[1]);
   const lineX = rand(V.line[0], V.line[1]) * hand();
   bowler.updateMatrixWorld(true);
-  const hand = V3(0, -0.62, 0); bowler.userData.armR.localToWorld(hand);
-  const x0 = hand.x, y0 = clamp(hand.y, 1.7, 2.3), z0 = hand.z;
+  const handPos = V3(0, -0.62, 0); bowler.userData.armR.localToWorld(handPos);
+  const x0 = handPos.x, y0 = clamp(handPos.y, 1.7, 2.3), z0 = handPos.z;
   const dx = lineX - x0, dz = lenZ - z0, dh = Math.hypot(dx, dz), t = dh / speed * (V.loop || 1);
   const swingA = (V.swing || 0) * hand();
   const vy = (BALL_R - y0 + 0.5 * G * t * t) / t;
@@ -1315,8 +1315,8 @@ function updateBowler(dt) {
       u.legL.rotation.x = lerp(0, 0.9, g); u.legR.rotation.x = lerp(0, -0.6, g);   // delivery stride
     }
     bowler.updateMatrixWorld(true);
-    const hand = V3(0, -0.62, 0); u.armR.localToWorld(hand);
-    ball.pos.copy(hand); ball.prev.copy(hand);
+    const handPos = V3(0, -0.62, 0); u.armR.localToWorld(handPos);
+    ball.pos.copy(handPos); ball.prev.copy(handPos);
     if (runupT >= dur) release();
   } else {
     const k = clamp((runupT - dur) / 0.9, 0, 1);
