@@ -6,6 +6,8 @@ Small browser games, one folder each. Every game is a single `index.html` you ca
 |---|---|---|
 | Cricket 3D | `cricket-3d/` | Batting-only 3D cricket on Three.js. Tests: `npm run balance`, `npm run visual` inside the folder. |
 | Tic-tac-toe | `tic-tac-toe/` | Against the computer, three levels (Hard is minimax). Test: `node test/ai.js` inside the folder. |
+| Dots & Boxes | `dots-and-boxes/` | Hotseat or against the computer, three levels. Test: `node test/ai.js` inside the folder. |
 | Duck Hunt Reimagined | `duck-hunt/` | Click-to-shoot duck hunt with a painterly canvas look, rounds and a mocking dog. Test: `node test/sim.js` inside the folder. |
+| Rush Lane | `rush-lane/` | Three.js kart racer, three jungle circuits against three AI karts. Everything bundled into the one file; no tests. |
 
 Conventions: one folder per game with its own `README.md`, `package.json` (only if it needs tooling) and `test/`. Keep games self-contained so any one can be opened or published on its own.

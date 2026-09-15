@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dots &amp; Boxes</title>
+<style>
+  :root { --bg: #111318; --p1: #4fd1ff; --p2: #ff6b9d; --text: #e8ebf2; --muted: #8b93a7; --panel: #1a1e27; --line: #2b3140; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; overflow-x: hidden; }
+  #hud { width: min(560px, 94vw); padding: 14px 0 10px; display: flex; flex-direction: column; gap: 10px; }
+  .top { display: flex; justify-content: space-between; align-items: baseline; }
+  .top a { color: var(--muted); text-decoration: none; font-size: 13px; }
+  .top a:hover { color: var(--text); }
+  h1 { font-size: 20px; margin: 0; letter-spacing: 1px; font-weight: 600; }
+  h1 span { color: var(--p2); }
+  .turn { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 18px; height: 28px; }
+  .turn .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--p1); box-shadow: 0 0 12px var(--p1); transition: background .35s, box-shadow .35s; }
+  .turn.p2 .dot { background: var(--p2); box-shadow: 0 0 12px var(--p2); }
+  .turn .name { font-weight: 600; color: var(--p1); transition: color .35s; }
+  .turn.p2 .name { color: var(--p2); }
+  .turn.bump .dot { animation: bump .4s ease-out; }
+  .turn.thinking .name::after { content: "…"; animation: blink 1s infinite; }
+  @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.6); } 100% { transform: scale(1); } }
+  @keyframes blink { 50% { opacity: .2; } }
+  .scores { display: flex; justify-content: center; gap: 32px; }
+  .score { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  .score b { font-size: 22px; color: var(--text); display: inline-block; min-width: 26px; text-align: center; }
+  .score.pop b { animation: pop .45s ease-out; }
+  @keyframes pop { 0% { transform: scale(1); } 35% { transform: scale(1.6); } 100% { transform: scale(1); } }
+  .score .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .score.p1 .sw { background: var(--p1); box-shadow: 0 0 8px var(--p1); }
+  .score.p2 .sw { background: var(--p2); box-shadow: 0 0 8px var(--p2); }
+  .controls { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  select, button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  button:hover, select:hover { border-color: #4a5266; }
+  button.primary { border-color: var(--p1); }
+  #wrap { position: relative; margin-bottom: 20px; }
+  canvas { display: block; touch-action: none; border-radius: 16px; cursor: pointer; }
+  #over { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; border-radius: 16px; background: rgba(17, 19, 24, .72); backdrop-filter: blur(3px); }
+  #over.show { display: flex; }
+  .banner { text-align: center; animation: rise .55s cubic-bezier(.2, .9, .3, 1.25); }
+  .banner h2 { margin: 0 0 8px; font-size: 36px; letter-spacing: 1px; }
+  .banner h2.p1 { color: var(--p1); text-shadow: 0 0 24px var(--p1); }
+  .banner h2.p2 { color: var(--p2); text-shadow: 0 0 24px var(--p2); }
+  .banner .count { color: var(--muted); font-size: 15px; margin-bottom: 18px; }
+  .banner .count b { color: var(--text); }
+  @keyframes rise { from { transform: translateY(18px) scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
+  .hint { color: var(--muted); font-size: 12px; text-align: center; padding-bottom: 16px; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div class="top"><h1>DOTS <span>&amp;</span> BOXES</h1><a href="../index.html">← dgames</a></div>
+  <div class="turn p1" id="turn"><span class="dot"></span><span class="name" id="turnName">Player 1</span></div>
+  <div class="scores">
+    <div class="score p1" id="score1"><span class="sw"></span><span id="name1">Player 1</span><b id="s1">0</b></div>
+    <div class="score p2" id="score2"><span class="sw"></span><span id="name2">Player 2</span><b id="s2">0</b></div>
+  </div>
+  <div class="controls">
+    <select id="grid" title="Grid size">
+      <option value="3">3×3 dots (4 boxes)</option>
+      <option value="4">4×4 dots (9 boxes)</option>
+      <option value="5">5×5 dots (16 boxes)</option>
+      <option value="6">6×6 dots (25 boxes)</option>
+      <option value="7">7×7 dots (36 boxes)</option>
+      <option value="8">8×8 dots (49 boxes)</option>
+    </select>
+    <select id="mode" title="Opponent">
+      <option value="2p">Two players</option>
+      <option value="easy">Computer · Easy</option>
+      <option value="normal">Computer · Normal</option>
+      <option value="hard">Computer · Hard</option>
+    </select>
+    <button id="restart">New game (N)</button>
+  </div>
+</div>
+<div id="wrap">
+  <canvas id="game"></canvas>
+  <div id="over"><div class="banner"><h2 id="winner"></h2><div class="count" id="count"></div><button class="primary" id="again">Play again</button></div></div>
+</div>
+<div class="hint">Click the gap between two dots. Complete a box and you go again.</div>
+
+<script>
+'use strict';
+// ---------- CONSTANTS ----------
+const DEFAULT_GRID = 5;          // dots per side; 5 dots = 4×4 boxes
+const DOT_RADIUS = 5;
+const LINE_WIDTH = 5;
+const COLORS = { bg: '#111318', dot: '#8b93a7', dotGlow: '#c7cdda', 1: '#4fd1ff', 2: '#ff6b9d' };
+
+// ---------- LOGIC (pure, no DOM; test/ai.js loads everything above the UI marker) ----------
+// Edges: h[r][c] joins dot (r,c) to (r,c+1); v[r][c] joins dot (r,c) to (r+1,c). Value 0 = empty, else owner 1|2.
+// Boxes: boxes[r][c] is the cell whose top-left dot is (r,c). Value 0 = unclaimed, else owner.
+function newState(n) {
+  return {
+    n,
+    h: Array.from({ length: n }, () => Array(n - 1).fill(0)),
+    v: Array.from({ length: n - 1 }, () => Array(n).fill(0)),
+    boxes: Array.from({ length: n - 1 }, () => Array(n - 1).fill(0)),
+    player: 1, scores: { 1: 0, 2: 0 }, remaining: 2 * n * (n - 1), over: false,
+  };
+}
+const cloneState = (s) => JSON.parse(JSON.stringify(s));
+const edgeKey = (e) => e.t + e.r + ',' + e.c;
+const edgeAt = (s, e) => (e.t === 'h' ? s.h[e.r][e.c] : s.v[e.r][e.c]);
+function setEdge(s, e, p) { if (e.t === 'h') s.h[e.r][e.c] = p; else s.v[e.r][e.c] = p; }
+
+function legalMoves(s) {
+  const out = [];
+  for (let r = 0; r < s.n; r++) for (let c = 0; c < s.n - 1; c++) if (!s.h[r][c]) out.push({ t: 'h', r, c });
+  for (let r = 0; r < s.n - 1; r++) for (let c = 0; c < s.n; c++) if (!s.v[r][c]) out.push({ t: 'v', r, c });
+  return out;
+}
+// Number of drawn sides around box (r,c).
+const sides = (s, r, c) => (s.h[r][c] ? 1 : 0) + (s.h[r + 1][c] ? 1 : 0) + (s.v[r][c] ? 1 : 0) + (s.v[r][c + 1] ? 1 : 0);
+// The one or two boxes an edge borders.
+function boxesOf(s, e) {
+  const out = [];
+  if (e.t === 'h') { if (e.r > 0) out.push([e.r - 1, e.c]); if (e.r < s.n - 1) out.push([e.r, e.c]); }
+  else { if (e.c > 0) out.push([e.r, e.c - 1]); if (e.c < s.n - 1) out.push([e.r, e.c]); }
+  return out;
+}
+// Plays an edge for the current player. Returns the boxes it completed (possibly none) or null if illegal.
+// Completing a box keeps the turn; otherwise the turn passes.
+function applyMove(s, e) {
+  if (s.over || edgeAt(s, e)) return null;
+  setEdge(s, e, s.player); s.remaining--;
+  const claimed = boxesOf(s, e).filter(([r, c]) => sides(s, r, c) === 4);
+  for (const [r, c] of claimed) { s.boxes[r][c] = s.player; s.scores[s.player]++; }
+  if (s.remaining === 0) s.over = true;
+  else if (!claimed.length) s.player = 3 - s.player;
+  return claimed;
+}
+function winner(s) { return s.scores[1] === s.scores[2] ? 0 : s.scores[1] > s.scores[2] ? 1 : 2; }
+
+// Move classification for the AI: does it complete a box; does it hand the opponent a 3-sided box.
+function classify(s, e) {
+  const sd = boxesOf(s, e).map(([r, c]) => sides(s, r, c));
+  return { scores: sd.some((x) => x === 3), gives: sd.some((x) => x === 2) };
+}
+// Boxes the opponent can collect greedily if this (non-scoring) edge is played now.
+function giveaway(s, e) {
+  const t = cloneState(s); applyMove(t, e);
+  let taken = 0;
+  while (!t.over) {
+    const m = legalMoves(t).find((x) => classify(t, x).scores);
+    if (!m) break;
+    taken += applyMove(t, m).length;
+  }
+  return taken;
+}
+// easy: any legal edge. normal: take a box, else a safe edge, else anything.
+// hard: as normal, but when forced to give away, opens the shortest chain.
+function aiMove(s, level, rnd = Math.random) {
+  const moves = legalMoves(s);
+  if (!moves.length) return null;
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  if (level === 'easy') return pick(moves);
+  const info = moves.map((e) => ({ e, ...classify(s, e) }));
+  const scoring = info.filter((m) => m.scores);
+  if (scoring.length) return pick(scoring).e;
+  const safe = info.filter((m) => !m.gives);
+  if (safe.length) return pick(safe).e;
+  if (level !== 'hard') return pick(moves);
+  let best = [], bestN = Infinity;
+  for (const e of moves) {
+    const g = giveaway(s, e);
+    if (g < bestN) { bestN = g; best = [e]; } else if (g === bestN) best.push(e);
+  }
+  return pick(best);
+}
+
+// ---------- UI ----------
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+const $ = (id) => document.getElementById(id);
+const ui = { turn: $('turn'), turnName: $('turnName'), s1: $('s1'), s2: $('s2'), score1: $('score1'), score2: $('score2'),
+  name1: $('name1'), name2: $('name2'), grid: $('grid'), mode: $('mode'), over: $('over'), winner: $('winner'), count: $('count') };
+
+let S, size = 0, pad = 0, cell = 0, hoverEdge = null, particles = [], aiTimer = null, lastFrame = 0;
+const edgeAnim = new Map(), boxAnim = new Map();   // key -> timestamp the line / box appeared
+const opts = loadOpts();
+
+function loadOpts() {
+  let o = { grid: DEFAULT_GRID, mode: '2p' };
+  try { o = { ...o, ...JSON.parse(localStorage.getItem('dgames.dots.opts') || '{}') }; } catch (e) { /* ignore */ }
+  ui.grid.value = o.grid; ui.mode.value = o.mode;
+  if (!ui.grid.value) ui.grid.value = DEFAULT_GRID;
+  if (!ui.mode.value) ui.mode.value = '2p';
+  return o;
+}
+function saveOpts() { try { localStorage.setItem('dgames.dots.opts', JSON.stringify(opts)); } catch (e) { /* ignore */ } }
+
+const isAi = () => opts.mode !== '2p';
+const isAiTurn = () => isAi() && S.player === 2 && !S.over;
+const playerName = (p) => (isAi() ? (p === 1 ? 'You' : 'Computer') : 'Player ' + p);
+
+function init() {
+  clearTimeout(aiTimer); aiTimer = null;
+  opts.grid = +ui.grid.value; opts.mode = ui.mode.value; saveOpts();
+  S = newState(opts.grid);
+  hoverEdge = null; particles = []; edgeAnim.clear(); boxAnim.clear();
+  ui.over.classList.remove('show');
+  ui.name1.textContent = playerName(1); ui.name2.textContent = playerName(2);
+  layout(); drawHUD(false);
+}
+
+function layout() {
+  const hud = $('hud');
+  size = Math.max(240, Math.floor(Math.min(560, window.innerWidth * 0.94, window.innerHeight - hud.offsetHeight - 60)));
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = size * dpr; canvas.height = size * dpr;
+  canvas.style.width = canvas.style.height = size + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  pad = size * 0.1; cell = (size - 2 * pad) / (S.n - 1);
+}
+
+const dotPos = (r, c) => [pad + c * cell, pad + r * cell];
+function edgeEnds(e) {
+  const a = dotPos(e.r, e.c);
+  const b = e.t === 'h' ? dotPos(e.r, e.c + 1) : dotPos(e.r + 1, e.c);
+  return [a, b];
+}
+function distToSegment(px, py, [ax, ay], [bx, by]) {
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+  const x = ax + t * dx, y = ay + t * dy;
+  return Math.hypot(px - x, py - y);
+}
+// Snap to the closest unfilled edge, or null if the pointer is not near any.
+function getNearestEdge(mx, my) {
+  let best = null, bestD = cell * 0.36;
+  for (const e of legalMoves(S)) {
+    const d = distToSegment(mx, my, ...edgeEnds(e));
+    if (d < bestD) { bestD = d; best = e; }
+  }
+  return best;
+}
+
+// ---- drawing ----
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function drawBackground(now) {
+  ctx.fillStyle = COLORS.bg; ctx.fillRect(0, 0, size, size);
+  const drift = Math.sin(now / 4000) * size * 0.05;
+  for (const [p, cx, cy] of [[1, size * 0.22 + drift, size * 0.2], [2, size * 0.8 - drift, size * 0.82]]) {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.75);
+    g.addColorStop(0, COLORS[p] + '1c'); g.addColorStop(1, COLORS[p] + '00');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+  }
+}
+function drawBoxes(now) {
+  for (let r = 0; r < S.n - 1; r++) for (let c = 0; c < S.n - 1; c++) {
+    const p = S.boxes[r][c]; if (!p) continue;
+    const t = Math.min(1, (now - (boxAnim.get(r + ',' + c) || 0)) / 380);
+    const ease = 1 - Math.pow(1 - t, 3);
+    const [x, y] = dotPos(r, c), inset = 6 + (1 - ease) * cell * 0.18, w = cell - inset * 2;
+    const g = ctx.createLinearGradient(x, y, x + cell, y + cell);
+    g.addColorStop(0, COLORS[p] + '52'); g.addColorStop(1, COLORS[p] + '1a');
+    ctx.globalAlpha = ease; ctx.fillStyle = g;
+    roundRect(x + inset, y + inset, w, w, 8); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+function strokeEdge(e, color, progress, ghost) {
+  const [a, b] = edgeEnds(e);
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineWidth = LINE_WIDTH; ctx.strokeStyle = color;
+  if (ghost) { ctx.globalAlpha = 0.45; ctx.setLineDash([7, 7]); ctx.lineDashOffset = -performance.now() / 40; }
+  else { ctx.shadowBlur = 14; ctx.shadowColor = color; }
+  ctx.beginPath(); ctx.moveTo(a[0], a[1]);
+  ctx.lineTo(a[0] + (b[0] - a[0]) * progress, a[1] + (b[1] - a[1]) * progress); ctx.stroke();
+  ctx.restore();
+}
+function drawEdges(now) {
+  const each = (t, grid) => grid.forEach((row, r) => row.forEach((p, c) => {
+    if (!p) return;
+    const e = { t, r, c };
+    strokeEdge(e, COLORS[p], Math.min(1, (now - (edgeAnim.get(edgeKey(e)) || 0)) / 170), false);
+  }));
+  each('h', S.h); each('v', S.v);
+  if (hoverEdge && !S.over && !isAiTurn()) strokeEdge(hoverEdge, COLORS[S.player], 1, true);
+}
+function drawDots(now) {
+  ctx.save();
+  ctx.fillStyle = COLORS.dot; ctx.shadowColor = COLORS.dotGlow;
+  for (let r = 0; r < S.n; r++) for (let c = 0; c < S.n; c++) {
+    const pulse = 1 + 0.14 * Math.sin(now / 650 + r * 0.8 + c * 1.1);
+    const [x, y] = dotPos(r, c);
+    ctx.shadowBlur = 10 * pulse;
+    ctx.beginPath(); ctx.arc(x, y, DOT_RADIUS * pulse, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---- particles ----
+function spawnParticles(x, y, color, count = 26) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 3.5;
+    particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1, life: 1, decay: 0.018 + Math.random() * 0.02,
+      color, r: 1.6 + Math.random() * 2, rect: false, rot: 0, vr: 0 });
+  }
+}
+function spawnConfetti(colors) {
+  for (let i = 0; i < 140; i++) {
+    particles.push({ x: Math.random() * size, y: -10 - Math.random() * size * 0.4, vx: (Math.random() - 0.5) * 1.2, vy: 0.8 + Math.random() * 1.8,
+      life: 1, decay: 0.004 + Math.random() * 0.004, color: colors[i % colors.length], r: 2.5 + Math.random() * 3, rect: true,
+      rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.25 });
+  }
+}
+function updateParticles(dt) {
+  for (const p of particles) {
+    p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+    if (p.rect) { p.vx += Math.sin(p.rot) * 0.03 * dt; p.vy = Math.min(p.vy + 0.01 * dt, 3); }
+    else { p.vy += 0.09 * dt; p.vx *= 0.985; }
+    p.life -= p.decay * dt;
+  }
+  particles = particles.filter((p) => p.life > 0 && p.y < size + 20);
+}
+function drawParticles() {
+  for (const p of particles) {
+    ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, p.life)); ctx.fillStyle = p.color;
+    if (p.rect) { ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillRect(-p.r, -p.r * 0.5, p.r * 2, p.r); }
+    else { ctx.shadowBlur = 6; ctx.shadowColor = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  }
+}
+
+// ---- HUD ----
+function drawHUD(bump) {
+  ui.s1.textContent = S.scores[1]; ui.s2.textContent = S.scores[2];
+  ui.turn.classList.toggle('p2', S.player === 2);
+  ui.turn.classList.toggle('thinking', isAiTurn());
+  ui.turnName.textContent = S.over ? 'Game over' : playerName(S.player) + (isAiTurn() ? '' : ' to play');
+  if (bump) { ui.turn.classList.remove('bump'); void ui.turn.offsetWidth; ui.turn.classList.add('bump'); }
+}
+function popScore(p) {
+  const el = p === 1 ? ui.score1 : ui.score2;
+  el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+}
+
+// ---- game flow ----
+function play(e) {
+  const p = S.player, now = performance.now();
+  const claimed = applyMove(S, e);
+  if (!claimed) return;
+  edgeAnim.set(edgeKey(e), now);
+  for (const [r, c] of claimed) {
+    boxAnim.set(r + ',' + c, now);
+    const [x, y] = dotPos(r, c);
+    spawnParticles(x + cell / 2, y + cell / 2, COLORS[p]);
+  }
+  if (claimed.length) popScore(p);
+  hoverEdge = null;
+  drawHUD(S.player !== p);
+  if (S.over) setTimeout(endGame, 650);
+  else if (isAiTurn()) aiTimer = setTimeout(() => { aiTimer = null; play(aiMove(S, opts.mode)); }, 480);
+}
+function endGame() {
+  const w = winner(S), total = (S.n - 1) * (S.n - 1);
+  ui.winner.className = w ? 'p' + w : '';
+  ui.winner.textContent = w ? (isAi() ? (w === 1 ? 'You win!' : 'Computer wins') : 'Player ' + w + ' wins!') : 'Draw';
+  ui.count.innerHTML = `${playerName(1)} <b>${S.scores[1]}</b> · ${playerName(2)} <b>${S.scores[2]}</b> · ${total} boxes`;
+  ui.over.classList.add('show');
+  spawnConfetti(w ? [COLORS[w], '#ffffff', COLORS[w]] : [COLORS[1], COLORS[2]]);
+}
+
+function pointerPos(ev) {
+  const r = canvas.getBoundingClientRect();
+  return [(ev.clientX - r.left) * (size / r.width), (ev.clientY - r.top) * (size / r.height)];
+}
+function handleMouseMove(ev) {
+  if (S.over || isAiTurn()) { hoverEdge = null; return; }
+  hoverEdge = getNearestEdge(...pointerPos(ev));
+  canvas.style.cursor = hoverEdge ? 'pointer' : 'default';
+}
+function handleClick(ev) {
+  if (S.over || isAiTurn()) return;
+  const e = getNearestEdge(...pointerPos(ev));
+  if (e) play(e);
+}
+
+function gameLoop(now) {
+  const dt = Math.min(3, (now - lastFrame) / 16.67 || 1); lastFrame = now;
+  drawBackground(now); drawBoxes(now); drawEdges(now); drawDots(now);
+  updateParticles(dt); drawParticles();
+  requestAnimationFrame(gameLoop);
+}
+
+canvas.addEventListener('pointermove', handleMouseMove);
+canvas.addEventListener('pointerleave', () => { hoverEdge = null; });
+canvas.addEventListener('pointerdown', handleClick);
+$('restart').addEventListener('click', init);
+$('again').addEventListener('click', init);
+ui.grid.addEventListener('change', init);
+ui.mode.addEventListener('change', init);
+window.addEventListener('resize', layout);
+window.addEventListener('keydown', (ev) => { if (ev.key === 'n' || ev.key === 'N') init(); });
+
+init();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
