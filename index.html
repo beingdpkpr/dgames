@@ -181,16 +181,18 @@ const FIELD_POS = [
   ['Long-off', 20, -70],
 ];
 
-// Eight squads. Order 1-6 bat, 7-11 bowl; bowler kinds: fast, medium (pace), off (off-spin), leg (leg-spin).
+// Ten national squads. Order 1-6 bat (6 keeps wicket), 7-11 bowl; bowler kinds: fast, medium (pace), off (off-spin), leg (leg-spin).
 const TEAMS = [
-  { name: 'Lions', color: 0xd62828, players: ['A. Rahman', 'D. Kapoor', 'S. Mendis', 'R. Fernando', 'M. Iqbal', 'K. Silva', 'N. Bandara', 'T. Perera', 'F. Zaman', 'H. Rauf', 'W. Raza'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
-  { name: 'Titans', color: 0x1e5bd8, players: ['J. Carter', 'L. Brooks', 'O. Hayes', 'E. Marsh', 'B. Ashton', 'C. Whitlock', 'M. Dorsey', 'R. Pattinson', 'T. Cole', 'A. Reeve', 'S. Boland'], kinds: ['fast', 'fast', 'medium', 'leg', 'off'] },
-  { name: 'Royals', color: 0x7b2cbf, players: ['V. Iyer', 'P. Nair', 'S. Gill', 'A. Deshmukh', 'R. Tripathi', 'K. Mishra', 'Y. Chahar', 'D. Sethi', 'M. Arora', 'B. Kuldeep', 'H. Patel'], kinds: ['fast', 'medium', 'medium', 'off', 'leg'] },
-  { name: 'Knights', color: 0x2a9d8f, players: ['G. Marais', 'H. Kruger', 'D. van Wyk', 'L. Botha', 'Q. Ndlovu', 'T. Bavuma', 'K. Mahlangu', 'A. Nel', 'R. Steyn', 'M. Jansen', 'S. Maharaj'], kinds: ['fast', 'fast', 'fast', 'off', 'leg'] },
-  { name: 'Strikers', color: 0xf4a261, players: ['W. Finch', 'M. Stoinis', 'J. Lehmann', 'C. Bancroft', 'A. Turner', 'T. Head', 'P. Cummins', 'N. Ellis', 'R. Meredith', 'A. Zampa', 'M. Swepson'], kinds: ['fast', 'fast', 'medium', 'leg', 'leg'] },
-  { name: 'Thunder', color: 0xe9c46a, players: ['K. Latham', 'D. Conway', 'G. Phillips', 'M. Chapman', 'T. Seifert', 'J. Neesham', 'L. Ferguson', 'T. Southee', 'K. Jamieson', 'I. Sodhi', 'A. Patel'], kinds: ['fast', 'fast', 'medium', 'leg', 'off'] },
-  { name: 'Kings', color: 0x264653, players: ['S. Hope', 'B. King', 'N. Pooran', 'R. Powell', 'J. Charles', 'K. Mayers', 'A. Joseph', 'O. Thomas', 'J. Holder', 'A. Hosein', 'H. Walsh'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
-  { name: 'Falcons', color: 0x8ac926, players: ['R. Gurbaz', 'I. Zadran', 'H. Shahidi', 'N. Zadran', 'A. Omarzai', 'M. Nabi', 'F. Farooqi', 'N. Haq', 'Rashid K.', 'M. Rahman', 'Q. Ahmad'], kinds: ['fast', 'medium', 'medium', 'leg', 'off'] },
+  { name: 'India', color: 0x2266ee, players: ['R. Kaushik', 'S. Bhatt', 'V. Menon', 'A. Chauhan', 'K. Reddy', 'D. Saini', 'J. Malhotra', 'P. Yadav', 'M. Thakur', 'R. Iyengar', 'K. Bedi'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'Australia', color: 0xe8c020, players: ['M. Harwood', 'T. Buckley', 'C. Lyle', 'J. Ferrier', 'A. Crowe', 'W. Dunne', 'B. Kershaw', 'L. Norrie', 'S. Pratt', 'N. Hogan', 'A. Zorn'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'England', color: 0x0c2c84, players: ['J. Whitaker', 'O. Bell', 'H. Carrick', 'D. Ashby', 'S. Ridley', 'B. Foxton', 'M. Wickes', 'T. Colley', 'A. Presley', 'L. Moxon', 'R. Tavey'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'Pakistan', color: 0x1c9e4f, players: ['A. Shakeel', 'F. Nadeem', 'B. Akhtar', 'H. Qureshi', 'S. Mirza', 'U. Farid', 'N. Junaid', 'Z. Ashraf', 'I. Tariq', 'Y. Basit', 'M. Khalid'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'South Africa', color: 0x3f9b2f, players: ['D. Vermeulen', 'L. Pienaar', 'K. Mokoena', 'R. Swart', 'T. Naidoo', 'J. Coetzee', 'A. Venter', 'S. Dlamini', 'M. Roux', 'G. Fourie', 'P. Zondo'], kinds: ['fast', 'fast', 'fast', 'off', 'leg'] },
+  { name: 'New Zealand', color: 0x1e1e1e, players: ['T. Kerr', 'M. Rutherford', 'L. Hollis', 'K. Tui', 'D. Farrant', 'J. Brandon', 'A. Pryor', 'C. Wakefield', 'N. Hurley', 'R. Bhatia', 'W. Sutcliffe'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'Sri Lanka', color: 0x1ca0e0, players: ['P. Weerasinghe', 'D. Jayalath', 'K. Ratnayake', 'S. Wijesinghe', 'N. Kariyawasam', 'L. Perera', 'A. Priyantha', 'D. Senanayake', 'M. Gunaratne', 'R. Ekanayake', 'T. Wickramasinghe'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'West Indies', color: 0x7b1e3a, players: ['J. Cato', 'K. Rodney', 'S. Lambert', 'A. Greaves', 'D. Bramble', 'M. Baptiste', 'T. Alleyne', 'J. Cudjoe', 'R. Lyle', 'K. Sealy', 'A. Pemberton'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'Bangladesh', color: 0x006a4e, players: ['T. Ahmed', 'N. Chowdhury', 'S. Karim', 'R. Talukder', 'A. Siddique', 'F. Mahmud', 'M. Sarkar', 'K. Rana', 'J. Uddin', 'S. Hossain', 'A. Bhuiyan'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'Afghanistan', color: 0x5a8de0, players: ['R. Zadran', 'I. Noori', 'H. Sadiq', 'N. Ahmadzai', 'A. Wafadar', 'S. Zazai', 'F. Gul', 'N. Ahmadi', 'M. Ibrahimi', 'Z. Alokozai', 'Q. Sharifi'], kinds: ['fast', 'medium', 'medium', 'off', 'leg'] },
 ];
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -1036,7 +1038,7 @@ function onPlay() {
   startMatch();
 }
 function setupTeams() {
-  oppTeam = mode === 'tournament' ? TEAMS.find(t => t.name === tour.opponents[tour.round]) : TEAMS.filter(t => t !== myTeam)[Math.floor(Math.random() * 7)];
+  oppTeam = mode === 'tournament' ? TEAMS.find(t => t.name === tour.opponents[tour.round]) : TEAMS.filter(t => t !== myTeam)[Math.floor(Math.random() * (TEAMS.length - 1))];
   setBatterColor(striker, myTeam.color); setBatterColor(nonStriker, myTeam.color);
   setFieldingColor(oppTeam.color);
   // opposition batters 1-5 and keeper (6) take the field positions; bowlers 7-11 rotate through the overs

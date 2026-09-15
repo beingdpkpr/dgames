@@ -7,7 +7,7 @@ Single-file 3D cricket batting game built on Three.js. Open `index.html` in any 
 - **Tournament** — three knockout chases (Round 1, Semi-final, Final) against random opponents. Each round sets a target over 5 overs and the bowlers get quicker. Progress is saved in the browser.
 
 ## Teams
-Pick one of eight squads of eleven named players. Your batting order comes in one by one; the opposition's five bowlers rotate through the overs and its fielders are named in catches and misfields. The end screen shows a batting card.
+Pick one of ten national squads (India, Australia, England, Pakistan, South Africa, New Zealand, Sri Lanka, West Indies, Bangladesh, Afghanistan) of eleven named players. Your batting order comes in one by one; the opposition's five bowlers rotate through the overs and its fielders are named in catches and misfields. The end screen shows a batting card.
 
 ## Controls
 Arrow keys / WASD aim (combine two for diagonals). Space = ground shot, Enter or Shift = lofted shot. Esc pauses (resume or quit to menu). M mutes.
