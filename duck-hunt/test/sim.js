@@ -1,0 +1,102 @@
+// Headless simulation check (no browser). Loads the SIM half of index.html and:
+//  1. sanity-checks round scaling for rounds 1..25;
+//  2. checks checkHit picks the nearest flying duck and ignores misses and dying ducks;
+//  3. plays round 1 with a perfect shooter and asserts it reaches round 2;
+//  4. never shoots and asserts the dog appears and the game ends;
+//  5. shoots at random and asserts the counters stay consistent, ammo never negative,
+//     and a round ends within a few seconds of the last shell being spent.
+// Run: node test/sim.js
+const vm = require('vm'), fs = require('fs'), path = require('path');
+const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const src = html.slice(html.indexOf("'use strict';"), html.indexOf('// ---------- UI ----------'));
+const ctx = { Math, console, Array, Infinity, Map, Number, String }; ctx.globalThis = ctx;
+vm.createContext(ctx); vm.runInContext(src, ctx);
+const g = ctx.__dh, S = g.S;
+
+let failures = 0;
+const assert = (ok, msg) => { if (!ok) { failures++; console.log('FAIL', msg); } };
+const DT = 1 / 60;
+const flying = () => S.ducks.filter(d => d.state === 'flying');
+const events = {};
+for (const ev of ['dog', 'clear', 'escape', 'hit', 'miss', 'high', 'empty']) { events[ev] = 0; g.on(ev, () => events[ev]++); }
+const resetEvents = () => { for (const k in events) events[k] = 0; };
+
+// 1. Round scaling.
+let prev = null;
+for (let r = 1; r <= 25; r++) {
+  const c = g.roundConfig(r);
+  assert(c.required >= 1 && c.required <= c.ducks, `round ${r}: required ${c.required} within 1..${c.ducks}`);
+  assert(c.ammo >= c.required, `round ${r}: ammo ${c.ammo} covers required ${c.required}`);
+  assert(c.concurrent >= 1 && c.concurrent <= g.ROUND_SCALING.maxConcurrent, `round ${r}: concurrent ${c.concurrent}`);
+  if (prev) {
+    assert(c.ducks >= prev.ducks && c.speed >= prev.speed && c.concurrent >= prev.concurrent, `round ${r}: difficulty never drops`);
+    assert(c.required >= prev.required, `round ${r}: required hits never drop`);
+  }
+  prev = c;
+}
+assert(g.roundConfig(25).ducks === g.ROUND_SCALING.maxDucks, 'duck count caps');
+assert(g.roundConfig(25).speed === g.ROUND_SCALING.maxSpeed, 'speed caps');
+console.log('round 1', JSON.stringify(g.roundConfig(1)), '| round 10', JSON.stringify(g.roundConfig(10)));
+
+// 2. Hit detection.
+g.setView(1280, 720); g.startGame(); S.phase = 'play';
+const mk = (x, y, dir = 1, state = 'flying') => { const d = g.spawnDuck(); d.x = x; d.y = y; d.dir = dir; d.state = state; return d; };
+S.ducks.length = 0;
+const a = mk(400, 300), b = mk(470, 300);
+assert(g.checkHit(400, 300) === a, 'direct hit on duck A');
+assert(g.checkHit(478, 296) === b, 'nearest duck wins when hitboxes overlap');
+assert(g.checkHit(400, 420) === null, 'shot well below the duck misses');
+assert(g.checkHit(300, 300) === null, 'shot behind the tail misses');
+a.state = 'dying';
+assert(g.checkHit(400, 300) === null, 'dying duck cannot be hit again');
+
+// Helper: step the sim until a predicate holds or the time budget runs out.
+function runUntil(pred, seconds, each) {
+  let t = 0;
+  while (t < seconds) { if (each) each(); g.update(DT); t += DT; if (pred()) return t; }
+  return -1;
+}
+
+// 3. Perfect shooter clears round 1.
+g.setView(1280, 720); g.startGame(); resetEvents();
+const cfg1 = S.cfg;
+const aim = () => {
+  if (S.phase !== 'play') return;
+  for (const d of flying()) {
+    if (d.x > d.size * 2 && d.x < 1280 - d.size * 2) { const ok = g.shoot(d.x + d.dir * d.size * 0.3, d.y - d.size * 0.15); assert(ok, 'perfect shot connects'); break; }
+  }
+};
+const t3 = runUntil(() => S.round === 2, 90, aim);
+assert(t3 > 0, 'perfect shooter reaches round 2');
+assert(events.clear === 1 && events.dog === 0, 'round clear fired once, no dog');
+assert(events.hit === cfg1.ducks && events.miss === 0, `every duck hit (${events.hit}/${cfg1.ducks}), no misses`);
+assert(S.score > 0 && S.highScore === S.score && events.high > 0, 'score and high score updated');
+console.log('perfect shooter: round 2 after', t3.toFixed(1), 's, score', S.score);
+
+// 4. No shooting: dog laughs, game over.
+g.startGame(); resetEvents();
+const t4 = runUntil(() => S.phase === 'over', 120);
+assert(t4 > 0, 'idle player reaches game over');
+assert(events.dog === 1 && S.gameOver, 'dog fired once and gameOver set');
+assert(events.escape === S.cfg.ducks, `all ${S.cfg.ducks} ducks escaped (${events.escape})`);
+console.log('idle player: game over after', t4.toFixed(1), 's');
+
+// 5. Random shooter: invariants hold, and running dry ends the round promptly.
+g.startGame(); resetEvents();
+let minAmmo = Infinity, badResolved = 0, dryAt = -1, dryRound = 0, roundsSeen = 1, slowEnd = 0, clock = 0;
+runUntil(() => S.phase === 'over' || S.round > 6, 400, () => {
+  clock += DT;
+  if (S.phase === 'play' && Math.random() < 0.4) g.shoot(Math.random() * 1280, Math.random() * 720);
+  if (S.ammo < minAmmo) minAmmo = S.ammo;
+  if (S.cfg && S.resolved > S.cfg.ducks) badResolved++;
+  if (S.phase === 'play' && S.ammo === 0 && dryAt < 0) { dryAt = clock; dryRound = S.round; }
+  if (dryAt >= 0 && S.round === dryRound && S.phase !== 'play') { if (clock - dryAt > 4) slowEnd++; dryAt = -1; }
+  if (S.round > roundsSeen) roundsSeen = S.round;
+});
+assert(minAmmo >= 0, 'ammo never negative');
+assert(badResolved === 0, 'resolved never exceeds the round duck count');
+assert(slowEnd === 0, 'a round ends within 4s of the last shell being spent');
+console.log('random shooter: reached round', roundsSeen, '| hits', events.hit, 'misses', events.miss, '| phase', S.phase);
+
+console.log(failures ? `${failures} FAILURE(S)` : 'ALL OK');
+process.exit(failures ? 1 : 0);
