@@ -862,7 +862,13 @@ function resetBallScene() {
   poseRig(bowlerRig, fRun(0, 0.1));
   ball.pos.set(0.44, 1.0, bowler.position.z);
   stumps.rotation.set(0, 0, 0); stumpsFall = null; farStumps.rotation.set(0, 0, 0); farStumpsFall = null; throwPlan = null;
-  for (const f of allFielders) { f.catching = false; f.attempted = false; f.dived = false; f.fumbled = false; f.prevD = 1e9; f.role = 'hold'; f.spd = 0; f.diveUntil = 0; f.mesh.rotation.x = 0; f.mesh.position.y = 0; if (!f.isBowler) f.target.copy(f.home); }
+  // The field is set before the bowler runs in: every non-bowler fielder snaps to its home position
+  // (matching the just-picked field and keeper stance for this bowler) and stands still, facing the
+  // batter, so nobody is still walking back from the previous delivery while the bowler runs up.
+  for (const f of allFielders) {
+    f.catching = false; f.attempted = false; f.dived = false; f.fumbled = false; f.prevD = 1e9; f.role = 'hold'; f.spd = 0; f.diveUntil = 0; f.mesh.rotation.x = 0; f.mesh.position.y = 0;
+    if (!f.isBowler) { f.target.copy(f.home); f.pos.copy(f.home); faceToward(f.mesh, 0, -1); }
+  }
   trailReset();
   runners.active = false; runners.t = 0; runners.stopAt = undefined; runners.frozen = false; celebration = null; fireworks.visible = false;
   striker.group.position.set(0, 0, 0); striker.group.rotation.y = 0; striker.group.scale.x = hand(); poseRig(striker, stancePose(0));

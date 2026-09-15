@@ -24,7 +24,7 @@ Everyone on the field shares one bone rig with knees, elbows, hands and feet, po
 About four thousand spectators fill the seven tiers and jump for boundaries and wickets.
 
 ## Fielding
-Every fielder predicts the ball's path and runs for the earliest point they can reach, with a judgement error that shrinks as the ball nears. Hard-hit balls must come straight to hand or need a dive; misfields happen.
+The field is set before every ball: fielders are back in position and standing still by the time the bowler starts his run-up. Every fielder predicts the ball's path and runs for the earliest point they can reach, with a judgement error that shrinks as the ball nears. Hard-hit balls must come straight to hand or need a dive; misfields happen.
 
 ## Extras and LBW
 Wides (sprayed balls, and anything over head height that you leave) and no-balls cost a run and are re-bowled; a no-ball gives a free hit on the next ball, when only a run out can get you. Balls that beat the keeper run for byes, balls off the pads run for leg byes, and a pad hit that would have gone on to hit the stumps is LBW unless it pitched outside leg. Extras count for the total and the chase but not for the batter.
