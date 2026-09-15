@@ -2,6 +2,12 @@
   "name": "cricket-3d",
   "private": true,
   "description": "Batting-only 3D cricket game in a single HTML file (Three.js)",
-  "scripts": { "balance": "node test/balance.js" },
-  "devDependencies": { "three": "0.128.0" }
+  "scripts": {
+    "balance": "node test/balance.js",
+    "visual": "node test/visual.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "three": "0.128.0"
+  }
 }

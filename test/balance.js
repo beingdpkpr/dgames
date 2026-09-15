@@ -2,7 +2,8 @@
 // then prints the outcome distribution. Run: npm install three@0.128.0 && node test/balance.js
 const vm = require('vm'); const fs = require('fs'); const THREE = require('three');
 THREE.WebGLRenderer = class { constructor(){ this.shadowMap={}; } setPixelRatio(){} setSize(){} render(){} };
-const els = {}; const mkEl = (id) => els[id] || (els[id] = { id, textContent:'', innerHTML:'', className:'', style:{}, children:[], classList:{add(){},remove(){},toggle(){}}, addEventListener(){}, appendChild(){}, dataset:{}, offsetWidth:0 });
+const noop = new Proxy({}, { get: (t, k) => (k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+const els = {}; const mkEl = (id) => els[id] || (els[id] = { id, width: 300, height: 300, textContent:'', innerHTML:'', className:'', style:{}, children:[], classList:{add(){},remove(){},toggle(){}}, addEventListener(){}, appendChild(){}, querySelector: (q) => mkEl(id + q), getContext: () => noop, dataset:{}, offsetWidth:0 });
 let rafCb = null;
 const ctx = { THREE, console, Math, performance:{now:()=>0}, innerWidth:1280, innerHeight:720, devicePixelRatio:1, document:{getElementById:mkEl, createElement:()=>mkEl('tmp'+Math.random())}, addEventListener(){}, requestAnimationFrame(cb){rafCb=cb;}, localStorage:{getItem:()=>null,setItem(){}}, Object, Number, String, Array, Float32Array, Set, JSON, Error };
 ctx.window = ctx; ctx.globalThis = ctx;
