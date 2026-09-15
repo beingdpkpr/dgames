@@ -120,7 +120,7 @@
     <div class="row"><label>Your team</label><div class="seg" id="segTeam"></div></div>
     <div id="tourBox" class="tour hidden"></div>
     <div class="row" id="rowOvers"><label>Overs</label><div class="seg" id="segOvers"><button data-v="2">2</button><button data-v="5" class="on">5</button><button data-v="10">10</button></div></div>
-    <div class="row"><label>Difficulty</label><div class="seg" id="segDiff"><button data-v="easy">Easy</button><button data-v="medium" class="on">Medium</button><button data-v="hard">Hard</button></div></div>
+    <div class="row"><label>Difficulty</label><div class="seg" id="segDiff"><button data-v="easy">Easy</button><button data-v="medium" class="on">Medium</button><button data-v="hard">Hard</button><button data-v="veryhard">Very hard</button></div></div>
     <div class="controls">
       <b>Aim</b> — hold arrow keys or WASD (combine two for diagonals). The arrow on the turf and the radar show the shot direction.<br>
       <b>Ground shot</b> — <b>Space</b>. &nbsp; <b>Lofted shot</b> — <b>Enter</b> (or Shift).<br>
@@ -165,21 +165,17 @@ const DIFF = {
   easy:   { paceMin: 19, paceMax: 24, spinMin: 15, spinMax: 18, window: 0.24, perfect: 0.05,  seam: 0.5, spin: 1.5, dropChance: 0.28 },
   medium: { paceMin: 23, paceMax: 28, spinMin: 17, spinMax: 21, window: 0.17, perfect: 0.035, seam: 0.9, spin: 2.2, dropChance: 0.14 },
   hard:   { paceMin: 27, paceMax: 33, spinMin: 19, spinMax: 23, window: 0.12, perfect: 0.025, seam: 1.3, spin: 3.0, dropChance: 0.06 },
+  veryhard: { paceMin: 30, paceMax: 36, spinMin: 21, spinMax: 25, window: 0.09, perfect: 0.02, seam: 1.6, spin: 3.4, dropChance: 0.03, loftMiss: 0.7 },
 };
 
-// Right-handed batter: off side = +x (screen right), leg side = -x.
-const FIELD_POS = [
-  ['Wicketkeeper', 0, 4],
-  ['Point', 19, -3],
-  ['Cover', 24, -20],
-  ['Mid-off', 12, -30],
-  ['Mid-on', -12, -30],
-  ['Mid-wicket', -24, -18],
-  ['Square leg', -19, -2],
-  ['Third man', 36, 42],
-  ['Long-on', -20, -70],
-  ['Long-off', 20, -70],
-];
+// Right-handed batter: off side = +x (screen right), leg side = -x. Three fields; the keeper is always first.
+const FIELDS = {
+  attack: { label: 'attacking', pos: [['Wicketkeeper', 0, 4], ['Slip', 2.4, 3.4], ['Point', 17, -4], ['Cover', 21, -18], ['Mid-off', 12, -28], ['Mid-on', -12, -28], ['Mid-wicket', -20, -16], ['Square leg', -17, -2], ['Third man', 36, 42], ['Long-off', 20, -70]] },
+  balanced: { label: 'balanced', pos: [['Wicketkeeper', 0, 4], ['Point', 19, -3], ['Cover', 24, -20], ['Mid-off', 12, -30], ['Mid-on', -12, -30], ['Mid-wicket', -24, -18], ['Square leg', -19, -2], ['Third man', 36, 42], ['Long-on', -20, -70], ['Long-off', 20, -70]] },
+  defend: { label: 'defensive', pos: [['Wicketkeeper', 0, 4], ['Point', 20, -4], ['Mid-off', 14, -30], ['Mid-on', -14, -30], ['Deep cover', 48, -38], ['Deep mid-wicket', -48, -36], ['Deep square leg', -55, 2], ['Long-on', -22, -68], ['Long-off', 22, -68], ['Third man', 38, 44]] },
+};
+const FIELD_POS = FIELDS.balanced.pos;
+let fieldKey = 'balanced';
 
 // Ten national squads. Order 1-6 bat (6 keeps wicket), 7-11 bowl, 12 is the substitute; bowler kinds: fast, medium (pace), off (off-spin), leg (leg-spin).
 const TEAMS = [
@@ -653,6 +649,9 @@ const CAM_BAT = { pos: V3(1.5, 3.3, 7.0), look: V3(0.3, 0.9, -8) };
 
 // ---------- HUD ----------
 const $ = id => document.getElementById(id);
+const isLefty = name => myTeam.players.indexOf(name) % 3 === 1;      // batters 2, 5, 8, 11 bat left-handed
+function hand() { const c = match.card[match.batIdx]; return c && c.left ? -1 : 1; }
+function camBat() { return { pos: V3(1.5 * hand(), 3.3, 7.0), look: V3(0.3 * hand(), 0.9, -8) }; }
 function updateHud() {
   $('runs').textContent = match.runs; $('wkts').textContent = match.wkts;
   $('oversTxt').textContent = `${Math.floor(match.balls / 6)}.${match.balls % 6}`;
@@ -661,7 +660,7 @@ function updateHud() {
   const c = $('chase'); c.classList.toggle('hidden', target === null);
   if (target !== null) c.textContent = `Target ${target} · need ${Math.max(0, target - match.runs)} off ${totalBalls - match.balls}`;
   const cur = match.card[match.batIdx];
-  $('who').innerHTML = cur ? `<span>${cur.name}</span> ${cur.runs} (${cur.balls})` : '';
+  $('who').innerHTML = cur ? `<span>${cur.name}</span> ${cur.runs} (${cur.balls})${cur.left ? ' <small>LHB</small>' : ''}` : '';
   const b = $('balls'); b.innerHTML = '';
   for (let i = 0; i < 6; i++) {
     const s = document.createElement('span');
@@ -715,6 +714,20 @@ function drawRadar() {
 // =====================================================================
 //  Bowling
 // =====================================================================
+// The captain sets the field from the match situation: chasing hard brings the boundary riders in
+// play, a comfortable chase or a new batter brings the catchers in.
+function pickField() {
+  let key = 'balanced';
+  if (target !== null) {
+    const need = (target - match.runs) / Math.max(1, totalBalls - match.balls);
+    key = need > 1.6 ? 'defend' : need < 0.9 ? 'attack' : 'balanced';
+  } else {
+    const rr = match.balls ? match.runs * 6 / match.balls : 0, oversLeft = (totalBalls - match.balls) / 6;
+    key = (oversLeft <= 2 || rr > 9) ? 'defend' : (match.balls < 12 || rr < 5) ? 'attack' : 'balanced';
+  }
+  fieldKey = key;
+  FIELDS[key].pos.forEach(([name, x, z], i) => { const f = fielders[i]; f.name = name; f.home.set(x * hand(), 0, z); f.target.copy(f.home); });
+}
 function pickBowler() {
   const over = match.balls / 6;
   curBowler = bowlerOrder[over % bowlerOrder.length];
@@ -747,10 +760,10 @@ function resetBallScene() {
   u.armR.rotation.x = u.armL.rotation.x = u.legL.rotation.x = u.legR.rotation.x = 0;
   ball.pos.set(0.44, 1.0, bowler.position.z);
   stumps.rotation.set(0, 0, 0); stumpsFall = null; farStumps.rotation.set(0, 0, 0); farStumpsFall = null; throwPlan = null;
-  for (const f of allFielders) { f.catching = false; f.attempted = false; f.dived = false; f.fumbled = false; f.prevD = 1e9; f.role = 'hold'; f.spd = 0; if (!f.isBowler) f.target.copy(f.home); }
+  for (const f of allFielders) { f.catching = false; f.attempted = false; f.dived = false; f.fumbled = false; f.prevD = 1e9; f.role = 'hold'; f.spd = 0; f.diveUntil = 0; f.mesh.rotation.x = 0; f.mesh.position.y = 0; if (!f.isBowler) f.target.copy(f.home); }
   trailReset();
   runners.active = false; runners.t = 0; runners.stopAt = undefined; runners.frozen = false; celebration = null; fireworks.visible = false;
-  striker.group.position.set(0, 0, 0); striker.group.rotation.y = 0; poseRig(striker, stancePose(0));
+  striker.group.position.set(0, 0, 0); striker.group.rotation.y = 0; striker.group.scale.x = hand(); poseRig(striker, stancePose(0));
   nonStriker.group.position.set(1.3, 0, FAR_CREASE_Z - 0.3); nonStriker.group.rotation.y = Math.PI; poseRig(nonStriker, runPose(0, 0.1));
 }
 function startRunup() { resetBallScene(); state = 'runup'; }
@@ -792,16 +805,16 @@ function release() {
   const kindAdj = curBowler.kind === 'medium' ? -2.5 : 0;
   const speed = (bowlerType === 'pace' ? rand(D.paceMin, D.paceMax) : rand(D.spinMin, D.spinMax)) + boost * (bowlerType === 'pace' ? 1 : 0.6) + (V.spd || 0) + kindAdj + curBowler.pace;
   const lenZ = -rand(V.len[0], V.len[1]);
-  const lineX = rand(V.line[0], V.line[1]);
+  const lineX = rand(V.line[0], V.line[1]) * hand();
   bowler.updateMatrixWorld(true);
   const hand = V3(0, -0.62, 0); bowler.userData.armR.localToWorld(hand);
   const x0 = hand.x, y0 = clamp(hand.y, 1.7, 2.3), z0 = hand.z;
   const dx = lineX - x0, dz = lenZ - z0, dh = Math.hypot(dx, dz), t = dh / speed * (V.loop || 1);
-  const swingA = V.swing || 0;
+  const swingA = (V.swing || 0) * hand();
   const vy = (BALL_R - y0 + 0.5 * G * t * t) / t;
   ball.pos.set(x0, y0, z0); ball.prev.copy(ball.pos);
   ball.vel.set(dx / t - 0.5 * swingA * t, vy, dz / t);   // aim off so the swing brings it back to the line
-  Object.assign(ball, { phase: 'delivery', pitched: false, rolling: false, bounced: false, bounces: 0, crossed: false, pitchZ: lenZ, swing: swingA, turn: V.turn ? V.turn() : 0, variation: V.name, tRelease: simTime });
+  Object.assign(ball, { phase: 'delivery', pitched: false, rolling: false, bounced: false, bounces: 0, crossed: false, pitchZ: lenZ, swing: swingA, turn: (V.turn ? V.turn() : 0) * hand(), variation: V.name, tRelease: simTime });
   ball.pitchRest = V.rest ? rand(V.rest[0], V.rest[1]) : rand(0.62, 0.74);
   ball.tContactEst = (CONTACT_Z - z0) / ball.vel.z * 1.04;
   ball.spinRot.set(rand(-20, 20), rand(-20, 20), rand(-20, 20));
@@ -884,22 +897,37 @@ function evaluateShot(delta) {
   showTiming(label[0], label[1]);
   playShot(delta, q, shot.type);
 }
+// How badly the chosen shot suits the delivery: pulling a wide one, cutting a leg-stump ball,
+// driving a bouncer, pulling a yorker. 0 = fine, 1 = hopeless.
+function shotMismatch(theta) {
+  theta *= hand();
+  const bx = ball.pos.x * hand(), shortness = clamp((-ball.pitchZ - 5) / 6, 0, 1), fullness = clamp((-3.5 - ball.pitchZ) / -2.5, 0, 1);
+  let m = 0;
+  if (theta < -0.4) m = Math.max(m, clamp((bx - 0.35) * 3, 0, 1));          // leg-side shot at a wide ball
+  if (theta > 0.6) m = Math.max(m, clamp((-0.15 - bx) * 3, 0, 1));          // off-side shot at a leg-stump ball
+  if (Math.abs(theta) < 0.5) m = Math.max(m, clamp((shortness - 0.5) * 2, 0, 1));   // straight drive at a short ball
+  if (Math.abs(theta) > 1.0) m = Math.max(m, clamp((fullness - 0.3) * 1.6, 0, 1)); // cross-bat at a full ball
+  return m;
+}
 function playShot(delta, q, type) {
-  let th = shot.theta + delta * 3.8 + (Math.random() - 0.5) * 0.12;
+  const mis = shotMismatch(shot.theta);
+  if (mis > 0.45) { showTiming('Wrong shot for that ball!', '#ffb74d'); q *= 1 - 0.6 * mis; }
+  let th = shot.theta + delta * 3.8 * hand() + (Math.random() - 0.5) * (0.12 + 1.2 * mis);
   let speed, elev;
-  if (type === 'loft') { speed = 18 + 20 * q; elev = (28 + 30 * (1 - q)) * DEG; }
+  if (type === 'loft') { speed = 18 + 20 * q; elev = (28 + 30 * (1 - q)) * DEG; if (diff.loftMiss && q < 1) speed *= diff.loftMiss; }   // very hard: only a perfect loft clears the rope
   else { speed = 14 + 22 * q; elev = (-3 + 11 * (1 - q)) * DEG; }   // well-timed ground shots go down into the turf
   // length suitability: full balls suit straight shots, short balls suit square shots
   const straight = Math.abs(Math.cos(th));
   const shortness = clamp((-ball.pitchZ - 5) / 6, 0, 1);
   speed *= 1 - 0.15 * Math.abs(straight - (1 - shortness));
   if (match.card[match.batIdx].sore) speed *= 0.9;
+  if (mis > 0.45 && Math.random() < mis) { elev = rand(15, 45) * DEG; speed *= 0.65; }   // leading edge balloons up
   launch(th, elev, speed, 'hit');
   playBat(q);
 }
 function playEdge() {
   showTiming('EDGED!', '#ff8a80');
-  const side = Math.random() < 0.65 ? 1 : -1;
+  const side = (Math.random() < 0.65 ? 1 : -1) * hand();
   const th = Math.PI - side * rand(0.15, 0.95);
   launch(th, rand(2, 24) * DEG, rand(9, 17), 'edge');
   playBat(0.15);
@@ -922,7 +950,8 @@ function launch(th, elev, speed, phase) {
 // ball, to over the front shoulder. Horizontal family (cuts, pulls, sweeps): bat rotates around a
 // vertical axis through the hands; at contact the face points along the shot.
 function startSwing(theta) {
-  const bx = clamp(ball.pos.x, -0.6, 0.9), by = clamp(ball.pos.y, 0.15, 1.6);
+  theta *= hand();
+  const bx = clamp(ball.pos.x * hand(), -0.6, 0.9), by = clamp(ball.pos.y, 0.15, 1.6);
   const short = ball.pitchZ < -8, full = ball.pitchZ > -6;
   const horizontal = Math.abs(theta) > 0.9 || (short && Math.abs(theta) > 0.45);
   const behind = Math.abs(theta) > 2.0;
@@ -1087,6 +1116,10 @@ function updateThrow() {
   }
 }
 function fielderLabel(f) { return f.isBowler ? curBowler.name : `${f.who} at ${f.name.toLowerCase()}`; }
+function startDive(f, at) {
+  f.diveUntil = simTime + 0.9; f.diveDir = Math.atan2(at.x - f.pos.x, at.z - f.pos.z);
+  f.pos.x += Math.sin(f.diveDir) * 0.8; f.pos.z += Math.cos(f.diveDir) * 0.8;
+}
 function fielderInjured(f) {
   notices.push(`${f.who} is hurt diving and leaves the field · ${oppTeam.players[11]} on as substitute`);
   f.who = oppTeam.players[11]; f.subbed = true;
@@ -1140,14 +1173,15 @@ function endBall(res) {
 }
 function newBatter() {
   match.batIdx++;
-  if (match.batIdx < match.order.length) match.card[match.batIdx] = { name: match.order[match.batIdx], runs: 0, balls: 0, how: 'not out' };
+  if (match.batIdx < match.order.length) match.card[match.batIdx] = { name: match.order[match.batIdx], runs: 0, balls: 0, how: 'not out', left: isLefty(match.order[match.batIdx]) };
+  pickField();
 }
 function nextBall() {
   if (match.wkts >= MAX_WICKETS || match.batIdx >= match.order.length || match.balls >= totalBalls || (target !== null && match.runs >= target)) { endMatch(); return; }
   if (notices.length) { showMsg(notices.shift(), 'info'); }
   if (match.balls % 6 === 0) {
-    match.over = []; pickBowler(); updateHud();
-    if (match.balls > 0 && !notices.length) showMsg(`Over ${match.balls / 6} done`, 'info');
+    match.over = []; const prev = fieldKey; pickField(); pickBowler(); updateHud();
+    if (match.balls > 0 && !notices.length) showMsg(`Over ${match.balls / 6} done${prev !== fieldKey ? ` · ${FIELDS[fieldKey].label} field` : ''}`, 'info');
   }
   startRunup();
 }
@@ -1223,7 +1257,7 @@ function setupTeams() {
 function startMatch() {
   const out = mode === 'tournament' ? (tour.injured || []).filter(i => i.until > tour.round).map(i => i.name) : [];
   const order = myTeam.players.filter(n => !out.includes(n)).slice(0, 11);
-  Object.assign(match, { runs: 0, wkts: 0, balls: 0, fours: 0, sixes: 0, over: [], batIdx: 0, order, card: [{ name: order[0], runs: 0, balls: 0, how: 'not out' }] });
+  Object.assign(match, { runs: 0, wkts: 0, balls: 0, fours: 0, sixes: 0, over: [], batIdx: 0, order, card: [{ name: order[0], runs: 0, balls: 0, how: 'not out', left: isLefty(order[0]) }] });
   notices = []; flinchUntil = 0;
   for (const f of allFielders) f.subbed = false;
   if (mode === 'tournament') {
@@ -1303,6 +1337,11 @@ function updateFielders(dt) {
   }
   for (const f of allFielders) {
     if (f.isBowler && (state === 'runup' || state === 'flight')) continue;
+    if (f.diveUntil && simTime < f.diveUntil) {                          // laid out on the turf
+      const k = clamp((simTime - (f.diveUntil - 0.9)) / 0.25, 0, 1);
+      f.mesh.rotation.y = Math.PI + f.diveDir; f.mesh.rotation.x = -1.35 * k; f.mesh.position.y = 0.25 * k;
+      continue;
+    } else if (f.diveUntil) { f.diveUntil = 0; f.mesh.rotation.x = 0; f.mesh.position.y = 0; }
     if (live && f.role === 'hold') f.target.copy(f.pos);
     const dx = f.target.x - f.pos.x, dz = f.target.z - f.pos.z, d = Math.hypot(dx, dz);
     const u = f.mesh.userData;
@@ -1335,7 +1374,7 @@ function checkEvents() {
     if ((b.phase === 'delivery' || b.phase === 'miss') && b.prev.z < STUMPS_Z && b.pos.z >= STUMPS_Z) {
       if (Math.abs(b.pos.x) < 0.17 && b.pos.y < 0.78) { stumpsFall = simTime; b.vel.multiplyScalar(0.25); b.vel.y = 1.5; b.phase = 'bowled'; endBall({ wicket: 'Bowled', how: `b ${curBowler.name}` }); return; }
     }
-    if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.3) < 0.18 && b.pos.y > 0.85 && b.pos.y < 2.0) {
+    if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.3 * hand()) < 0.18 && b.pos.y > 0.85 && b.pos.y < 2.0) {
       // struck on the body or helmet: ball dead, the batter may be shaken up or forced off
       const helmet = b.pos.y > 1.4, sp = b.vel.length();
       b.vel.set(rand(-1, 1), 1.5, -2); b.phase = 'blow'; flinchUntil = simTime + 1.6; swing = null;
@@ -1358,7 +1397,19 @@ function checkEvents() {
   // fielders
   for (const f of allFielders) {
     const d = Math.hypot(f.pos.x - b.pos.x, f.pos.z - b.pos.z);
-    if (!b.bounced && b.pos.y < 2.4 && d < CATCH_REACH && !f.attempted) {
+    if (!b.bounced && b.pos.y < 2.2 && d >= CATCH_REACH && d < 2.9 && !f.attempted && !f.dived && f.prevD < d && Math.hypot(b.vel.x, b.vel.z) > 6) {
+      // flying past just out of reach: full-stretch dive for the catch
+      f.attempted = true; f.dived = true; startDive(f, b.pos);
+      if (!f.isBowler && !f.subbed && Math.random() < 0.05) fielderInjured(f);
+      const sp = b.vel.length();
+      if (Math.random() < 0.42 * clamp(20 / sp, 0.5, 1)) {
+        b.vel.set(0, 0, 0); b.rolling = true; b.pos.y = 0.6;
+        endBall({ wicket: `Diving catch by ${fielderLabel(f)}!`, how: f.isBowler ? `c & b ${curBowler.name}` : `c ${f.who} b ${curBowler.name}` });
+        return;
+      }
+      showTiming(`${fielderLabel(f)} dives... can't hold it!`, '#ff8a80');
+      b.vel.multiplyScalar(0.3); b.vel.y = 1.0; b.bounced = true;
+    } else if (!b.bounced && b.pos.y < 2.4 && d < CATCH_REACH && !f.attempted) {
       f.attempted = true;
       // reaction catches: fast, low, or late-arriving balls are dropped far more often
       const hard = catchInfo && catchInfo.f === f && catchInfo.margin < 0.5;
@@ -1392,7 +1443,7 @@ function checkEvents() {
       }
     } else if (b.bounced && b.pos.y < 1.2 && !f.dived && f.prevD < d && f.prevD >= FIELD_REACH && f.prevD < 2.8 && Math.hypot(b.vel.x, b.vel.z) > 8) {
       // ball just passed within diving range: full-length dive, sometimes it sticks, sometimes it hurts
-      f.dived = true;
+      f.dived = true; startDive(f, b.pos);
       if (!f.isBowler && !f.subbed && Math.random() < 0.05) fielderInjured(f);
       if (Math.random() < 0.5 * clamp(18 / Math.hypot(b.vel.x, b.vel.z), 0.4, 1)) {
         showTiming(`Diving stop by ${fielderLabel(f)}!`, '#7ef29a');
@@ -1416,7 +1467,7 @@ function updateCamera(dt) {
     if (runupT < 0.05) { camState.pos.copy(tp); camState.look.copy(tl); }
     k = 1 - Math.exp(-dt * 6);
   } else if (state === 'runup') {
-    tp = CAM_BAT.pos; tl = CAM_BAT.look; k = 1;                            // the cut
+    tp = camBat().pos; tl = camBat().look; k = 1;                          // the cut
   } else if (celebration && state === 'dead' && simTime - celebration.t0 > 1.0) {
     tp = V3(2.5, 2.2, 3.5); tl = V3(0, 1.3, -1.5); k = 1 - Math.exp(-dt * 2.0);
   } else if (state === 'live' || (state === 'dead' && lastHit && simTime - deadTime < 1.3)) {
@@ -1425,7 +1476,7 @@ function updateCamera(dt) {
     tp = ball.pos.clone().addScaledVector(camState.lastDir, -9).add(V3(0, 4.5, 0));
     if (tp.y < 1.6) tp.y = 1.6;
     tl = ball.pos.clone(); k = 1 - Math.exp(-dt * 3.0);
-  } else { tp = CAM_BAT.pos; tl = CAM_BAT.look; k = 1 - Math.exp(-dt * 2.2); }
+  } else { const c = camBat(); tp = c.pos; tl = c.look; k = 1 - Math.exp(-dt * 2.2); }
   camState.pos.lerp(tp, k); camState.look.lerp(tl, k);
   camera.position.copy(camState.pos); camera.lookAt(camState.look);
 }
@@ -1533,7 +1584,7 @@ requestAnimationFrame(frame);
 window.__dbg = {
   get state() { return state; }, get runupT() { return runupT; }, get simTime() { return simTime; }, get phase() { return ball.phase; },
   get ballZ() { return ball.pos.z; }, get ballVz() { return ball.vel.z; }, match,
-  pressShot, aim(t) { aimTheta = t; }, manual(on) { manual = on; }, celebrate(big) { state = 'dead'; deadTime = simTime + 8; startCelebration(big, 'TEST WIN!'); }, advance(sec) { const n = Math.max(1, Math.round(sec * 60)); for (let i = 0; i < n; i++) tick(1 / 60); },
+  pressShot, aim(t) { aimTheta = t; }, manual(on) { manual = on; }, celebrate(big) { state = 'dead'; deadTime = simTime + 8; startCelebration(big, 'TEST WIN!'); }, lefty() { match.card[match.batIdx].left = true; pickField(); startRunup(); }, advance(sec) { const n = Math.max(1, Math.round(sec * 60)); for (let i = 0; i < n; i++) tick(1 / 60); },
 };
 </script>
 </body>
