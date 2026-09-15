@@ -441,10 +441,11 @@ function setFieldingColor(color) {
 // ---------- ball ----------
 const ballMesh = new THREE.Group();
 (function () {
-  const s = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 16, 12), new THREE.MeshStandardMaterial({ color: 0xb51f1f, roughness: 0.45 }));
-  s.castShadow = true; ballMesh.add(s);
-  const seam = new THREE.Mesh(new THREE.TorusGeometry(BALL_R, 0.007, 6, 28), new THREE.MeshStandardMaterial({ color: 0xf0e6d0 }));
-  seam.rotation.y = Math.PI / 2; ballMesh.add(seam);
+  // the ball is never hidden behind a player: drawn last, ignoring depth
+  const s = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 16, 12), new THREE.MeshStandardMaterial({ color: 0xb51f1f, roughness: 0.45, depthTest: false }));
+  s.castShadow = true; s.renderOrder = 20; ballMesh.add(s);
+  const seam = new THREE.Mesh(new THREE.TorusGeometry(BALL_R, 0.007, 6, 28), new THREE.MeshStandardMaterial({ color: 0xf0e6d0, depthTest: false }));
+  seam.rotation.y = Math.PI / 2; seam.renderOrder = 21; ballMesh.add(seam);
 })();
 scene.add(ballMesh);
 const ballShadow = new THREE.Mesh(new THREE.CircleGeometry(0.13, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
@@ -455,8 +456,8 @@ const trailPos = new Float32Array(TRAIL_N * 3);
 const trailGeo = new THREE.BufferGeometry();
 trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
 trailGeo.setDrawRange(0, 0);
-const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 }));
-trail.frustumCulled = false; scene.add(trail);
+const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthTest: false }));
+trail.frustumCulled = false; trail.renderOrder = 19; scene.add(trail);
 let trailCount = 0;
 function trailReset() { trailCount = 0; trailGeo.setDrawRange(0, 0); }
 function trailPush(p) {
@@ -553,8 +554,9 @@ function newTour() {
   saveTour();
 }
 
-const camState = { pos: V3(0.35, 3.3, 7.2), look: V3(0, 0.9, -8), lastDir: V3(0, 0, -1) };
-const CAM_BAT = { pos: V3(0.35, 3.3, 7.2), look: V3(0, 0.9, -8) };
+// batting camera sits over the off-side shoulder so the batter never covers the ball's line
+const camState = { pos: V3(1.5, 3.3, 7.0), look: V3(0.3, 0.9, -8), lastDir: V3(0, 0, -1) };
+const CAM_BAT = { pos: V3(1.5, 3.3, 7.0), look: V3(0.3, 0.9, -8) };
 
 // ---------- HUD ----------
 const $ = id => document.getElementById(id);
