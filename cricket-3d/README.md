@@ -17,6 +17,9 @@ The timing bar under the pitch fills as the ball comes in: press as the marker r
 ## Bowling
 Fast bowlers mix seam-up, outswing, inswing, bouncers, yorkers, slower balls and cutters. Off-spinners bowl off-breaks, arm balls, doosras and a quicker one; leg-spinners bowl leg-breaks, googlies, top-spinners and flippers. Swing and drift act in the air; turn and seam act off the pitch.
 
+## Players
+Everyone on the field shares one bone rig with knees, elbows, hands and feet, posed from joint points. Batters wear pads, helmet and gloves; fielders wear the team kit and cap; the keeper squats in pads and big gloves. Players vary in height and skin tone. The bowler runs in with the arms pumping, gathers with the front arm up, and swings the bowling arm over the top; fielders crouch ready, run, reach up for catches, bend to pick the ball up and throw overarm, and stretch full length in a dive. Two umpires stand at the bowler's end and square leg; the bowler's end umpire signals out, wide, no ball, four and six.
+
 ## Crowd
 About four thousand spectators fill the seven tiers and jump for boundaries and wickets.
 

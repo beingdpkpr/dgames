@@ -340,41 +340,14 @@ function updateCrowd(dt) {
 }
 
 // =====================================================================
-//  Simple players (bowler, fielders): primitives with hinged limbs
-// =====================================================================
-function makePlayer({ shirt = 0x1f4fd6, pants = 0x1f4fd6 } = {}) {
-  const g = new THREE.Group();
-  const mShirt = new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.85 });
-  const mPants = new THREE.MeshStandardMaterial({ color: pants, roughness: 0.85 });
-  const parts = {};
-  const legGeo = new THREE.CylinderGeometry(0.075, 0.07, 0.85, 8); legGeo.translate(0, -0.425, 0);
-  for (const [k, x] of [['legL', -0.11], ['legR', 0.11]]) {
-    const p = new THREE.Group(); p.position.set(x, 0.85, 0);
-    const m = new THREE.Mesh(legGeo, mPants); m.castShadow = true; p.add(m); g.add(p); parts[k] = p;
-  }
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.55, 0.24), mShirt);
-  torso.position.y = 1.12; torso.castShadow = true; g.add(torso);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), M.skin);
-  head.position.y = 1.55; head.castShadow = true; g.add(head);
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), mShirt);
-  cap.position.y = 1.56; g.add(cap);
-  const armGeo = new THREE.CylinderGeometry(0.045, 0.04, 0.62, 8); armGeo.translate(0, -0.31, 0);
-  for (const [k, x] of [['armL', -0.26], ['armR', 0.26]]) {
-    const p = new THREE.Group(); p.position.set(x, 1.36, 0);
-    const m = new THREE.Mesh(armGeo, mShirt); m.castShadow = true; p.add(m); g.add(p); parts[k] = p;
-  }
-  g.userData = parts;
-  return g;
-}
-// rotation.y so that the model's forward (-z) points at (tx, tz)
-function faceToward(obj, tx, tz) {
-  obj.rotation.y = Math.atan2(-(tx - obj.position.x), -(tz - obj.position.z));
-}
-
-// =====================================================================
-//  Batter rig: bones stretched between joint points, so poses are just points
+//  Player rig: bones stretched between joint points, so a pose is just a set of points.
+//  Rig frame: chest faces +x, right side is +z. Batters use the rig frame directly. Fielders and
+//  umpires sit inside an outer group turned so the rig's +x is the outer's -z, which is what
+//  faceToward() steers. The same rig serves batters (pads, helmet, gloves, bat), fielders (kit,
+//  cap), the keeper (pads, big gloves) and umpires (white shirt, dark trousers, hat).
 // =====================================================================
 const _dir = V3(), _up = V3(0, 1, 0), _q = new THREE.Quaternion(), _down = V3(0, -1, 0);
+const SKIN_TONES = [0xf1c27d, 0xd9a066, 0xb07a45, 0x7a4b28];
 function bone(radius, mat, box) {
   const geo = box ? new THREE.BoxGeometry(box[0], 1, box[1]) : new THREE.CylinderGeometry(radius, radius * 0.85, 1, 8);
   const m = new THREE.Mesh(geo, mat); m.castShadow = true; return m;
@@ -385,28 +358,51 @@ function setBone(m, a, b) {
   m.scale.set(1, len, 1);
   _q.setFromUnitVectors(_up, _dir.normalize()); m.quaternion.copy(_q);
 }
-function makeBatterRig(shirtColor) {
-  const g = new THREE.Group(); scene.add(g);
+function makeRig({ kind, shirt: shirtColor, pants: pantsColor = shirtColor, skin: skinIdx = 1, height = 1 }) {
+  const g = new THREE.Group();
+  const padded = kind === 'batter' || kind === 'keeper';
   const shirt = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.85 });
+  const pants = padded ? M.pads : new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.85 });
+  const skin = new THREE.MeshStandardMaterial({ color: SKIN_TONES[skinIdx % SKIN_TONES.length], roughness: 0.8 });
+  const legR = padded ? 0.095 : 0.08;
+  const handMat = kind === 'fielder' || kind === 'umpire' ? skin : M.glove;
+  const handR = kind === 'keeper' ? 0.085 : kind === 'batter' ? 0.06 : 0.05;
   const r = {
-    group: g,
-    thighL: bone(0.095, M.pads), thighR: bone(0.095, M.pads), shinL: bone(0.085, M.pads), shinR: bone(0.085, M.pads),
-    torso: bone(0, shirt, [0.4, 0.26]), upperL: bone(0.05, shirt), upperR: bone(0.05, shirt), foreL: bone(0.045, M.skin), foreR: bone(0.045, M.skin),
+    group: g, kind, shirt, pants, skin, headOff: kind === 'batter' ? V3(0.05, 0.2, -0.04) : V3(0.03, 0.22, 0),
+    thighL: bone(legR, pants), thighR: bone(legR, pants), shinL: bone(legR - 0.01, pants), shinR: bone(legR - 0.01, pants),
+    torso: bone(0, shirt, [0.4, 0.26]), upperL: bone(0.05, shirt), upperR: bone(0.05, shirt), foreL: bone(0.045, skin), foreR: bone(0.045, skin),
     footL: new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.28), M.pads), footR: new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.28), M.pads),
-    head: new THREE.Group(), gloveL: new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), M.glove), gloveR: new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), M.glove),
-    bat: new THREE.Group(),
+    head: new THREE.Group(), handL: new THREE.Mesh(new THREE.SphereGeometry(handR, 8, 6), handMat), handR: new THREE.Mesh(new THREE.SphereGeometry(handR, 8, 6), handMat),
+    bat: null, hL: V3(), hR: V3(),
   };
-  r.head.add(new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), M.skin));
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), new THREE.MeshStandardMaterial({ color: 0x0d2a6b, roughness: 0.4 }));
-  helmet.position.y = 0.01; r.head.add(helmet);
-  const grill = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.09, 0.2), new THREE.MeshStandardMaterial({ color: 0x999999 }));
-  grill.position.set(0.13, -0.06, 0); r.head.add(grill);          // faces +x (chest direction)
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.02, 0.3, 8), M.handle); handle.position.y = -0.15; r.bat.add(handle);
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.108, 0.62, 0.04), M.wood); blade.position.y = -0.61; blade.castShadow = true; r.bat.add(blade);
-  for (const k of ['thighL', 'thighR', 'shinL', 'shinR', 'torso', 'upperL', 'upperR', 'foreL', 'foreR', 'footL', 'footR', 'head', 'gloveL', 'gloveR', 'bat']) g.add(r[k]);
+  r.head.add(new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), skin));
+  if (kind === 'batter') {
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), new THREE.MeshStandardMaterial({ color: 0x0d2a6b, roughness: 0.4 }));
+    helmet.position.y = 0.01; r.head.add(helmet);
+    const grill = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.09, 0.2), new THREE.MeshStandardMaterial({ color: 0x999999 }));
+    grill.position.set(0.13, -0.06, 0); r.head.add(grill);          // faces +x (chest direction)
+    r.bat = new THREE.Group();
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.02, 0.3, 8), M.handle); handle.position.y = -0.15; r.bat.add(handle);
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.108, 0.62, 0.04), M.wood); blade.position.y = -0.61; blade.castShadow = true; r.bat.add(blade);
+    g.add(r.bat);
+  } else if (kind === 'umpire') {
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.015, 16), M.pads); brim.position.y = 0.06; r.head.add(brim);
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.1, 14), M.pads); crown.position.y = 0.11; r.head.add(crown);
+  } else {
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), shirt); cap.position.y = 0.01; r.head.add(cap);
+    const peak = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.015, 0.14), shirt); peak.position.set(0.15, 0.03, 0); r.head.add(peak);
+  }
+  for (const k of ['thighL', 'thighR', 'shinL', 'shinR', 'torso', 'upperL', 'upperR', 'foreL', 'foreR', 'footL', 'footR', 'head', 'handL', 'handR']) g.add(r[k]);
+  g.scale.setScalar(height);
   return r;
 }
-// Pose points are in the rig's local frame: chest faces +x, bowler is toward -z (matches world for the striker).
+function makeBatterRig(shirtColor) { const r = makeRig({ kind: 'batter', shirt: shirtColor }); scene.add(r.group); return r; }
+// rotation.y so that the model's forward (-z) points at (tx, tz)
+function faceToward(obj, tx, tz) {
+  obj.rotation.y = Math.atan2(-(tx - obj.position.x), -(tz - obj.position.z));
+}
+// A pose gives hip, shoulder, both feet and knee bends, plus either `hands` (both hands on the bat,
+// with `tip` the bat direction and `elbowOut`) or separate `handL`/`handR` with `elbowL`/`elbowR` offsets.
 function poseRig(r, P) {
   const hipL = P.hip.clone().add(V3(0, 0, -0.13)), hipR = P.hip.clone().add(V3(0, 0, 0.13));
   const kneeL = hipL.clone().lerp(P.footL, 0.5).add(V3(P.bendL, 0.02, 0)), kneeR = hipR.clone().lerp(P.footR, 0.5).add(V3(P.bendR, 0.02, 0));
@@ -415,14 +411,22 @@ function poseRig(r, P) {
   r.footL.position.copy(P.footL).add(V3(0.06, -0.01, 0)); r.footR.position.copy(P.footR).add(V3(0.06, -0.01, 0));
   setBone(r.torso, P.hip, P.shoulder);
   const shL = P.shoulder.clone().add(V3(0, 0, -0.2)), shR = P.shoulder.clone().add(V3(0, 0, 0.2));
-  const hL = P.hands.clone().add(V3(0, 0.05, -0.02)), hR = P.hands.clone().add(V3(0, -0.05, 0.02));
-  const eL = shL.clone().lerp(hL, 0.5).add(P.elbowOut), eR = shR.clone().lerp(hR, 0.5).add(P.elbowOut).add(V3(0, -0.05, 0.1));
+  let hL, hR, eL, eR;
+  if (P.hands) {
+    hL = P.hands.clone().add(V3(0, 0.05, -0.02)); hR = P.hands.clone().add(V3(0, -0.05, 0.02));
+    eL = shL.clone().lerp(hL, 0.5).add(P.elbowOut); eR = shR.clone().lerp(hR, 0.5).add(P.elbowOut).add(V3(0, -0.05, 0.1));
+  } else {
+    hL = P.handL; hR = P.handR;
+    eL = shL.clone().lerp(hL, 0.5).add(P.elbowL); eR = shR.clone().lerp(hR, 0.5).add(P.elbowR);
+  }
   setBone(r.upperL, shL, eL); setBone(r.foreL, eL, hL);
   setBone(r.upperR, shR, eR); setBone(r.foreR, eR, hR);
-  r.gloveL.position.copy(hL); r.gloveR.position.copy(hR);
-  r.head.position.copy(P.shoulder).add(V3(0.05, 0.2, -0.04));
-  r.bat.position.copy(P.hands);
-  _q.setFromUnitVectors(_down, P.tip.clone().normalize()); r.bat.quaternion.copy(_q);
+  r.handL.position.copy(hL); r.handR.position.copy(hR); r.hL.copy(hL); r.hR.copy(hR);
+  r.head.position.copy(P.shoulder).add(P.headOff || r.headOff);
+  if (r.bat && P.hands) {
+    r.bat.position.copy(P.hands);
+    _q.setFromUnitVectors(_down, P.tip.clone().normalize()); r.bat.quaternion.copy(_q);
+  }
 }
 // stance and back-lift for a right-hander at the crease
 function stancePose(lift) {
@@ -448,6 +452,85 @@ function runPose(phase, lean = 0.25) {
   };
 }
 
+// ---------- fielder, keeper, bowler and umpire poses (free hands) ----------
+function fStand(over) {
+  return Object.assign({
+    footL: V3(0, 0.04, -0.16), footR: V3(0, 0.04, 0.16), bendL: 0.05, bendR: 0.05, hip: V3(0, 0.92, 0), shoulder: V3(0.02, 1.42, 0),
+    handL: V3(0.06, 0.78, -0.3), handR: V3(0.06, 0.78, 0.3), elbowL: V3(0, 0, -0.08), elbowR: V3(0, 0, 0.08),
+  }, over);
+}
+// crouched with hands on the knees; k is how deep
+function fReady(k) {
+  return fStand({ footL: V3(0, 0.04, -0.28), footR: V3(0, 0.04, 0.28), bendL: 0.1 + 0.25 * k, bendR: 0.1 + 0.25 * k,
+    hip: V3(-0.12 * k, 0.92 - 0.22 * k, 0), shoulder: V3(0.18 * k, 1.42 - 0.3 * k, 0),
+    handL: V3(0.06 + 0.28 * k, 0.78 - 0.15 * k, -0.28), handR: V3(0.06 + 0.28 * k, 0.78 - 0.15 * k, 0.28), elbowL: V3(0, 0, -0.1), elbowR: V3(0, 0, 0.1) });
+}
+// keeper's squat, gloves together in front of the shins
+function fKeeper() {
+  return fStand({ footL: V3(0, 0.04, -0.3), footR: V3(0, 0.04, 0.3), bendL: 0.42, bendR: 0.42, hip: V3(-0.22, 0.5, 0), shoulder: V3(0.12, 0.98, 0),
+    handL: V3(0.42, 0.28, -0.08), handR: V3(0.42, 0.28, 0.08), elbowL: V3(0.05, 0, -0.14), elbowR: V3(0.05, 0, 0.14) });
+}
+// running with the arms pumping opposite the legs
+function fRun(phase, lean = 0.2) {
+  const s = Math.sin(phase), c = Math.cos(phase);
+  return fStand({ footL: V3(0.35 * s, 0.04 + 0.12 * Math.max(0, c), -0.13), footR: V3(-0.35 * s, 0.04 + 0.12 * Math.max(0, -c), 0.13), bendL: 0.18 + 0.1 * Math.max(0, c), bendR: 0.18 + 0.1 * Math.max(0, -c),
+    hip: V3(0.05, 0.9, 0), shoulder: V3(0.05 + lean, 1.4, 0),
+    handL: V3(0.1 - 0.3 * s, 1.0 + 0.1 * Math.max(0, -s), -0.26), handR: V3(0.1 + 0.3 * s, 1.0 + 0.1 * Math.max(0, s), 0.26), elbowL: V3(-0.12, 0.05, -0.1), elbowR: V3(-0.12, 0.05, 0.1) });
+}
+// hands together toward a ball at height h
+function fCatch(h) {
+  const y = clamp(h, 0.5, 2.05), lean = y > 1.6 ? -0.08 : 0.1;
+  return fStand({ bendL: 0.12, bendR: 0.12, hip: V3(0, 0.9, 0), shoulder: V3(lean, 1.4, 0),
+    handL: V3(0.4, y, -0.09), handR: V3(0.4, y, 0.09), elbowL: V3(0, -0.05, -0.16), elbowR: V3(0, -0.05, 0.16) });
+}
+// bending to pick the ball up right-handed
+function fPickup() {
+  return fStand({ footL: V3(0.15, 0.04, -0.22), footR: V3(-0.15, 0.04, 0.22), bendL: 0.3, bendR: 0.2, hip: V3(-0.18, 0.7, 0), shoulder: V3(0.32, 1.05, 0),
+    handL: V3(0.5, 0.45, -0.28), handR: V3(0.62, 0.1, 0.12), elbowL: V3(0, 0, -0.1), elbowR: V3(0.05, 0.05, 0.1) });
+}
+// overarm throw: wind up (k < 0.5) then release (k > 0.5)
+function fThrow(k) {
+  const p = fStand({ footL: V3(0.3, 0.04, -0.2), footR: V3(-0.3, 0.04, 0.2), bendL: 0.15, bendR: 0.1, hip: V3(0, 0.9, 0) });
+  if (k < 0.5) {
+    const u = k / 0.5;
+    p.shoulder = V3(-0.08 * u, 1.4, 0); p.handR = V3(0.05, 0.9, 0.3).lerp(V3(-0.45, 1.55, 0.35), u); p.handL = V3(0.05, 0.9, -0.3).lerp(V3(0.55, 1.35, -0.2), u);
+    p.elbowR = V3(-0.1, 0.15, 0.1); p.elbowL = V3(0, 0.05, -0.1);
+  } else {
+    const u = (k - 0.5) / 0.5;
+    p.shoulder = V3(-0.08 + 0.3 * u, 1.4, 0); p.handR = V3(-0.45, 1.55, 0.35).lerp(V3(0.7, 1.35, 0.1), u); p.handL = V3(0.55, 1.35, -0.2).lerp(V3(0.2, 0.8, -0.3), u);
+    p.elbowR = V3(-0.05, 0.15, 0.15); p.elbowL = V3(0, 0.05, -0.1);
+  }
+  return p;
+}
+// full stretch: the outer group is tipped forward, so arms over the head reach along the ground
+function fDive() {
+  return fStand({ footL: V3(-0.1, 0.04, -0.15), footR: V3(-0.1, 0.04, 0.15), hip: V3(0, 0.9, 0), shoulder: V3(0.05, 1.42, 0),
+    handL: V3(0.5, 1.85, -0.15), handR: V3(0.5, 1.85, 0.15), elbowL: V3(0.05, 0, -0.1), elbowR: V3(0.05, 0, 0.1) });
+}
+// bowling action: g runs through the gather (jump, front arm up then pulled down, delivery stride),
+// a is the bowling arm's angle from hanging straight down, going back and over the top
+function bowlPose(g, a) {
+  const front = g < 0.5 ? V3(0.1, 0.8, -0.3).lerp(V3(0.15, 2.0, -0.25), g * 2) : V3(0.15, 2.0, -0.25).lerp(V3(0.35, 0.85, -0.35), (g - 0.5) * 2);
+  const shoulder = V3(-0.15 + 0.35 * g, 1.4, 0);
+  const handR = shoulder.clone().add(V3(0, 0, 0.2)).add(V3(-Math.sin(a) * 0.62, -Math.cos(a) * 0.62, 0));
+  return fStand({ footL: V3(0.15 + 0.35 * g, 0.04, -0.16), footR: V3(-0.1 - 0.25 * g, 0.04, 0.16), bendL: 0.1 + 0.15 * g, bendR: 0.25 - 0.15 * g,
+    hip: V3(0.02, 0.9, 0), shoulder, handL: front, handR, elbowL: V3(0.05, 0.05, -0.12), elbowR: V3(0, 0, 0.03) });
+}
+// umpire at rest (hands behind the back) or signalling: out, wide, no ball, four, six
+function umpirePose(signal, t) {
+  const p = fStand({ handL: V3(-0.14, 0.9, -0.1), handR: V3(-0.14, 0.9, 0.1), elbowL: V3(-0.1, 0, -0.12), elbowR: V3(-0.1, 0, 0.12) });
+  if (!signal) return p;
+  const k = smooth(clamp(t / 0.35, 0, 1));
+  const restR = p.handR.clone(), restL = p.handL.clone();
+  const upR = V3(0.05, 2.05, 0.22), upL = V3(0.05, 2.05, -0.22), outR = V3(0, 1.42, 0.85), outL = V3(0, 1.42, -0.85);
+  if (signal === 'out') { p.handR = restR.lerp(upR, k); p.elbowR = V3(0.05, 0, 0.18); }
+  else if (signal === 'wd') { p.handR = restR.lerp(outR, k); p.handL = restL.lerp(outL, k); p.elbowR = V3(0, 0.02, 0.1); p.elbowL = V3(0, 0.02, -0.1); }
+  else if (signal === 'nb') { p.handR = restR.lerp(outR, k); p.elbowR = V3(0, 0.02, 0.1); }
+  else if (signal === 'four') { p.handR = restR.lerp(V3(0.45, 1.3 + 0.1 * Math.sin(t * 9), 0.15 + 0.3 * Math.sin(t * 9)), k); p.elbowR = V3(0.05, 0.05, 0.2); }
+  else if (signal === 'six') { p.handR = restR.lerp(upR, k); p.handL = restL.lerp(upL, k); p.elbowR = V3(0.05, 0, 0.18); p.elbowL = V3(0.05, 0, -0.18); }
+  return p;
+}
+
 // =====================================================================
 //  Actors
 // =====================================================================
@@ -459,23 +542,39 @@ poseRig(striker, stancePose(0));
 nonStriker.group.position.set(1.3, 0, FAR_CREASE_Z - 0.3); nonStriker.group.rotation.y = Math.PI;   // faces the other way
 poseRig(nonStriker, runPose(0, 0.1));
 
-const bowler = makePlayer({ shirt: 0xd62828 });
+// Every fielder is a rig inside an outer group; the outer group is what moves and turns.
+function makeFielder(name, x, z, i, kind) {
+  const mesh = new THREE.Group();
+  const rig = makeRig({ kind, shirt: 0xd62828, skin: (i * 5 + 1) % SKIN_TONES.length, height: 0.94 + ((i * 7) % 5) * 0.03 });
+  rig.group.rotation.y = Math.PI / 2; mesh.add(rig.group); scene.add(mesh);
+  mesh.position.set(x, 0, z); faceToward(mesh, 0, -1);
+  poseRig(rig, kind === 'keeper' ? fKeeper() : fStand());
+  return { name, mesh, rig, home: V3(x, 0, z), pos: mesh.position, target: V3(x, 0, z), catching: false, attempted: false, runPhase: Math.random() * 6, spd: 0, role: 'hold', dived: false, fumbled: false, prevD: 1e9, errX: 0, errZ: 0, who: '' };
+}
+const fielders = FIELD_POS.map(([name, x, z], i) => makeFielder(name, x, z, i, i === 0 ? 'keeper' : 'fielder'));
+const keeper = fielders[0];
+const bowlerF = makeFielder('Bowler', 0.6, -17.5, 12, 'fielder'); bowlerF.isBowler = true; bowlerF.runPhase = 0;
+const bowler = bowlerF.mesh, bowlerRig = bowlerF.rig;
 bowler.position.set(0.7, 0, -40);
 bowler.rotation.y = Math.PI;                    // faces the batter (+z)
-scene.add(bowler);
-
-const fielders = FIELD_POS.map(([name, x, z]) => {
-  const mesh = makePlayer({ shirt: 0xd62828 });
-  mesh.position.set(x, 0, z); faceToward(mesh, 0, -1);
-  scene.add(mesh);
-  return { name, mesh, home: V3(x, 0, z), pos: mesh.position, target: V3(x, 0, z), catching: false, attempted: false, runPhase: Math.random() * 6, spd: 0, role: 'hold', dived: false, fumbled: false, prevD: 1e9, errX: 0, errZ: 0, who: '' };
-});
-const keeper = fielders[0];
-keeper.mesh.scale.y = 0.78;                    // crouched
-const bowlerF = { name: 'Bowler', mesh: bowler, home: V3(0.6, 0, -17.5), pos: bowler.position, target: V3(0.6, 0, -17.5), catching: false, attempted: false, runPhase: 0, spd: 0, role: 'hold', dived: false, fumbled: false, prevD: 1e9, errX: 0, errZ: 0, who: '', isBowler: true };
 const allFielders = fielders.concat([bowlerF]);
 function setFieldingColor(color) {
-  for (const f of allFielders) f.mesh.traverse(o => { if (o.isMesh && o.material !== M.skin) o.material.color.setHex(color); });
+  for (const f of allFielders) { f.rig.shirt.color.setHex(color); if (f.rig.pants !== M.pads) f.rig.pants.color.setHex(color); }
+}
+// Umpires: one behind the bowler's stumps on the leg side, one at square leg. The first signals.
+function makeUmpire(x, z, i) {
+  const mesh = new THREE.Group();
+  const rig = makeRig({ kind: 'umpire', shirt: 0xf4f4f4, pants: 0x1a1a1a, skin: i, height: 1 });
+  rig.group.rotation.y = Math.PI / 2; mesh.add(rig.group); scene.add(mesh);
+  mesh.position.set(x, 0, z); faceToward(mesh, 0, 0);
+  poseRig(rig, umpirePose(null, 0));
+  return { mesh, rig };
+}
+const umpires = [makeUmpire(-1.6, BOWL_STUMPS_Z - 2.2, 3), makeUmpire(-24, 0.5, 0)];
+let umpSignal = null;
+function updateUmpires() {
+  const s = umpSignal && simTime - umpSignal.t0 < 2.6 ? umpSignal : null;
+  poseRig(umpires[0].rig, umpirePose(s && s.kind, s ? simTime - s.t0 : 0));
 }
 
 // ---------- ball ----------
@@ -759,9 +858,8 @@ const BOWL = {
 function resetBallScene() {
   runupT = 0; released = false; shot = null; swing = null; catchInfo = null; lastHit = false;
   ball.phase = 'idle'; ball.rolling = false; ball.vel.set(0, 0, 0);
-  const u = bowler.userData;
   bowler.position.set(0.7, 0, BOWL[bowlerType].start); bowler.rotation.set(0, Math.PI, 0);
-  u.armR.rotation.x = u.armL.rotation.x = u.legL.rotation.x = u.legR.rotation.x = 0;
+  poseRig(bowlerRig, fRun(0, 0.1));
   ball.pos.set(0.44, 1.0, bowler.position.z);
   stumps.rotation.set(0, 0, 0); stumpsFall = null; farStumps.rotation.set(0, 0, 0); farStumpsFall = null; throwPlan = null;
   for (const f of allFielders) { f.catching = false; f.attempted = false; f.dived = false; f.fumbled = false; f.prevD = 1e9; f.role = 'hold'; f.spd = 0; f.diveUntil = 0; f.mesh.rotation.x = 0; f.mesh.position.y = 0; if (!f.isBowler) f.target.copy(f.home); }
@@ -815,7 +913,7 @@ function release() {
   if (ball.wideBall) lineX = (Math.random() < 0.7 ? rand(1.1, 1.5) : -rand(0.95, 1.25)) * hand();     // sprayed wide of off, or down the leg side
   ball.noBall = Math.random() < (bowlerType === 'pace' ? 0.04 : 0.015);
   bowler.updateMatrixWorld(true);
-  const handPos = V3(0, -0.62, 0); bowler.userData.armR.localToWorld(handPos);
+  const handPos = bowlerRig.group.localToWorld(bowlerRig.hR.clone());
   const x0 = handPos.x, y0 = clamp(handPos.y, 1.7, 2.3), z0 = handPos.z;
   const dx = lineX - x0, dz = lenZ - z0, dh = Math.hypot(dx, dz), t = dh / speed * (V.loop || 1);
   const swingA = (V.swing || 0) * hand();
@@ -1102,7 +1200,7 @@ function startThrow(f, extra) {
   else if (Math.random() < 0.3) res = { runout: true, runs: done, f, endZ };
   else res = { runs: done + 1 };
   res.runs = Math.min(res.runs, 4);
-  throwPlan = { endZ, tArrive, tFly, res, throwAt: simTime + pickup, from: f.pos.clone() };
+  throwPlan = { endZ, tArrive, tFly, res, throwAt: simTime + pickup, from: f.pos.clone(), thrower: f, t0: simTime };
   ball.phase = 'throw'; ball.rolling = false; ball.vel.set(0, 0, 0); ball.pos.set(f.pos.x, 0.9, f.pos.z);
   ball.bounced = true;
 }
@@ -1146,6 +1244,8 @@ function endBall(res) {
   const nb = ball.noBall, wd = extra === 'wd';
   // a free hit or no-ball voids every dismissal except a run out
   if (res.wicket && (freeHit || nb) && !res.runout) { showTiming(nb ? 'Not out · no ball' : 'Not out · free hit', '#7ef29a'); res = { runs: res.runs || 0 }; }
+  const sig = res.wicket ? 'out' : res.six ? 'six' : res.four && !extra ? 'four' : wd ? 'wd' : nb ? 'nb' : null;
+  umpSignal = sig ? { kind: sig, t0: simTime + (sig === 'out' ? 0.6 : 0.3) } : null;
   if (!wd) cur.balls++;
   let sym;
   if (res.retired) {
@@ -1198,6 +1298,8 @@ function endBall(res) {
 function newBatter() {
   match.batIdx++;
   if (match.batIdx < match.order.length) match.card[match.batIdx] = { name: match.order[match.batIdx], runs: 0, balls: 0, how: 'not out', left: isLefty(match.order[match.batIdx]) };
+  striker.skin.color.setHex(SKIN_TONES[(match.batIdx * 3 + 1) % SKIN_TONES.length]);
+  nonStriker.skin.color.setHex(SKIN_TONES[(match.batIdx * 3 + 2) % SKIN_TONES.length]);
   pickField();
 }
 function nextBall() {
@@ -1320,27 +1422,23 @@ function quitToMenu() {
 function updateBowler(dt) {
   if (state !== 'runup' && !(released && runupT < 3.5)) return;
   runupT += dt;
-  const B = BOWL[bowlerType], u = bowler.userData, dur = B.dur, zRel = -19.5;
+  const B = BOWL[bowlerType], dur = B.dur, zRel = -19.5;
   if (!released) {
     const s = clamp(runupT / dur, 0, 1), e = Math.pow(s, 1.3);
     bowler.position.z = B.start + (zRel - B.start) * e;
     const tg = runupT - (dur - B.gather);
     if (tg < 0) {
-      const sw = Math.sin(runupT * B.stride) * 0.7 * Math.min(1, s * 3);
-      u.legL.rotation.x = sw; u.legR.rotation.x = -sw; u.armL.rotation.x = -sw * 0.8; u.armR.rotation.x = sw * 0.8;
-      bowler.rotation.set(0.12, Math.PI, 0); bowler.position.y = 0;
+      bowler.rotation.set(0, Math.PI, 0); bowler.position.y = 0;
+      poseRig(bowlerRig, fRun(runupT * B.stride, 0.22 * Math.min(1, s * 3)));
     } else {
       const g = clamp(tg / B.gather, 0, 1);
       bowler.position.y = Math.sin(clamp(g * 1.6, 0, 1) * Math.PI) * B.hop;
       bowler.rotation.y = Math.PI - 0.9 * Math.sin(g * Math.PI);           // side-on at the top of the jump
-      bowler.rotation.x = 0.12 - 0.35 * g;                                   // lean back, then over the front leg
-      u.armL.rotation.x = g < 0.5 ? lerp(0, -2.9, g * 2) : lerp(-2.9, 0.9, (g - 0.5) * 2);   // front arm up, then pulled down
       const ws = clamp((runupT - (dur - B.armDur)) / B.armDur, 0, 1);
-      u.armR.rotation.x = -3.7 * ws;                                          // bowling arm over the top
-      u.legL.rotation.x = lerp(0, 0.9, g); u.legR.rotation.x = lerp(0, -0.6, g);   // delivery stride
+      poseRig(bowlerRig, bowlPose(g, 3.7 * ws));                            // front arm up then down, bowling arm over the top
     }
     bowler.updateMatrixWorld(true);
-    const handPos = V3(0, -0.62, 0); u.armR.localToWorld(handPos);
+    const handPos = bowlerRig.group.localToWorld(bowlerRig.hR.clone());
     ball.pos.copy(handPos); ball.prev.copy(handPos);
     if (runupT >= dur) release();
   } else {
@@ -1348,10 +1446,9 @@ function updateBowler(dt) {
     bowler.position.z += 3.2 * dt * (1 - k);
     bowler.position.x += 1.4 * dt * (1 - k);                                 // veers off toward the off side
     bowler.position.y = 0;
-    bowler.rotation.x = -0.23 * (1 - k); bowler.rotation.y = Math.PI + 0.5 * Math.sin(k * Math.PI);
-    u.armR.rotation.x = -3.7 - 2.6 * Math.min(1, (runupT - dur) / 0.5);
-    u.armL.rotation.x = 0.9 * (1 - k);
-    u.legL.rotation.x = 0.9 * (1 - k); u.legR.rotation.x = -0.6 * (1 - k);
+    bowler.rotation.y = Math.PI + 0.5 * Math.sin(k * Math.PI);
+    const a = 3.7 + 2.6 * Math.min(1, (runupT - dur) / 0.5);                 // arm finishes its swing, then he jogs through
+    poseRig(bowlerRig, lerpPose(bowlPose(1, a), fRun((runupT - dur) * 8, 0.15), smooth(k)));
   }
 }
 
@@ -1362,28 +1459,42 @@ function updateFielders(dt) {
   }
   for (const f of allFielders) {
     if (f.isBowler && (state === 'runup' || state === 'flight')) continue;
+    const r = f.rig;
     if (f.diveUntil && simTime < f.diveUntil) {                          // laid out on the turf
       const k = clamp((simTime - (f.diveUntil - 0.9)) / 0.25, 0, 1);
       f.mesh.rotation.y = Math.PI + f.diveDir; f.mesh.rotation.x = -1.35 * k; f.mesh.position.y = 0.25 * k;
+      poseRig(r, lerpPose(fRun(f.runPhase, 0.3), fDive(), k));
       continue;
     } else if (f.diveUntil) { f.diveUntil = 0; f.mesh.rotation.x = 0; f.mesh.position.y = 0; }
     if (live && f.role === 'hold') f.target.copy(f.pos);
     const dx = f.target.x - f.pos.x, dz = f.target.z - f.pos.z, d = Math.hypot(dx, dz);
-    const u = f.mesh.userData;
-    if (d > 0.25) {
+    const tp = throwPlan && throwPlan.thrower === f && state === 'live' ? throwPlan : null;
+    if (tp) {                                                            // pick up, wind up, throw
+      f.spd = 0;
+      faceToward(f.mesh, 0, tp.endZ);
+      const wind = tp.throwAt - 0.45;
+      if (simTime < wind) poseRig(r, lerpPose(fRun(f.runPhase, 0.3), fPickup(), smooth(clamp((simTime - tp.t0) / 0.25, 0, 1))));
+      else poseRig(r, fThrow(clamp((simTime - wind) / 0.55, 0, 1)));
+    } else if (d > 0.25) {
       f.spd = Math.min(FIELDER_SPEED, f.spd + 10 * dt);               // accelerate from standing
       const step = Math.min(d, f.spd * dt);
       f.pos.x += dx / d * step; f.pos.z += dz / d * step;
       faceToward(f.mesh, f.target.x, f.target.z);
       f.runPhase += dt * (9 + f.spd * 0.5);
-      const sw = Math.sin(f.runPhase) * 0.65 * Math.min(1, f.spd / 4);
-      u.legL.rotation.x = sw; u.legR.rotation.x = -sw; u.armL.rotation.x = -sw * 0.7; u.armR.rotation.x = sw * 0.7;
+      const near = live && f.catching && !ball.bounced && Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z) < 4;
+      poseRig(r, near ? lerpPose(fRun(f.runPhase, 0.2), fCatch(ball.pos.y), 0.6) : fRun(f.runPhase, 0.1 + 0.2 * Math.min(1, f.spd / 5)));
       if (f.isBowler) f.mesh.rotation.x = 0;
     } else {
       f.spd = 0;
-      u.legL.rotation.x = u.legR.rotation.x = u.armL.rotation.x = u.armR.rotation.x = 0;
       if (live) faceToward(f.mesh, ball.pos.x, ball.pos.z);
       else if (!f.isBowler) faceToward(f.mesh, 0, -1);
+      let pose;
+      if (f === keeper) pose = fKeeper();
+      else if (live && f.catching && !ball.bounced) pose = fCatch(ball.pos.y);
+      else if (live) pose = fReady(Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z) < 25 ? 1 : 0.4);
+      else if (state === 'runup' || state === 'flight') pose = f.isBowler ? fStand() : fReady(0.7);
+      else pose = fStand();
+      poseRig(r, pose);
     }
   }
 }
@@ -1602,6 +1713,7 @@ function tick(dt) {
   if (state === 'dead' && simTime - deadTime > 2.4) nextBall();
 
   updateFielders(dt);
+  updateUmpires();
   updateBatterPose();
   updateRunners();
   updateCelebration(dt);
