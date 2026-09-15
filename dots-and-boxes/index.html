@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dots &amp; Boxes</title>
 <style>
-  :root { --bg: #111318; --p1: #4fd1ff; --p2: #ff6b9d; --text: #e8ebf2; --muted: #8b93a7; --panel: #1a1e27; --line: #2b3140; }
+  :root { --bg: #111318; --p1: #4fd1ff; --p2: #ff6b9d; --p3: #a3e635; --p4: #fbbf24; --p5: #c084fc; --text: #e8ebf2; --muted: #8b93a7; --panel: #1a1e27; --line: #2b3140; }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; overflow-x: hidden; }
@@ -15,24 +15,26 @@
   .top a:hover { color: var(--text); }
   h1 { font-size: 20px; margin: 0; letter-spacing: 1px; font-weight: 600; }
   h1 span { color: var(--p2); }
-  .turn { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 18px; height: 28px; }
-  .turn .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--p1); box-shadow: 0 0 12px var(--p1); transition: background .35s, box-shadow .35s; }
-  .turn.p2 .dot { background: var(--p2); box-shadow: 0 0 12px var(--p2); }
-  .turn .name { font-weight: 600; color: var(--p1); transition: color .35s; }
-  .turn.p2 .name { color: var(--p2); }
+  /* --pc is the current player's colour; set from script on .turn, .score and .banner h2 */
+  .turn { --pc: var(--p1); display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 18px; height: 28px; }
+  .turn .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--pc); box-shadow: 0 0 12px var(--pc); transition: background .35s, box-shadow .35s; }
+  .turn .name { font-weight: 600; color: var(--pc); transition: color .35s; }
   .turn.bump .dot { animation: bump .4s ease-out; }
   .turn.thinking .name::after { content: "…"; animation: blink 1s infinite; }
   @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.6); } 100% { transform: scale(1); } }
   @keyframes blink { 50% { opacity: .2; } }
-  .scores { display: flex; justify-content: center; gap: 32px; }
-  .score { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  .scores { display: flex; justify-content: center; gap: 8px 22px; flex-wrap: wrap; }
+  .score { --pc: var(--p1); display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); padding: 2px 8px; border-radius: 8px; border: 1px solid transparent; transition: border-color .3s, color .3s; }
+  .score.active { border-color: var(--pc); color: var(--text); }
   .score b { font-size: 22px; color: var(--text); display: inline-block; min-width: 26px; text-align: center; }
   .score.pop b { animation: pop .45s ease-out; }
   @keyframes pop { 0% { transform: scale(1); } 35% { transform: scale(1.6); } 100% { transform: scale(1); } }
-  .score .sw { width: 10px; height: 10px; border-radius: 3px; }
-  .score.p1 .sw { background: var(--p1); box-shadow: 0 0 8px var(--p1); }
-  .score.p2 .sw { background: var(--p2); box-shadow: 0 0 8px var(--p2); }
+  .score .sw { width: 10px; height: 10px; border-radius: 3px; background: var(--pc); box-shadow: 0 0 8px var(--pc); }
   .controls { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .seats { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+  .seat { --pc: var(--p1); display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .seat .sw { width: 8px; height: 8px; border-radius: 2px; background: var(--pc); box-shadow: 0 0 6px var(--pc); }
+  .seat select { padding: 4px 6px; font-size: 12px; }
   select, button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
   button:hover, select:hover { border-color: #4a5266; }
   button.primary { border-color: var(--p1); }
@@ -41,11 +43,12 @@
   #over { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; border-radius: 16px; background: rgba(17, 19, 24, .72); backdrop-filter: blur(3px); }
   #over.show { display: flex; }
   .banner { text-align: center; animation: rise .55s cubic-bezier(.2, .9, .3, 1.25); }
-  .banner h2 { margin: 0 0 8px; font-size: 36px; letter-spacing: 1px; }
-  .banner h2.p1 { color: var(--p1); text-shadow: 0 0 24px var(--p1); }
-  .banner h2.p2 { color: var(--p2); text-shadow: 0 0 24px var(--p2); }
-  .banner .count { color: var(--muted); font-size: 15px; margin-bottom: 18px; }
+  .banner h2 { --pc: var(--text); margin: 0 0 8px; font-size: 36px; letter-spacing: 1px; color: var(--pc); }
+  .banner h2.glow { text-shadow: 0 0 24px var(--pc); }
+  .banner .count { color: var(--muted); font-size: 15px; margin-bottom: 18px; display: flex; flex-direction: column; gap: 4px; }
   .banner .count b { color: var(--text); }
+  .banner .count .row { display: flex; justify-content: center; gap: 8px; align-items: center; }
+  .banner .count .row .sw { width: 10px; height: 10px; border-radius: 3px; }
   @keyframes rise { from { transform: translateY(18px) scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
   .hint { color: var(--muted); font-size: 12px; text-align: center; padding-bottom: 16px; }
 </style>
@@ -53,11 +56,8 @@
 <body>
 <div id="hud">
   <div class="top"><h1>DOTS <span>&amp;</span> BOXES</h1><a href="../index.html">← dgames</a></div>
-  <div class="turn p1" id="turn"><span class="dot"></span><span class="name" id="turnName">Player 1</span></div>
-  <div class="scores">
-    <div class="score p1" id="score1"><span class="sw"></span><span id="name1">Player 1</span><b id="s1">0</b></div>
-    <div class="score p2" id="score2"><span class="sw"></span><span id="name2">Player 2</span><b id="s2">0</b></div>
-  </div>
+  <div class="turn" id="turn"><span class="dot"></span><span class="name" id="turnName">Player 1</span></div>
+  <div class="scores" id="scores"></div>
   <div class="controls">
     <select id="grid" title="Grid size">
       <option value="3">3×3 dots (4 boxes)</option>
@@ -67,14 +67,15 @@
       <option value="7">7×7 dots (36 boxes)</option>
       <option value="8">8×8 dots (49 boxes)</option>
     </select>
-    <select id="mode" title="Opponent">
-      <option value="2p">Two players</option>
-      <option value="easy">Computer · Easy</option>
-      <option value="normal">Computer · Normal</option>
-      <option value="hard">Computer · Hard</option>
+    <select id="players" title="Number of players">
+      <option value="2">2 players</option>
+      <option value="3">3 players</option>
+      <option value="4">4 players</option>
+      <option value="5">5 players</option>
     </select>
     <button id="restart">New game (N)</button>
   </div>
+  <div class="seats" id="seats"></div>
 </div>
 <div id="wrap">
   <canvas id="game"></canvas>
@@ -86,26 +87,31 @@
 'use strict';
 // ---------- CONSTANTS ----------
 const DEFAULT_GRID = 5;          // dots per side; 5 dots = 4×4 boxes
+const MIN_PLAYERS = 2, MAX_PLAYERS = 5;
 const DOT_RADIUS = 5;
 const LINE_WIDTH = 5;
-const COLORS = { bg: '#111318', dot: '#8b93a7', dotGlow: '#c7cdda', 1: '#4fd1ff', 2: '#ff6b9d' };
+const COLORS = { bg: '#111318', dot: '#8b93a7', dotGlow: '#c7cdda', 1: '#4fd1ff', 2: '#ff6b9d', 3: '#a3e635', 4: '#fbbf24', 5: '#c084fc' };
 
-// ---------- LOGIC (pure, no DOM; test/ai.js loads everything above the UI marker) ----------
-// Edges: h[r][c] joins dot (r,c) to (r,c+1); v[r][c] joins dot (r,c) to (r+1,c). Value 0 = empty, else owner 1|2.
+// ---------- LOGIC (pure, no DOM; test/*.js load everything above the UI marker) ----------
+// Edges: h[r][c] joins dot (r,c) to (r,c+1); v[r][c] joins dot (r,c) to (r+1,c). Value 0 = empty, else owner 1..players.
 // Boxes: boxes[r][c] is the cell whose top-left dot is (r,c). Value 0 = unclaimed, else owner.
-function newState(n) {
+function newState(n, players = 2) {
+  players = Math.max(MIN_PLAYERS, Math.min(MAX_PLAYERS, players | 0));
+  const scores = {};
+  for (let p = 1; p <= players; p++) scores[p] = 0;
   return {
-    n,
+    n, players,
     h: Array.from({ length: n }, () => Array(n - 1).fill(0)),
     v: Array.from({ length: n - 1 }, () => Array(n).fill(0)),
     boxes: Array.from({ length: n - 1 }, () => Array(n - 1).fill(0)),
-    player: 1, scores: { 1: 0, 2: 0 }, remaining: 2 * n * (n - 1), over: false,
+    player: 1, scores, remaining: 2 * n * (n - 1), over: false,
   };
 }
 const cloneState = (s) => JSON.parse(JSON.stringify(s));
 const edgeKey = (e) => e.t + e.r + ',' + e.c;
 const edgeAt = (s, e) => (e.t === 'h' ? s.h[e.r][e.c] : s.v[e.r][e.c]);
 function setEdge(s, e, p) { if (e.t === 'h') s.h[e.r][e.c] = p; else s.v[e.r][e.c] = p; }
+const nextPlayer = (s) => (s.player % s.players) + 1;
 
 function legalMoves(s) {
   const out = [];
@@ -123,24 +129,36 @@ function boxesOf(s, e) {
   return out;
 }
 // Plays an edge for the current player. Returns the boxes it completed (possibly none) or null if illegal.
-// Completing a box keeps the turn; otherwise the turn passes.
+// Completing a box keeps the turn; otherwise the turn passes to the next seat in order.
 function applyMove(s, e) {
   if (s.over || edgeAt(s, e)) return null;
   setEdge(s, e, s.player); s.remaining--;
   const claimed = boxesOf(s, e).filter(([r, c]) => sides(s, r, c) === 4);
   for (const [r, c] of claimed) { s.boxes[r][c] = s.player; s.scores[s.player]++; }
   if (s.remaining === 0) s.over = true;
-  else if (!claimed.length) s.player = 3 - s.player;
+  else if (!claimed.length) s.player = nextPlayer(s);
   return claimed;
 }
-function winner(s) { return s.scores[1] === s.scores[2] ? 0 : s.scores[1] > s.scores[2] ? 1 : 2; }
+// Players sorted by score, best first. Equal scores share a rank (1, 1, 3, ...).
+function ranking(s) {
+  const out = [];
+  for (let p = 1; p <= s.players; p++) out.push({ p, score: s.scores[p], rank: 1 });
+  out.sort((a, b) => b.score - a.score || a.p - b.p);
+  out.forEach((x, i) => { x.rank = i > 0 && x.score === out[i - 1].score ? out[i - 1].rank : i + 1; });
+  return out;
+}
+// Single outright leader, or 0 when the top score is shared.
+function winner(s) {
+  const r = ranking(s);
+  return r.length > 1 && r[1].score === r[0].score ? 0 : r[0].p;
+}
 
-// Move classification for the AI: does it complete a box; does it hand the opponent a 3-sided box.
+// Move classification for the AI: does it complete a box; does it hand the next player a 3-sided box.
 function classify(s, e) {
   const sd = boxesOf(s, e).map(([r, c]) => sides(s, r, c));
   return { scores: sd.some((x) => x === 3), gives: sd.some((x) => x === 2) };
 }
-// Boxes the opponent can collect greedily if this (non-scoring) edge is played now.
+// Boxes the next player can collect greedily if this (non-scoring) edge is played now.
 function giveaway(s, e) {
   const t = cloneState(s); applyMove(t, e);
   let taken = 0;
@@ -175,35 +193,82 @@ function aiMove(s, level, rnd = Math.random) {
 // ---------- UI ----------
 const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
 const $ = (id) => document.getElementById(id);
-const ui = { turn: $('turn'), turnName: $('turnName'), s1: $('s1'), s2: $('s2'), score1: $('score1'), score2: $('score2'),
-  name1: $('name1'), name2: $('name2'), grid: $('grid'), mode: $('mode'), over: $('over'), winner: $('winner'), count: $('count') };
+const ui = { turn: $('turn'), turnName: $('turnName'), scores: $('scores'), seats: $('seats'),
+  grid: $('grid'), players: $('players'), over: $('over'), winner: $('winner'), count: $('count') };
+const SEAT_KINDS = [['human', 'Human'], ['easy', 'Computer · Easy'], ['normal', 'Computer · Normal'], ['hard', 'Computer · Hard']];
 
 let S, size = 0, pad = 0, cell = 0, hoverEdge = null, particles = [], aiTimer = null, lastFrame = 0;
 const edgeAnim = new Map(), boxAnim = new Map();   // key -> timestamp the line / box appeared
+const scoreEls = {};                                // player -> { el, val }
 const opts = loadOpts();
 
+// opts.seats[p] is 'human' | 'easy' | 'normal' | 'hard' for seats 2..players; seat 1 is always human.
 function loadOpts() {
-  let o = { grid: DEFAULT_GRID, mode: '2p' };
-  try { o = { ...o, ...JSON.parse(localStorage.getItem('dgames.dots.opts') || '{}') }; } catch (e) { /* ignore */ }
-  ui.grid.value = o.grid; ui.mode.value = o.mode;
+  let o = { grid: DEFAULT_GRID, players: 2, seats: {} };
+  try {
+    const saved = JSON.parse(localStorage.getItem('dgames.dots.opts') || '{}');
+    o = { ...o, ...saved, seats: { ...(saved.seats || {}) } };
+    if (saved.mode && !saved.seats) o.seats[2] = saved.mode === '2p' ? 'human' : saved.mode;   // older saved options
+  } catch (e) { /* ignore */ }
+  o.players = Math.max(MIN_PLAYERS, Math.min(MAX_PLAYERS, +o.players || 2));
+  ui.grid.value = o.grid; ui.players.value = o.players;
   if (!ui.grid.value) ui.grid.value = DEFAULT_GRID;
-  if (!ui.mode.value) ui.mode.value = '2p';
+  if (!ui.players.value) ui.players.value = 2;
   return o;
 }
 function saveOpts() { try { localStorage.setItem('dgames.dots.opts', JSON.stringify(opts)); } catch (e) { /* ignore */ } }
 
-const isAi = () => opts.mode !== '2p';
-const isAiTurn = () => isAi() && S.player === 2 && !S.over;
-const playerName = (p) => (isAi() ? (p === 1 ? 'You' : 'Computer') : 'Player ' + p);
+const seatKind = (p) => (p === 1 ? 'human' : (opts.seats[p] || 'human'));
+const isAiSeat = (p) => seatKind(p) !== 'human';
+const isAiTurn = () => !S.over && isAiSeat(S.player);
+function playerName(p) {
+  let humans = 0, computers = 0;
+  for (let q = 1; q <= opts.players; q++) if (isAiSeat(q)) computers++; else humans++;
+  if (isAiSeat(p)) return computers === 1 ? 'Computer' : 'Computer ' + p;
+  return humans === 1 ? 'You' : 'Player ' + p;
+}
+
+// Seat selectors (one per seat from 2 up), rebuilt when the player count changes.
+function buildSeats() {
+  ui.seats.innerHTML = '';
+  for (let p = 2; p <= opts.players; p++) {
+    const seat = document.createElement('label');
+    seat.className = 'seat'; seat.style.setProperty('--pc', COLORS[p]); seat.title = 'Seat ' + p;
+    const sw = document.createElement('span'); sw.className = 'sw';
+    const sel = document.createElement('select'); sel.dataset.seat = p;
+    for (const [v, label] of SEAT_KINDS) { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o); }
+    sel.value = seatKind(p);
+    sel.addEventListener('change', () => { opts.seats[p] = sel.value; init(); });
+    seat.append(sw, document.createTextNode('P' + p), sel);
+    ui.seats.appendChild(seat);
+  }
+}
+function buildScores() {
+  ui.scores.innerHTML = '';
+  for (const k of Object.keys(scoreEls)) delete scoreEls[k];
+  for (let p = 1; p <= S.players; p++) {
+    const el = document.createElement('div');
+    el.className = 'score'; el.id = 'score' + p; el.style.setProperty('--pc', COLORS[p]);
+    const sw = document.createElement('span'); sw.className = 'sw';
+    const name = document.createElement('span'); name.textContent = playerName(p);
+    const val = document.createElement('b'); val.id = 's' + p; val.textContent = '0';
+    el.append(sw, name, val);
+    ui.scores.appendChild(el);
+    scoreEls[p] = { el, val };
+  }
+}
 
 function init() {
   clearTimeout(aiTimer); aiTimer = null;
-  opts.grid = +ui.grid.value; opts.mode = ui.mode.value; saveOpts();
-  S = newState(opts.grid);
+  opts.grid = +ui.grid.value; opts.players = +ui.players.value;
+  for (const k of Object.keys(opts.seats)) if (+k > opts.players) delete opts.seats[k];
+  saveOpts();
+  S = newState(opts.grid, opts.players);
   hoverEdge = null; particles = []; edgeAnim.clear(); boxAnim.clear();
   ui.over.classList.remove('show');
-  ui.name1.textContent = playerName(1); ui.name2.textContent = playerName(2);
+  buildSeats(); buildScores();
   layout(); drawHUD(false);
+  if (isAiTurn()) scheduleAi();
 }
 
 function layout() {
@@ -244,10 +309,13 @@ function roundRect(x, y, w, h, r) {
   ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
+// One soft glow per player, spread around the board.
 function drawBackground(now) {
   ctx.fillStyle = COLORS.bg; ctx.fillRect(0, 0, size, size);
   const drift = Math.sin(now / 4000) * size * 0.05;
-  for (const [p, cx, cy] of [[1, size * 0.22 + drift, size * 0.2], [2, size * 0.8 - drift, size * 0.82]]) {
+  for (let p = 1; p <= S.players; p++) {
+    const a = -Math.PI * 0.75 + (p - 1) * Math.PI * 2 / S.players;
+    const cx = size / 2 + Math.cos(a) * (size * 0.4 + drift), cy = size / 2 + Math.sin(a) * (size * 0.4 + drift);
     const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.75);
     g.addColorStop(0, COLORS[p] + '1c'); g.addColorStop(1, COLORS[p] + '00');
     ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
@@ -332,18 +400,24 @@ function drawParticles() {
 
 // ---- HUD ----
 function drawHUD(bump) {
-  ui.s1.textContent = S.scores[1]; ui.s2.textContent = S.scores[2];
-  ui.turn.classList.toggle('p2', S.player === 2);
+  for (let p = 1; p <= S.players; p++) {
+    scoreEls[p].val.textContent = S.scores[p];
+    scoreEls[p].el.classList.toggle('active', !S.over && S.player === p);
+  }
+  ui.turn.style.setProperty('--pc', S.over ? 'var(--text)' : COLORS[S.player]);
   ui.turn.classList.toggle('thinking', isAiTurn());
   ui.turnName.textContent = S.over ? 'Game over' : playerName(S.player) + (isAiTurn() ? '' : ' to play');
   if (bump) { ui.turn.classList.remove('bump'); void ui.turn.offsetWidth; ui.turn.classList.add('bump'); }
 }
 function popScore(p) {
-  const el = p === 1 ? ui.score1 : ui.score2;
+  const el = scoreEls[p].el;
   el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
 }
 
 // ---- game flow ----
+function scheduleAi() {
+  aiTimer = setTimeout(() => { aiTimer = null; play(aiMove(S, seatKind(S.player))); }, 480);
+}
 function play(e) {
   const p = S.player, now = performance.now();
   const claimed = applyMove(S, e);
@@ -358,15 +432,27 @@ function play(e) {
   hoverEdge = null;
   drawHUD(S.player !== p);
   if (S.over) setTimeout(endGame, 650);
-  else if (isAiTurn()) aiTimer = setTimeout(() => { aiTimer = null; play(aiMove(S, opts.mode)); }, 480);
+  else if (isAiTurn()) scheduleAi();
 }
 function endGame() {
-  const w = winner(S), total = (S.n - 1) * (S.n - 1);
-  ui.winner.className = w ? 'p' + w : '';
-  ui.winner.textContent = w ? (isAi() ? (w === 1 ? 'You win!' : 'Computer wins') : 'Player ' + w + ' wins!') : 'Draw';
-  ui.count.innerHTML = `${playerName(1)} <b>${S.scores[1]}</b> · ${playerName(2)} <b>${S.scores[2]}</b> · ${total} boxes`;
+  const w = winner(S), rank = ranking(S), total = (S.n - 1) * (S.n - 1);
+  const leaders = rank.filter((x) => x.rank === 1).map((x) => x.p);
+  ui.winner.style.setProperty('--pc', w ? COLORS[w] : 'var(--text)');
+  ui.winner.classList.toggle('glow', !!w);
+  if (w) ui.winner.textContent = playerName(w) === 'You' ? 'You win!' : playerName(w) + ' wins!';
+  else if (leaders.length === S.players) ui.winner.textContent = 'Draw';
+  else ui.winner.textContent = 'Tie: ' + leaders.map(playerName).join(' & ');
+  ui.count.innerHTML = '';
+  for (const x of rank) {
+    const row = document.createElement('div'); row.className = 'row';
+    const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = COLORS[x.p]; sw.style.boxShadow = '0 0 8px ' + COLORS[x.p];
+    const txt = document.createElement('span'); txt.textContent = x.rank + '. ' + playerName(x.p) + ' ';
+    const b = document.createElement('b'); b.textContent = x.score;
+    row.append(sw, txt, b); ui.count.appendChild(row);
+  }
+  const tot = document.createElement('div'); tot.textContent = total + ' boxes'; ui.count.appendChild(tot);
   ui.over.classList.add('show');
-  spawnConfetti(w ? [COLORS[w], '#ffffff', COLORS[w]] : [COLORS[1], COLORS[2]]);
+  spawnConfetti(w ? [COLORS[w], '#ffffff', COLORS[w]] : leaders.map((p) => COLORS[p]));
 }
 
 function pointerPos(ev) {
@@ -397,7 +483,7 @@ canvas.addEventListener('pointerdown', handleClick);
 $('restart').addEventListener('click', init);
 $('again').addEventListener('click', init);
 ui.grid.addEventListener('change', init);
-ui.mode.addEventListener('change', init);
+ui.players.addEventListener('change', init);
 window.addEventListener('resize', layout);
 window.addEventListener('keydown', (ev) => { if (ev.key === 'n' || ev.key === 'N') init(); });
 
