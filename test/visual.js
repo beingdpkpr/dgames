@@ -48,6 +48,7 @@ const path = require('path'); const fs = require('fs');
   await page.evaluate(() => { window.__dbg.aim(0.0); window.__dbg.pressShot('ground'); });
   await adv(0.15); await shot('15-drive-late');
   await until(s => s.state === 'dead', 15); await adv(0.3); await shot('16-late-result');
+  await page.evaluate(() => window.__dbg.celebrate(true)); await adv(2.0); await shot('16b-celebration');
   await page.evaluate(() => window.__dbg.manual(false));
   await page.keyboard.press('Escape'); await page.waitForTimeout(200); await shot('17-paused');
   console.log('match', await page.evaluate(() => JSON.stringify(window.__dbg.match)));

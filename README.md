@@ -26,6 +26,9 @@ Every fielder predicts the ball's path and runs for the earliest point they can 
 ## Run outs
 Once a ball is fielded it is thrown at the end the striker is running to. Batters nearly home make it, batters well short turn back, and in between they take on the throw: a direct hit runs them out.
 
+## Celebrations
+Winning a chase brings fireworks over the stands, a bouncing crowd and bat-raised batters; the tournament final gets the long version. Quick play celebrates a new best score.
+
 ## Injuries
 A missed ball can strike the batter. A blow to the body or helmet leaves them bruised (less power, tighter timing) or forces them to retire hurt, bringing in the next batter without costing a wicket. Fielders can get hurt diving and are replaced by the twelfth man; a bowler can pull up before an over and a part-timer takes it. In a tournament your injured players miss the next round.
 

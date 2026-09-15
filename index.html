@@ -509,6 +509,54 @@ function trailPush(p) {
   trailGeo.attributes.position.needsUpdate = true; trailGeo.setDrawRange(0, trailCount);
 }
 
+// ---------- fireworks and celebration ----------
+const FW_N = 700;
+const fwPos = new Float32Array(FW_N * 3), fwCol = new Float32Array(FW_N * 3), fwVel = new Float32Array(FW_N * 3), fwLife = new Float32Array(FW_N);
+const fwGeo = new THREE.BufferGeometry();
+fwGeo.setAttribute('position', new THREE.BufferAttribute(fwPos, 3)); fwGeo.setAttribute('color', new THREE.BufferAttribute(fwCol, 3));
+const fireworks = new THREE.Points(fwGeo, new THREE.PointsMaterial({ size: 1.6, vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false }));
+fireworks.visible = false; fireworks.frustumCulled = false; scene.add(fireworks);
+let celebration = null, fwNext = 0, fwIdx = 0;
+function startCelebration(big, text) { celebration = { t0: simTime, big, text }; fwNext = simTime + 0.3; fwLife.fill(0); playCrowd(true); }
+function burst(x, y, z) {
+  const col = new THREE.Color().setHSL(Math.random(), 0.9, 0.62);
+  for (let k = 0; k < 70; k++) {
+    const i = fwIdx = (fwIdx + 1) % FW_N;
+    const th = rand(0, Math.PI * 2), ph = Math.acos(rand(-1, 1)), sp = rand(5, 13);
+    fwVel[i * 3] = Math.sin(ph) * Math.cos(th) * sp; fwVel[i * 3 + 1] = Math.cos(ph) * sp; fwVel[i * 3 + 2] = Math.sin(ph) * Math.sin(th) * sp;
+    fwPos[i * 3] = x; fwPos[i * 3 + 1] = y; fwPos[i * 3 + 2] = z;
+    fwCol[i * 3] = col.r; fwCol[i * 3 + 1] = col.g; fwCol[i * 3 + 2] = col.b;
+    fwLife[i] = rand(1.2, 2.2);
+  }
+}
+function updateCelebration(dt) {
+  if (!celebration) return;
+  const t = simTime - celebration.t0, dur = celebration.big ? 10 : 5.5;
+  crowdCheer = simTime;                                     // keep the crowd on its feet
+  if (t > dur) { celebration = null; fireworks.visible = false; return; }
+  fireworks.visible = true;
+  if (simTime >= fwNext) {
+    const a = rand(0, Math.PI * 2), r = rand(55, 95);
+    burst(FIELD_CENTER.x + Math.cos(a) * r, rand(28, 55), FIELD_CENTER.z + Math.sin(a) * r);
+    fwNext = simTime + (celebration.big ? 0.22 : 0.45);
+  }
+  for (let i = 0; i < FW_N; i++) {
+    if (fwLife[i] <= 0) { fwPos[i * 3 + 1] = -100; continue; }
+    fwLife[i] -= dt; fwVel[i * 3 + 1] -= 5 * dt;
+    fwPos[i * 3] += fwVel[i * 3] * dt; fwPos[i * 3 + 1] += fwVel[i * 3 + 1] * dt; fwPos[i * 3 + 2] += fwVel[i * 3 + 2] * dt;
+    const f = clamp(fwLife[i] / 0.6, 0, 1); fwCol[i * 3] *= 0.5 + 0.5 * f; fwCol[i * 3 + 1] *= 0.5 + 0.5 * f; fwCol[i * 3 + 2] *= 0.5 + 0.5 * f;
+  }
+  fwGeo.attributes.position.needsUpdate = true; fwGeo.attributes.color.needsUpdate = true;
+  if (t > 1.3 && !celebration.said) { celebration.said = true; showMsg(celebration.text, 'six'); }
+  if (t > 2.4 && !celebration.cheer2) { celebration.cheer2 = true; playCrowd(true); }
+}
+function celebratePose(t) {
+  const p = stancePose(0);
+  p.hands = V3(-0.05, 1.95, -1.2); p.tip = V3(0.15, 1, 0.1); p.elbowOut = V3(0.25, 0.1, -0.1);
+  p.shoulder = V3(-0.2, 1.45, -1.2); p.bendL = p.bendR = 0.08 + 0.1 * Math.max(0, Math.sin(t * 6));
+  return p;
+}
+
 // ---------- aim arrow ----------
 const aimGroup = new THREE.Group();
 (function () {
@@ -701,7 +749,7 @@ function resetBallScene() {
   stumps.rotation.set(0, 0, 0); stumpsFall = null; farStumps.rotation.set(0, 0, 0); farStumpsFall = null; throwPlan = null;
   for (const f of allFielders) { f.catching = false; f.attempted = false; f.dived = false; f.fumbled = false; f.prevD = 1e9; f.role = 'hold'; f.spd = 0; if (!f.isBowler) f.target.copy(f.home); }
   trailReset();
-  runners.active = false; runners.t = 0; runners.stopAt = undefined; runners.frozen = false;
+  runners.active = false; runners.t = 0; runners.stopAt = undefined; runners.frozen = false; celebration = null; fireworks.visible = false;
   striker.group.position.set(0, 0, 0); striker.group.rotation.y = 0; poseRig(striker, stancePose(0));
   nonStriker.group.position.set(1.3, 0, FAR_CREASE_Z - 0.3); nonStriker.group.rotation.y = Math.PI; poseRig(nonStriker, runPose(0, 0.1));
 }
@@ -909,6 +957,14 @@ function startSwing(theta) {
   swing = { t0: simTime, back, contact, follow };
 }
 function updateBatterPose() {
+  if (celebration) {
+    const t = simTime - celebration.t0, hop = Math.max(0, Math.sin(t * 6)) * 0.18;
+    striker.group.position.set(-1.2, hop, -1.0); striker.group.rotation.y = -Math.PI / 2;        // turns to the crowd behind
+    poseRig(striker, celebratePose(t));
+    nonStriker.group.position.set(0.1, hop, FAR_CREASE_Z + 0.9); nonStriker.group.rotation.y = -Math.PI / 2;
+    poseRig(nonStriker, celebratePose(t + 1));
+    return;
+  }
   if (runners.active) return;                                             // running handles the pose
   let pose;
   if (simTime < flinchUntil) {
@@ -930,7 +986,7 @@ function updateBatterPose() {
 // Batters run between the wickets while the ball is live; each run takes about 3 s.
 const runners = { active: false, t: 0, stopAt: undefined, RUN: 3.05, SPEED: 6.4 };
 function updateRunners() {
-  if (!runners.active) return;
+  if (!runners.active || celebration) return;
   const t = simTime - runners.t - 0.45;
   const tt = Math.max(0, runners.stopAt !== undefined ? Math.min(t, runners.stopAt) : t);
   const run = Math.floor(tt / runners.RUN), within = tt - run * runners.RUN;
@@ -1004,8 +1060,8 @@ function startThrow(f, extra) {
   const done = Math.floor(r / runners.RUN), frac = (r - done * runners.RUN) / runners.RUN;
   let res;
   if (frac >= 0.9) res = { runs: done + 1 };
-  else if (frac < 0.7) res = { runs: done };
-  else if (Math.random() < 0.35) res = { runout: true, runs: done, f, endZ };
+  else if (frac < 0.76) res = { runs: done };
+  else if (Math.random() < 0.3) res = { runout: true, runs: done, f, endZ };
   else res = { runs: done + 1 };
   res.runs = Math.min(res.runs, 4);
   throwPlan = { endZ, tArrive, tFly, res, throwAt: simTime + pickup, from: f.pos.clone() };
@@ -1073,7 +1129,14 @@ function endBall(res) {
   }
   match.balls++; match.over.push(sym);
   updateHud();
-  if (target !== null && match.runs >= target) deadTime = simTime - 1.0;   // chase done: shorter wait, then endMatch
+  if (target !== null && match.runs >= target) {
+    const final = mode === 'tournament' && tour.round === ROUNDS.length - 1;
+    startCelebration(final, final ? `${myTeam.name.toUpperCase()} ARE CHAMPIONS!` : `${myTeam.name.toUpperCase()} WIN!`);
+    deadTime = simTime + (final ? 6.5 : 2.6);
+  } else if (mode === 'quick' && (match.balls >= totalBalls || match.wkts >= MAX_WICKETS || match.batIdx >= match.order.length) && match.runs > match.best && match.best > 0) {
+    startCelebration(false, `NEW BEST: ${match.runs}!`);
+    deadTime = simTime + 2.6;
+  }
 }
 function newBatter() {
   match.batIdx++;
@@ -1272,7 +1335,7 @@ function checkEvents() {
     if ((b.phase === 'delivery' || b.phase === 'miss') && b.prev.z < STUMPS_Z && b.pos.z >= STUMPS_Z) {
       if (Math.abs(b.pos.x) < 0.17 && b.pos.y < 0.78) { stumpsFall = simTime; b.vel.multiplyScalar(0.25); b.vel.y = 1.5; b.phase = 'bowled'; endBall({ wicket: 'Bowled', how: `b ${curBowler.name}` }); return; }
     }
-    if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.3) < 0.22 && b.pos.y > 0.75 && b.pos.y < 2.0) {
+    if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.3) < 0.18 && b.pos.y > 0.85 && b.pos.y < 2.0) {
       // struck on the body or helmet: ball dead, the batter may be shaken up or forced off
       const helmet = b.pos.y > 1.4, sp = b.vel.length();
       b.vel.set(rand(-1, 1), 1.5, -2); b.phase = 'blow'; flinchUntil = simTime + 1.6; swing = null;
@@ -1354,6 +1417,8 @@ function updateCamera(dt) {
     k = 1 - Math.exp(-dt * 6);
   } else if (state === 'runup') {
     tp = CAM_BAT.pos; tl = CAM_BAT.look; k = 1;                            // the cut
+  } else if (celebration && state === 'dead' && simTime - celebration.t0 > 1.0) {
+    tp = V3(2.5, 2.2, 3.5); tl = V3(0, 1.3, -1.5); k = 1 - Math.exp(-dt * 2.0);
   } else if (state === 'live' || (state === 'dead' && lastHit && simTime - deadTime < 1.3)) {
     const vh = V3(ball.vel.x, 0, ball.vel.z);
     if (vh.length() > 1) camState.lastDir.copy(vh.normalize());
@@ -1436,6 +1501,7 @@ function tick(dt) {
   updateFielders(dt);
   updateBatterPose();
   updateRunners();
+  updateCelebration(dt);
   updateCamera(dt);
   tbarUpdate();
   drawRadar();
@@ -1467,7 +1533,7 @@ requestAnimationFrame(frame);
 window.__dbg = {
   get state() { return state; }, get runupT() { return runupT; }, get simTime() { return simTime; }, get phase() { return ball.phase; },
   get ballZ() { return ball.pos.z; }, get ballVz() { return ball.vel.z; }, match,
-  pressShot, aim(t) { aimTheta = t; }, manual(on) { manual = on; }, advance(sec) { const n = Math.max(1, Math.round(sec * 60)); for (let i = 0; i < n; i++) tick(1 / 60); },
+  pressShot, aim(t) { aimTheta = t; }, manual(on) { manual = on; }, celebrate(big) { state = 'dead'; deadTime = simTime + 8; startCelebration(big, 'TEST WIN!'); }, advance(sec) { const n = Math.max(1, Math.round(sec * 60)); for (let i = 0; i < n; i++) tick(1 / 60); },
 };
 </script>
 </body>
