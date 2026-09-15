@@ -17,9 +17,10 @@
   #score .who { font-size: 14px; margin-top: 6px; font-weight: 600; }
   #score .who span { color: var(--accent); }
   #over { top: 14px; right: 14px; text-align: right; }
-  #over .balls { display: flex; gap: 5px; justify-content: flex-end; margin-top: 6px; }
+  #over .balls { display: flex; gap: 5px; justify-content: flex-end; margin-top: 6px; flex-wrap: wrap; max-width: 260px; margin-left: auto; }
   #over .balls span { display: inline-flex; width: 26px; height: 26px; border-radius: 50%; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; background: #2a3d56; }
-  #over .balls span.w { background: #d6322f; } #over .balls span.b4 { background: #2e8b57; } #over .balls span.b6 { background: #9b59b6; } #over .balls span.empty { background: transparent; border: 1px dashed #5d7390; }
+  #over .balls span.w { background: #d6322f; } #over .balls span.ex { background: #7a5c1e; font-size: 11px; }
+  #bowler.free::after { content: ' · FREE HIT'; color: var(--accent); font-weight: 700; } #over .balls span.b4 { background: #2e8b57; } #over .balls span.b6 { background: #9b59b6; } #over .balls span.empty { background: transparent; border: 1px dashed #5d7390; }
   #bowler { font-size: 13px; opacity: .9; }
   #msg { position: absolute; left: 50%; top: 20%; transform: translateX(-50%); font-family: var(--display); font-size: 84px; font-weight: 900; text-shadow: 0 4px 18px rgba(0,0,0,.6); opacity: 0; letter-spacing: 2px; white-space: nowrap; }
   #msg.show { animation: pop 2.2s ease-out forwards; }
@@ -612,7 +613,7 @@ function playStumps() {
 const ball = {
   pos: V3(0, 1, -30), vel: V3(), prev: V3(),
   phase: 'idle', pitched: false, rolling: false, bounced: false, bounces: 0,
-  pitchRest: 0.68, pitchZ: -6, crossed: false, tCross: 0, hitTime: 0, spinRot: V3(), swing: 0, turn: 0, variation: '', tRelease: 0, tContactEst: 1,
+  pitchRest: 0.68, pitchZ: -6, pitchX: 0, crossed: false, tCross: 0, hitTime: 0, spinRot: V3(), swing: 0, turn: 0, variation: '', tRelease: 0, tContactEst: 1, noBall: false, wideBall: false, extra: null,
 };
 let state = 'menu';       // menu | runup | flight | live | dead | end
 let simTime = 0, runupT = 0, released = false, deadTime = 0;
@@ -622,7 +623,8 @@ let shot = null, swing = null, aimTheta = 0;
 let stumpsFall = null;
 let catchInfo = null, lastHit = false, lastPlan = 0, paused = false, manual = false;
 let mode = 'quick', target = null;
-const match = { runs: 0, wkts: 0, balls: 0, fours: 0, sixes: 0, over: [], best: 0, card: [], order: [], batIdx: 0 };
+const match = { runs: 0, wkts: 0, balls: 0, fours: 0, sixes: 0, over: [], best: 0, card: [], order: [], batIdx: 0, extras: 0 };
+let freeHit = false;
 let flinchUntil = 0, notices = [];
 try { match.best = +localStorage.getItem('cricket3d_best') || 0; } catch (e) {}
 try { const t = localStorage.getItem('cricket3d_team'); if (t) myTeam = TEAMS.find(x => x.name === t) || myTeam; } catch (e) {}
@@ -662,13 +664,15 @@ function updateHud() {
   const cur = match.card[match.batIdx];
   $('who').innerHTML = cur ? `<span>${cur.name}</span> ${cur.runs} (${cur.balls})${cur.left ? ' <small>LHB</small>' : ''}` : '';
   const b = $('balls'); b.innerHTML = '';
-  for (let i = 0; i < 6; i++) {
+  const legal = match.over.filter(v => !/Wd|Nb/.test(v)).length;
+  for (let i = 0; i < match.over.length + (6 - legal); i++) {
     const s = document.createElement('span');
     const v = match.over[i];
     if (v === undefined) s.className = 'empty';
-    else { s.textContent = v; s.className = v === 'W' ? 'w' : v === '4' ? 'b4' : v === '6' ? 'b6' : ''; }
+    else { s.textContent = v; s.className = v === 'W' ? 'w' : v === '4' ? 'b4' : v === '6' ? 'b6' : /Wd|Nb|B/.test(v) ? 'ex' : ''; }
     b.appendChild(s);
   }
+  const bl = $('bowler'); bl.classList.toggle('free', freeHit);
 }
 function showMsg(text, cls) {
   const m = $('msg'); m.className = ''; void m.offsetWidth; m.textContent = text; m.className = 'show ' + cls;
@@ -805,7 +809,11 @@ function release() {
   const kindAdj = curBowler.kind === 'medium' ? -2.5 : 0;
   const speed = (bowlerType === 'pace' ? rand(D.paceMin, D.paceMax) : rand(D.spinMin, D.spinMax)) + boost * (bowlerType === 'pace' ? 1 : 0.6) + (V.spd || 0) + kindAdj + curBowler.pace;
   const lenZ = -rand(V.len[0], V.len[1]);
-  const lineX = rand(V.line[0], V.line[1]) * hand();
+  const turn = (V.turn ? V.turn() : 0) * hand();
+  let lineX = rand(V.line[0], V.line[1]) * hand() - turn * 0.22;                 // aims allowing for his own turn
+  ball.wideBall = Math.random() < 0.045;
+  if (ball.wideBall) lineX = (Math.random() < 0.7 ? rand(1.1, 1.5) : -rand(0.95, 1.25)) * hand();     // sprayed wide of off, or down the leg side
+  ball.noBall = Math.random() < (bowlerType === 'pace' ? 0.04 : 0.015);
   bowler.updateMatrixWorld(true);
   const handPos = V3(0, -0.62, 0); bowler.userData.armR.localToWorld(handPos);
   const x0 = handPos.x, y0 = clamp(handPos.y, 1.7, 2.3), z0 = handPos.z;
@@ -814,16 +822,16 @@ function release() {
   const vy = (BALL_R - y0 + 0.5 * G * t * t) / t;
   ball.pos.set(x0, y0, z0); ball.prev.copy(ball.pos);
   ball.vel.set(dx / t - 0.5 * swingA * t, vy, dz / t);   // aim off so the swing brings it back to the line
-  Object.assign(ball, { phase: 'delivery', pitched: false, rolling: false, bounced: false, bounces: 0, crossed: false, pitchZ: lenZ, swing: swingA, turn: (V.turn ? V.turn() : 0) * hand(), variation: V.name, tRelease: simTime });
+  Object.assign(ball, { phase: 'delivery', pitched: false, rolling: false, bounced: false, bounces: 0, crossed: false, overHead: false, extra: null, pitchZ: lenZ, swing: swingA, turn, variation: V.name, tRelease: simTime });
   ball.pitchRest = V.rest ? rand(V.rest[0], V.rest[1]) : rand(0.62, 0.74);
   ball.tContactEst = (CONTACT_Z - z0) / ball.vel.z * 1.04;
   ball.spinRot.set(rand(-20, 20), rand(-20, 20), rand(-20, 20));
   released = true; state = 'flight'; trailReset();
   tbarSetup();
-  showTiming(`${V.name} · ${Math.round(speed * 3.6 * 1.55)} km/h`, '#cfe6ff');
+  showTiming(ball.noBall ? `NO BALL! · ${V.name}` : `${V.name} · ${Math.round(speed * 3.6 * 1.55)} km/h`, ball.noBall ? '#ff8a80' : '#cfe6ff');
 }
 function onPitched() {
-  ball.pitchZ = ball.pos.z;
+  ball.pitchZ = ball.pos.z; ball.pitchX = ball.pos.x;
   ball.vel.x += ball.turn;
 }
 
@@ -885,7 +893,8 @@ function pressShot(type) {
 }
 function evaluateShot(delta) {
   const D = diff, ad = Math.abs(delta), sore = match.card[match.batIdx].sore ? 0.85 : 1;
-  if (ball.pos.y > 1.95) { showTiming('Over your head!', '#ff8a80'); ball.phase = 'miss'; return; }
+  if (ball.pos.y > 1.95) { showTiming('Over your head!', '#ff8a80'); ball.phase = 'miss'; ball.overHead = true; return; }
+  if (Math.abs(ball.pos.x) > 1.15 || ball.pos.x * hand() < -0.7) { showTiming('Out of reach', '#ff8a80'); ball.phase = 'miss'; return; }
   let q = ad <= D.perfect * sore ? 1 : 1 - (ad - D.perfect * sore) / (D.window * sore - D.perfect * sore);
   if (q <= 0) {
     if (ad < D.window * 1.7 && Math.random() < 0.5) { playEdge(); return; }
@@ -1133,7 +1142,11 @@ function endBall(res) {
   if (state !== 'live' && state !== 'flight') return;
   state = 'dead'; deadTime = simTime;
   const cur = match.card[match.batIdx];
-  cur.balls++;
+  const extra = res.extra || ball.extra || null;                          // wd | b | lb from the delivery itself
+  const nb = ball.noBall, wd = extra === 'wd';
+  // a free hit or no-ball voids every dismissal except a run out
+  if (res.wicket && (freeHit || nb) && !res.runout) { showTiming(nb ? 'Not out · no ball' : 'Not out · free hit', '#7ef29a'); res = { runs: res.runs || 0 }; }
+  if (!wd) cur.balls++;
   let sym;
   if (res.retired) {
     sym = '0'; cur.how = 'retired hurt'; cur.injured = true;
@@ -1151,16 +1164,27 @@ function endBall(res) {
   } else if (res.six) {
     match.runs += 6; cur.runs += 6; match.sixes++; sym = '6'; showMsg('SIX!', 'six'); playCrowd(true);
     runners.stopAt = 0.5;
-  } else if (res.four) {
+  } else if (res.four && !extra) {
     match.runs += 4; cur.runs += 4; match.fours++; sym = '4'; showMsg('FOUR!', 'four'); playCrowd(true);
     runners.stopAt = Math.max(0.5, simTime - runners.t - 0.45);
+  } else if (extra) {
+    const label = { wd: 'Wide', b: 'Bye', lb: 'Leg bye' }[extra];
+    const n = res.four ? 4 : res.runs;
+    match.runs += n + (wd ? 1 : 0); match.extras += n + (wd ? 1 : 0);
+    sym = (n ? n : '') + { wd: 'Wd', b: 'B', lb: 'LB' }[extra];
+    showMsg(wd ? (n ? `Wide + ${n}` : 'Wide') : n ? `${n} ${label}${n > 1 ? 's' : ''}` : 'No run', 'run');
+    runners.stopAt = n * runners.RUN + (n ? 0 : 0.4);
   } else {
     match.runs += res.runs; cur.runs += res.runs; sym = String(res.runs);
-    showMsg(res.runs === 0 ? 'No run' : res.runs === 1 ? '1 run' : `${res.runs} runs`, 'run');
+    showMsg(res.runs === 0 ? (nb ? 'No ball' : 'No run') : res.runs === 1 ? '1 run' : `${res.runs} runs`, 'run');
     if (res.runs > 0) playCrowd(false);
     runners.stopAt = res.runs * runners.RUN + (res.runs ? 0 : 0.4);
   }
-  match.balls++; match.over.push(sym);
+  if (nb) { match.runs += 1; match.extras += 1; sym = (sym === '0' ? '' : sym) + 'Nb'; }
+  const legal = !nb && !wd;
+  freeHit = nb ? true : (legal ? false : freeHit);
+  if (legal) match.balls++;
+  match.over.push(sym);
   updateHud();
   if (target !== null && match.runs >= target) {
     const final = mode === 'tournament' && tour.round === ROUNDS.length - 1;
@@ -1191,7 +1215,7 @@ function endMatch() {
   const allOut = match.wkts >= MAX_WICKETS || match.batIdx >= match.order.length;
   const sr = match.balls ? (match.runs * 100 / match.balls).toFixed(1) : '0.0';
   const hurt = match.card.filter(c => c.injured).map(c => c.name);
-  const lines = [['Score', `${match.runs}/${match.wkts}`], ['Balls faced', match.balls], ['Fours / Sixes', `${match.fours} / ${match.sixes}`], ['Strike rate', sr]];
+  const lines = [['Score', `${match.runs}/${match.wkts}`], ['Balls faced', match.balls], ['Fours / Sixes', `${match.fours} / ${match.sixes}`], ['Extras', match.extras], ['Strike rate', sr]];
   if (mode === 'quick') {
     if (match.runs > match.best) { match.best = match.runs; try { localStorage.setItem('cricket3d_best', match.best); } catch (e) {} }
     lines.push(['Best score', match.best]);
@@ -1257,7 +1281,8 @@ function setupTeams() {
 function startMatch() {
   const out = mode === 'tournament' ? (tour.injured || []).filter(i => i.until > tour.round).map(i => i.name) : [];
   const order = myTeam.players.filter(n => !out.includes(n)).slice(0, 11);
-  Object.assign(match, { runs: 0, wkts: 0, balls: 0, fours: 0, sixes: 0, over: [], batIdx: 0, order, card: [{ name: order[0], runs: 0, balls: 0, how: 'not out', left: isLefty(order[0]) }] });
+  freeHit = false;
+  Object.assign(match, { runs: 0, wkts: 0, balls: 0, fours: 0, sixes: 0, extras: 0, over: [], batIdx: 0, order, card: [{ name: order[0], runs: 0, balls: 0, how: 'not out', left: isLefty(order[0]) }] });
   notices = []; flinchUntil = 0;
   for (const f of allFielders) f.subbed = false;
   if (mode === 'tournament') {
@@ -1367,12 +1392,27 @@ function checkEvents() {
   const b = ball;
   if (state === 'flight') {
     if (b.phase === 'delivery' && !b.crossed && b.prev.z < CONTACT_Z && b.pos.z >= CONTACT_Z) {
-      b.crossed = true; b.tCross = simTime;
+      b.crossed = true; b.tCross = simTime; b.xCross = b.pos.x;
       if (shot) evaluateShot(shot.t - b.tCross);
     }
-    if (b.crossed && !shot && simTime - b.tCross > diff.window * 1.7 && b.phase === 'delivery') b.phase = 'miss';
+    if (b.crossed && !shot && simTime - b.tCross > diff.window * 1.7 && b.phase === 'delivery') { b.phase = 'miss'; if (b.pos.y > 1.95 && !b.overHead && b.prev.z < CONTACT_Z + 0.3) b.overHead = true; }
     if ((b.phase === 'delivery' || b.phase === 'miss') && b.prev.z < STUMPS_Z && b.pos.z >= STUMPS_Z) {
       if (Math.abs(b.pos.x) < 0.17 && b.pos.y < 0.78) { stumpsFall = simTime; b.vel.multiplyScalar(0.25); b.vel.y = 1.5; b.phase = 'bowled'; endBall({ wicket: 'Bowled', how: `b ${curBowler.name}` }); return; }
+    }
+    if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.3 * hand()) < 0.2 && b.pos.y > 0.1 && b.pos.y <= 0.85) {
+      // on the pads: would it have hit the stumps? pitched outside leg is never out
+      const t = (STUMPS_Z - b.pos.z) / b.vel.z, xs = b.pos.x + b.vel.x * t, ys = b.pos.y + b.vel.y * t - 0.5 * G * t * t;
+      const hitting = Math.abs(xs) < 0.16 && ys > 0 && ys < 0.75 && b.pitchX * hand() > -0.2;
+      if (hitting && !freeHit && !b.noBall) {
+        b.vel.set(rand(-1, 1) * 2, 1.2, -1.5); b.phase = 'blow'; flinchUntil = simTime + 1.2; swing = null;
+        endBall({ wicket: 'LBW', how: `lbw b ${curBowler.name}` }); return;
+      }
+      // off the pads for leg byes: a soft deflection to the leg side, fielders and runners take over
+      const dir = -hand();
+      b.vel.set(dir * rand(3, 8), rand(1, 3), rand(-4, 2)); b.phase = 'hit'; b.extra = 'lb'; b.bounced = false; b.rolling = false; b.hitTime = simTime;
+      showTiming('Off the pads', '#cfe6ff');
+      state = 'live'; for (const f of allFielders) { f.errX = rand(-1, 1); f.errZ = rand(-1, 1); } planFielding(); runners.active = true; runners.t = simTime;
+      return;
     }
     if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.3 * hand()) < 0.18 && b.pos.y > 0.85 && b.pos.y < 2.0) {
       // struck on the body or helmet: ball dead, the batter may be shaken up or forced off
@@ -1385,7 +1425,19 @@ function checkEvents() {
       return;
     }
     if (b.phase === 'miss' || b.phase === 'delivery') {
-      if (b.pos.z > keeper.pos.z - 0.6 || (b.rolling && b.vel.length() < 0.3)) { b.vel.set(0, 0, 0); b.rolling = true; endBall({ runs: 0 }); }
+      if (b.pos.z > keeper.pos.z - 0.6 || (b.rolling && b.vel.length() < 0.3)) {
+        const xc = b.crossed ? b.xCross : b.pos.x;                        // judged where it passes the batter
+        const wide = Math.abs(xc) > 1.05 || xc * hand() < -0.72 || (b.crossed && b.overHead);
+        if (b.pos.z > keeper.pos.z - 0.6 && (Math.abs(b.pos.x - keeper.pos.x) > 2.6 || b.pos.y > 2.3) && b.vel.length() > 3) {
+          // beats the keeper: byes (or more wides) are there for the taking
+          b.phase = 'hit'; b.extra = wide ? 'wd' : 'b'; b.bounced = true; b.hitTime = simTime;
+          showTiming(wide ? 'Wide, past the keeper!' : 'Past the keeper!', '#cfe6ff');
+          state = 'live'; for (const f of allFielders) { f.errX = rand(-1, 1); f.errZ = rand(-1, 1); } planFielding(); runners.active = true; runners.t = simTime;
+          return;
+        }
+        b.vel.set(0, 0, 0); b.rolling = true;
+        endBall(wide ? { runs: 0, extra: 'wd' } : { runs: 0 });
+      }
     }
     return;
   }
