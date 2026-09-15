@@ -181,18 +181,18 @@ const FIELD_POS = [
   ['Long-off', 20, -70],
 ];
 
-// Ten national squads. Order 1-6 bat (6 keeps wicket), 7-11 bowl; bowler kinds: fast, medium (pace), off (off-spin), leg (leg-spin).
+// Ten national squads. Order 1-6 bat (6 keeps wicket), 7-11 bowl, 12 is the substitute; bowler kinds: fast, medium (pace), off (off-spin), leg (leg-spin).
 const TEAMS = [
-  { name: 'India', color: 0x2266ee, players: ['R. Kaushik', 'S. Bhatt', 'V. Menon', 'A. Chauhan', 'K. Reddy', 'D. Saini', 'J. Malhotra', 'P. Yadav', 'M. Thakur', 'R. Iyengar', 'K. Bedi'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
-  { name: 'Australia', color: 0xe8c020, players: ['M. Harwood', 'T. Buckley', 'C. Lyle', 'J. Ferrier', 'A. Crowe', 'W. Dunne', 'B. Kershaw', 'L. Norrie', 'S. Pratt', 'N. Hogan', 'A. Zorn'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
-  { name: 'England', color: 0x0c2c84, players: ['J. Whitaker', 'O. Bell', 'H. Carrick', 'D. Ashby', 'S. Ridley', 'B. Foxton', 'M. Wickes', 'T. Colley', 'A. Presley', 'L. Moxon', 'R. Tavey'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
-  { name: 'Pakistan', color: 0x1c9e4f, players: ['A. Shakeel', 'F. Nadeem', 'B. Akhtar', 'H. Qureshi', 'S. Mirza', 'U. Farid', 'N. Junaid', 'Z. Ashraf', 'I. Tariq', 'Y. Basit', 'M. Khalid'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
-  { name: 'South Africa', color: 0x3f9b2f, players: ['D. Vermeulen', 'L. Pienaar', 'K. Mokoena', 'R. Swart', 'T. Naidoo', 'J. Coetzee', 'A. Venter', 'S. Dlamini', 'M. Roux', 'G. Fourie', 'P. Zondo'], kinds: ['fast', 'fast', 'fast', 'off', 'leg'] },
-  { name: 'New Zealand', color: 0x1e1e1e, players: ['T. Kerr', 'M. Rutherford', 'L. Hollis', 'K. Tui', 'D. Farrant', 'J. Brandon', 'A. Pryor', 'C. Wakefield', 'N. Hurley', 'R. Bhatia', 'W. Sutcliffe'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
-  { name: 'Sri Lanka', color: 0x1ca0e0, players: ['P. Weerasinghe', 'D. Jayalath', 'K. Ratnayake', 'S. Wijesinghe', 'N. Kariyawasam', 'L. Perera', 'A. Priyantha', 'D. Senanayake', 'M. Gunaratne', 'R. Ekanayake', 'T. Wickramasinghe'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
-  { name: 'West Indies', color: 0x7b1e3a, players: ['J. Cato', 'K. Rodney', 'S. Lambert', 'A. Greaves', 'D. Bramble', 'M. Baptiste', 'T. Alleyne', 'J. Cudjoe', 'R. Lyle', 'K. Sealy', 'A. Pemberton'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
-  { name: 'Bangladesh', color: 0x006a4e, players: ['T. Ahmed', 'N. Chowdhury', 'S. Karim', 'R. Talukder', 'A. Siddique', 'F. Mahmud', 'M. Sarkar', 'K. Rana', 'J. Uddin', 'S. Hossain', 'A. Bhuiyan'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
-  { name: 'Afghanistan', color: 0x5a8de0, players: ['R. Zadran', 'I. Noori', 'H. Sadiq', 'N. Ahmadzai', 'A. Wafadar', 'S. Zazai', 'F. Gul', 'N. Ahmadi', 'M. Ibrahimi', 'Z. Alokozai', 'Q. Sharifi'], kinds: ['fast', 'medium', 'medium', 'off', 'leg'] },
+  { name: 'India', color: 0x2266ee, players: ['R. Kaushik', 'S. Bhatt', 'V. Menon', 'A. Chauhan', 'K. Reddy', 'D. Saini', 'J. Malhotra', 'P. Yadav', 'M. Thakur', 'R. Iyengar', 'K. Bedi', 'S. Pillai'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'Australia', color: 0xe8c020, players: ['M. Harwood', 'T. Buckley', 'C. Lyle', 'J. Ferrier', 'A. Crowe', 'W. Dunne', 'B. Kershaw', 'L. Norrie', 'S. Pratt', 'N. Hogan', 'A. Zorn', 'R. Tolley'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'England', color: 0x0c2c84, players: ['J. Whitaker', 'O. Bell', 'H. Carrick', 'D. Ashby', 'S. Ridley', 'B. Foxton', 'M. Wickes', 'T. Colley', 'A. Presley', 'L. Moxon', 'R. Tavey', 'G. Hartnell'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'Pakistan', color: 0x1c9e4f, players: ['A. Shakeel', 'F. Nadeem', 'B. Akhtar', 'H. Qureshi', 'S. Mirza', 'U. Farid', 'N. Junaid', 'Z. Ashraf', 'I. Tariq', 'Y. Basit', 'M. Khalid', 'K. Latif'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'South Africa', color: 0x3f9b2f, players: ['D. Vermeulen', 'L. Pienaar', 'K. Mokoena', 'R. Swart', 'T. Naidoo', 'J. Coetzee', 'A. Venter', 'S. Dlamini', 'M. Roux', 'G. Fourie', 'P. Zondo', 'W. Botes'], kinds: ['fast', 'fast', 'fast', 'off', 'leg'] },
+  { name: 'New Zealand', color: 0x1e1e1e, players: ['T. Kerr', 'M. Rutherford', 'L. Hollis', 'K. Tui', 'D. Farrant', 'J. Brandon', 'A. Pryor', 'C. Wakefield', 'N. Hurley', 'R. Bhatia', 'W. Sutcliffe', 'P. Ngata'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'Sri Lanka', color: 0x1ca0e0, players: ['P. Weerasinghe', 'D. Jayalath', 'K. Ratnayake', 'S. Wijesinghe', 'N. Kariyawasam', 'L. Perera', 'A. Priyantha', 'D. Senanayake', 'M. Gunaratne', 'R. Ekanayake', 'T. Wickramasinghe', 'C. Fernandopulle'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'West Indies', color: 0x7b1e3a, players: ['J. Cato', 'K. Rodney', 'S. Lambert', 'A. Greaves', 'D. Bramble', 'M. Baptiste', 'T. Alleyne', 'J. Cudjoe', 'R. Lyle', 'K. Sealy', 'A. Pemberton', 'L. Hinds'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'Bangladesh', color: 0x006a4e, players: ['T. Ahmed', 'N. Chowdhury', 'S. Karim', 'R. Talukder', 'A. Siddique', 'F. Mahmud', 'M. Sarkar', 'K. Rana', 'J. Uddin', 'S. Hossain', 'A. Bhuiyan', 'R. Mollah'], kinds: ['fast', 'fast', 'medium', 'off', 'leg'] },
+  { name: 'Afghanistan', color: 0x5a8de0, players: ['R. Zadran', 'I. Noori', 'H. Sadiq', 'N. Ahmadzai', 'A. Wafadar', 'S. Zazai', 'F. Gul', 'N. Ahmadi', 'M. Ibrahimi', 'Z. Alokozai', 'Q. Sharifi', 'B. Stanikzai'], kinds: ['fast', 'medium', 'medium', 'off', 'leg'] },
 ];
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -536,7 +536,8 @@ let shot = null, swing = null, aimTheta = 0;
 let stumpsFall = null;
 let catchInfo = null, lastHit = false, lastPlan = 0, paused = false, manual = false;
 let mode = 'quick', target = null;
-const match = { runs: 0, wkts: 0, balls: 0, fours: 0, sixes: 0, over: [], best: 0, card: [] };
+const match = { runs: 0, wkts: 0, balls: 0, fours: 0, sixes: 0, over: [], best: 0, card: [], order: [], batIdx: 0 };
+let flinchUntil = 0, notices = [];
 try { match.best = +localStorage.getItem('cricket3d_best') || 0; } catch (e) {}
 try { const t = localStorage.getItem('cricket3d_team'); if (t) myTeam = TEAMS.find(x => x.name === t) || myTeam; } catch (e) {}
 
@@ -552,7 +553,7 @@ try { tour = JSON.parse(localStorage.getItem('cricket3d_tour') || 'null'); } cat
 function saveTour() { try { localStorage.setItem('cricket3d_tour', JSON.stringify(tour)); } catch (e) {} }
 function newTour() {
   const pool = TEAMS.filter(t => t !== myTeam).map(t => t.name).sort(() => Math.random() - 0.5);
-  tour = { team: myTeam.name, round: 0, opponents: pool.slice(0, 3), history: [], targets: [], done: false, champion: false };
+  tour = { team: myTeam.name, round: 0, opponents: pool.slice(0, 3), history: [], targets: [], done: false, champion: false, injured: [] };
   saveTour();
 }
 
@@ -569,7 +570,7 @@ function updateHud() {
   $('rr').textContent = match.balls ? (match.runs * 6 / match.balls).toFixed(1) : '0.0';
   const c = $('chase'); c.classList.toggle('hidden', target === null);
   if (target !== null) c.textContent = `Target ${target} · need ${Math.max(0, target - match.runs)} off ${totalBalls - match.balls}`;
-  const cur = match.card[match.wkts];
+  const cur = match.card[match.batIdx];
   $('who').innerHTML = cur ? `<span>${cur.name}</span> ${cur.runs} (${cur.balls})` : '';
   const b = $('balls'); b.innerHTML = '';
   for (let i = 0; i < 6; i++) {
@@ -627,6 +628,13 @@ function drawRadar() {
 function pickBowler() {
   const over = match.balls / 6;
   curBowler = bowlerOrder[over % bowlerOrder.length];
+  if (!curBowler.injured && !curBowler.partTimer && Math.random() < 0.03) {
+    // pulls up in the warm-up: a part-time medium pacer takes the over for the rest of the innings
+    curBowler.injured = true;
+    const sub = { name: oppTeam.players[4], kind: 'medium', pace: -1.5, partTimer: true };
+    showMsg(`${curBowler.name} pulls up injured · ${sub.name} to bowl`, 'info');
+    bowlerOrder[over % bowlerOrder.length] = sub; curBowler = sub;
+  }
   const kind = curBowler.kind;
   bowlerType = (kind === 'off' || kind === 'leg') ? 'spin' : 'pace';
   spinDir = kind === 'off' ? -1 : 1;
@@ -773,9 +781,9 @@ function pressShot(type) {
   if (ball.crossed) evaluateShot(simTime - ball.tCross);
 }
 function evaluateShot(delta) {
-  const D = diff, ad = Math.abs(delta);
+  const D = diff, ad = Math.abs(delta), sore = match.card[match.batIdx].sore ? 0.85 : 1;
   if (ball.pos.y > 1.95) { showTiming('Over your head!', '#ff8a80'); ball.phase = 'miss'; return; }
-  let q = ad <= D.perfect ? 1 : 1 - (ad - D.perfect) / (D.window - D.perfect);
+  let q = ad <= D.perfect * sore ? 1 : 1 - (ad - D.perfect * sore) / (D.window * sore - D.perfect * sore);
   if (q <= 0) {
     if (ad < D.window * 1.7 && Math.random() < 0.5) { playEdge(); return; }
     showTiming(delta < 0 ? 'Too early' : 'Too late', '#ff8a80');
@@ -795,6 +803,7 @@ function playShot(delta, q, type) {
   const straight = Math.abs(Math.cos(th));
   const shortness = clamp((-ball.pitchZ - 5) / 6, 0, 1);
   speed *= 1 - 0.15 * Math.abs(straight - (1 - shortness));
+  if (match.card[match.batIdx].sore) speed *= 0.9;
   launch(th, elev, speed, 'hit');
   playBat(q);
 }
@@ -860,7 +869,10 @@ function startSwing(theta) {
 function updateBatterPose() {
   if (runners.active) return;                                             // running handles the pose
   let pose;
-  if (!swing) {
+  if (simTime < flinchUntil) {
+    const f = stancePose(1); f.shoulder.add(V3(-0.1, -0.08, 0.2)); f.hands.set(-0.1, 1.35, -0.95); f.tip.set(0.2, 0.9, 0.3); f.bendL = f.bendR = 0.2;
+    pose = f;
+  } else if (!swing) {
     const lift = state === 'flight' ? clamp((simTime - ball.tRelease) / 0.3, 0, 1) : 0;
     pose = stancePose(lift);
   } else {
@@ -940,6 +952,11 @@ function fieldedRuns(f, extra) {
   return clamp(Math.floor((T - 0.6) / 3.0), 0, 3);
 }
 function fielderLabel(f) { return f.isBowler ? curBowler.name : `${f.who} at ${f.name.toLowerCase()}`; }
+function fielderInjured(f) {
+  notices.push(`${f.who} is hurt diving and leaves the field · ${oppTeam.players[11]} on as substitute`);
+  f.who = oppTeam.players[11]; f.subbed = true;
+  for (const b of bowlerOrder) if (b.name === f.who) b.injured = true;
+}
 
 // =====================================================================
 //  Ball outcome
@@ -947,15 +964,20 @@ function fielderLabel(f) { return f.isBowler ? curBowler.name : `${f.who} at ${f
 function endBall(res) {
   if (state !== 'live' && state !== 'flight') return;
   state = 'dead'; deadTime = simTime;
-  const cur = match.card[match.wkts];
+  const cur = match.card[match.batIdx];
   cur.balls++;
   let sym;
-  if (res.wicket) {
+  if (res.retired) {
+    sym = '0'; cur.how = 'retired hurt'; cur.injured = true;
+    showMsg(`${cur.name} retired hurt`, 'out');
+    showTiming(res.blow === 'helmet' ? 'Struck on the helmet' : 'Struck on the body', '#ff8a80');
+    newBatter();
+  } else if (res.wicket) {
     match.wkts++; sym = 'W';
     cur.how = res.how;
     showMsg('OUT! ' + res.wicket, 'out');
     if (res.how.startsWith('b ')) playStumps(); else playCrowd(false);
-    if (match.wkts < MAX_WICKETS) match.card[match.wkts] = { name: myTeam.players[match.wkts], runs: 0, balls: 0, how: 'not out' };
+    newBatter();
     runners.stopAt = Math.max(0, simTime - runners.t - 0.45);
   } else if (res.six) {
     match.runs += 6; cur.runs += 6; match.sixes++; sym = '6'; showMsg('SIX!', 'six'); playCrowd(true);
@@ -973,19 +995,25 @@ function endBall(res) {
   updateHud();
   if (target !== null && match.runs >= target) deadTime = simTime - 1.0;   // chase done: shorter wait, then endMatch
 }
+function newBatter() {
+  match.batIdx++;
+  if (match.batIdx < match.order.length) match.card[match.batIdx] = { name: match.order[match.batIdx], runs: 0, balls: 0, how: 'not out' };
+}
 function nextBall() {
-  if (match.wkts >= MAX_WICKETS || match.balls >= totalBalls || (target !== null && match.runs >= target)) { endMatch(); return; }
+  if (match.wkts >= MAX_WICKETS || match.batIdx >= match.order.length || match.balls >= totalBalls || (target !== null && match.runs >= target)) { endMatch(); return; }
+  if (notices.length) { showMsg(notices.shift(), 'info'); }
   if (match.balls % 6 === 0) {
     match.over = []; pickBowler(); updateHud();
-    if (match.balls > 0) showMsg(`Over ${match.balls / 6} done`, 'info');
+    if (match.balls > 0 && !notices.length) showMsg(`Over ${match.balls / 6} done`, 'info');
   }
   startRunup();
 }
 const QUICK_TAGLINE = 'Batting only. Score as many as you can before the overs run out or you lose 5 wickets.';
 function endMatch() {
   state = 'end';
-  const allOut = match.wkts >= MAX_WICKETS;
+  const allOut = match.wkts >= MAX_WICKETS || match.batIdx >= match.order.length;
   const sr = match.balls ? (match.runs * 100 / match.balls).toFixed(1) : '0.0';
+  const hurt = match.card.filter(c => c.injured).map(c => c.name);
   const lines = [['Score', `${match.runs}/${match.wkts}`], ['Balls faced', match.balls], ['Fours / Sixes', `${match.fours} / ${match.sixes}`], ['Strike rate', sr]];
   if (mode === 'quick') {
     if (match.runs > match.best) { match.best = match.runs; try { localStorage.setItem('cricket3d_best', match.best); } catch (e) {} }
@@ -1005,6 +1033,7 @@ function endMatch() {
       $('tagline').textContent = `${rnd.name}: lost to the ${opp} by ${by} run${by === 1 ? '' : 's'}. Knocked out.`;
       tour.done = true;
     }
+    tour.injured = (tour.injured || []).filter(i => i.until > tour.round).concat(hurt.map(name => ({ name, until: tour.round + 1 })));
     saveTour();
     lines.unshift(['Target', target]);
   }
@@ -1028,7 +1057,9 @@ function renderMenu() {
     const st = h ? `${h.won ? 'Won' : 'Lost'} ${h.runs}/${h.wkts} (target ${h.target})` : i === tour.round && !tour.done ? 'Up next' : '—';
     return `<div class="rnd ${cls}"><span class="n">${r.name.toUpperCase()}</span><span>vs ${tour.opponents[i]}</span><span class="st">${st}</span></div>`;
   }).join('');
-  const foot = tour.done ? (tour.champion ? 'Champions! Start a new tournament to defend the title.' : 'Knocked out. Start a new tournament.') : `${TOUR_OVERS} overs, ${MAX_WICKETS} wickets, chase the target. Bowlers get quicker each round.`;
+  const inj = (tour.injured || []).filter(i => i.until > tour.round).map(i => i.name);
+  const foot = tour.done ? (tour.champion ? 'Champions! Start a new tournament to defend the title.' : 'Knocked out. Start a new tournament.')
+    : inj.length ? `Injured, missing this round: ${inj.join(', ')}. ${myTeam.players[11]} comes into the side.` : `${TOUR_OVERS} overs, ${MAX_WICKETS} wickets, chase the target. Bowlers get quicker each round.`;
   $('tourBox').innerHTML = rows + `<div class="foot"><span>${foot}</span>${tour.done ? '' : '<button id="tourReset">Reset tournament</button>'}</div>`;
   const rb = $('tourReset'); if (rb) rb.addEventListener('click', () => { newTour(); renderMenu(); });
   $('play').textContent = tour.done ? 'NEW TOURNAMENT' : `START ${ROUNDS[tour.round].name.toUpperCase()} vs ${tour.opponents[tour.round].toUpperCase()}`;
@@ -1047,7 +1078,11 @@ function setupTeams() {
   for (let i = bowlerOrder.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bowlerOrder[i], bowlerOrder[j]] = [bowlerOrder[j], bowlerOrder[i]]; }
 }
 function startMatch() {
-  Object.assign(match, { runs: 0, wkts: 0, balls: 0, fours: 0, sixes: 0, over: [], card: [{ name: myTeam.players[0], runs: 0, balls: 0, how: 'not out' }] });
+  const out = mode === 'tournament' ? (tour.injured || []).filter(i => i.until > tour.round).map(i => i.name) : [];
+  const order = myTeam.players.filter(n => !out.includes(n)).slice(0, 11);
+  Object.assign(match, { runs: 0, wkts: 0, balls: 0, fours: 0, sixes: 0, over: [], batIdx: 0, order, card: [{ name: order[0], runs: 0, balls: 0, how: 'not out' }] });
+  notices = []; flinchUntil = 0;
+  for (const f of allFielders) f.subbed = false;
   if (mode === 'tournament') {
     totalOvers = TOUR_OVERS; totalBalls = TOUR_OVERS * 6;
     const rnd = ROUNDS[tour.round];
@@ -1157,6 +1192,16 @@ function checkEvents() {
     if ((b.phase === 'delivery' || b.phase === 'miss') && b.prev.z < STUMPS_Z && b.pos.z >= STUMPS_Z) {
       if (Math.abs(b.pos.x) < 0.17 && b.pos.y < 0.78) { stumpsFall = simTime; b.vel.multiplyScalar(0.25); b.vel.y = 1.5; b.phase = 'bowled'; endBall({ wicket: 'Bowled', how: `b ${curBowler.name}` }); return; }
     }
+    if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.3) < 0.3 && b.pos.y > 0.25 && b.pos.y < 2.0) {
+      // struck on the body or helmet: ball dead, the batter may be shaken up or forced off
+      const helmet = b.pos.y > 1.4, sp = b.vel.length();
+      b.vel.set(rand(-1, 1), 1.5, -2); b.phase = 'blow'; flinchUntil = simTime + 1.6; swing = null;
+      const cur = match.card[match.batIdx];
+      const pInjure = (helmet ? 0.22 : 0.07) * clamp(sp / 24, 0.6, 1.4);
+      if (Math.random() < pInjure) endBall({ retired: true, blow: helmet ? 'helmet' : 'body' });
+      else { cur.sore = true; showTiming(helmet ? 'Hit on the helmet! Shaken up' : 'Hit on the body! Bruised', '#ff8a80'); endBall({ runs: 0 }); }
+      return;
+    }
     if (b.phase === 'miss' || b.phase === 'delivery') {
       if (b.pos.z > keeper.pos.z - 0.6 || (b.rolling && b.vel.length() < 0.3)) { b.vel.set(0, 0, 0); b.rolling = true; endBall({ runs: 0 }); }
     }
@@ -1203,8 +1248,9 @@ function checkEvents() {
         return;
       }
     } else if (b.bounced && b.pos.y < 1.2 && !f.dived && f.prevD < d && f.prevD >= FIELD_REACH && f.prevD < 2.8 && Math.hypot(b.vel.x, b.vel.z) > 8) {
-      // ball just passed within diving range: full-length dive, sometimes it sticks
+      // ball just passed within diving range: full-length dive, sometimes it sticks, sometimes it hurts
       f.dived = true;
+      if (!f.isBowler && !f.subbed && Math.random() < 0.05) fielderInjured(f);
       if (Math.random() < 0.5 * clamp(18 / Math.hypot(b.vel.x, b.vel.z), 0.4, 1)) {
         showTiming(`Diving stop by ${fielderLabel(f)}!`, '#7ef29a');
         f.pos.x = b.pos.x; f.pos.z = b.pos.z; b.vel.set(0, 0, 0); b.rolling = true;
@@ -1300,7 +1346,7 @@ function tick(dt) {
     acc += dt;
     while (acc >= SUB) {
       acc -= SUB;
-      if (ball.phase !== 'idle') stepBall(SUB);
+      if (ball.phase !== 'idle' && ball.phase !== 'blow') stepBall(SUB);
       checkEvents();
     }
     if (ball.phase !== 'idle') trailPush(ball.pos);

@@ -20,6 +20,9 @@ Fast bowlers mix seam-up, outswing, inswing, bouncers, yorkers, slower balls and
 ## Fielding
 Every fielder predicts the ball's path and runs for the earliest point they can reach, with a judgement error that shrinks as the ball nears. Hard-hit balls must come straight to hand or need a dive; misfields happen.
 
+## Injuries
+A missed ball can strike the batter. A blow to the body or helmet leaves them bruised (less power, tighter timing) or forces them to retire hurt, bringing in the next batter without costing a wicket. Fielders can get hurt diving and are replaced by the twelfth man; a bowler can pull up before an over and a part-timer takes it. In a tournament your injured players miss the next round.
+
 ## Tests
 - `npm run balance` auto-bats 20 innings headlessly (no browser) and prints the outcome mix by shot type and timing error.
 - `node test/visual.js` drives the game in headless Chromium with Playwright (`npx playwright install chromium` once) and saves screenshots of the menu, bowling action, shots and fielding to `test/shots/`.
