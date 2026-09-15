@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tic-tac-toe</title>
+<style>
+  :root { --bg: #0b1a2b; --panel: #10233a; --line: #2c4a6e; --gold: #ffd54a; --x: #4fc3f7; --o: #ff8a65; --win: #66bb6a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: #fff; font-family: "Segoe UI", system-ui, sans-serif; }
+  main { width: min(440px, 94vw); display: flex; flex-direction: column; gap: 14px; padding: 16px 0; }
+  header { display: flex; justify-content: space-between; align-items: baseline; }
+  h1 { font-size: 30px; letter-spacing: 2px; margin: 0; }
+  h1 span { color: var(--gold); }
+  a.back { color: #fff; opacity: .7; text-decoration: none; font-size: 14px; }
+  a.back:hover { opacity: 1; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  .row label { opacity: .8; font-size: 14px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { background: transparent; color: #fff; border: 0; padding: 7px 12px; cursor: pointer; font: inherit; font-size: 14px; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--gold); color: #0b1a2b; font-weight: 600; }
+  #status { text-align: center; font-size: 18px; min-height: 26px; }
+  #status .x { color: var(--x); font-weight: 700; }
+  #status .o { color: var(--o); font-weight: 700; }
+  #board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; aspect-ratio: 1; }
+  .cell { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; font-size: clamp(48px, 14vw, 84px); font-weight: 700; cursor: pointer; color: #fff; display: grid; place-items: center; transition: background .12s, transform .08s; user-select: none; }
+  .cell:hover:not(:disabled) { border-color: var(--gold); }
+  .cell:active:not(:disabled) { transform: scale(.96); }
+  .cell:disabled { cursor: default; }
+  .cell.x { color: var(--x); }
+  .cell.o { color: var(--o); }
+  .cell.win { background: #1c3b2a; border-color: var(--win); }
+  .cell.last { box-shadow: inset 0 0 0 2px rgba(255,213,74,.5); }
+  .cell.pop { animation: pop .18s ease-out; }
+  @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  #score { display: grid; grid-template-columns: 1fr 1fr 1fr; text-align: center; }
+  #score b { display: block; font-size: 24px; }
+  #score small { opacity: .7; }
+  .btns { display: flex; gap: 8px; justify-content: center; }
+  .btn { background: var(--gold); color: #0b1a2b; border: 0; border-radius: 10px; padding: 9px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn.ghost { background: transparent; color: #fff; border: 1px solid var(--line); font-weight: 400; }
+  .btn:hover { filter: brightness(1.08); }
+  .hint { text-align: center; font-size: 12px; opacity: .55; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>TIC<span>TAC</span>TOE</h1>
+    <a class="back" href="../index.html">&larr; all games</a>
+  </header>
+
+  <div class="panel">
+    <div class="row">
+      <label>You play</label>
+      <div class="seg" id="segSide"><button data-v="X" class="on">X</button><button data-v="O">O</button></div>
+    </div>
+    <div class="row">
+      <label>First move</label>
+      <div class="seg" id="segFirst"><button data-v="you" class="on">You</button><button data-v="ai">Computer</button><button data-v="alt">Alternate</button></div>
+    </div>
+    <div class="row">
+      <label>Computer</label>
+      <div class="seg" id="segLevel"><button data-v="easy">Easy</button><button data-v="normal" class="on">Normal</button><button data-v="hard">Hard</button></div>
+    </div>
+  </div>
+
+  <div id="status"></div>
+  <div id="board"></div>
+
+  <div class="panel" id="score">
+    <div><b id="sYou">0</b><small>You</small></div>
+    <div><b id="sDraw">0</b><small>Draws</small></div>
+    <div><b id="sAi">0</b><small>Computer</small></div>
+  </div>
+
+  <div class="btns">
+    <button class="btn" id="newGame">New game</button>
+    <button class="btn ghost" id="resetScore">Reset score</button>
+  </div>
+  <div class="hint">Keys 1&ndash;9 play a square (numpad layout), N starts a new game.</div>
+</main>
+
+<script>
+'use strict';
+// ---------- pure game logic (no DOM; exported for tests at the bottom) ----------
+const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const other = (p) => (p === 'X' ? 'O' : 'X');
+function winLine(b) { for (const L of LINES) { const [a, c, d] = L; if (b[a] && b[a] === b[c] && b[a] === b[d]) return L; } return null; }
+function winner(b) { const L = winLine(b); return L ? b[L[0]] : null; }
+function empties(b) { const r = []; for (let i = 0; i < 9; i++) if (!b[i]) r.push(i); return r; }
+function isOver(b) { return !!winner(b) || empties(b).length === 0; }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+// Move that completes a line for `p`, if any.
+function completing(b, p) {
+  for (const L of LINES) { const vals = L.map(i => b[i]); if (vals.filter(v => v === p).length === 2 && vals.includes('')) return L[vals.indexOf('')]; }
+  return null;
+}
+
+// Minimax, scored from `me`'s view. "Depth" is the number of filled cells at the end, so quicker
+// wins and slower losses score better and the value depends only on the position (cacheable).
+const memo = new Map();
+function minimax(b, me, turn) {
+  const key = b.join('.') + me + turn; if (memo.has(key)) return memo.get(key);
+  const w = winner(b); const free = empties(b); let best;
+  if (w === me) best = 1 + free.length; else if (w) best = -1 - free.length; else if (!free.length) best = 0;
+  else {
+    best = turn === me ? -Infinity : Infinity;
+    for (const i of free) {
+      b[i] = turn; const s = minimax(b, me, other(turn)); b[i] = '';
+      best = turn === me ? Math.max(best, s) : Math.min(best, s);
+    }
+  }
+  memo.set(key, best); return best;
+}
+function bestMoves(b, me) {
+  let best = -Infinity, moves = [];
+  for (const i of empties(b)) {
+    b[i] = me; const s = minimax(b, me, other(me)); b[i] = '';
+    if (s > best) { best = s; moves = [i]; } else if (s === best) moves.push(i);
+  }
+  return moves;
+}
+
+// Easy: random. Normal: win, block, centre, corner, side. Hard: minimax.
+function aiMove(b, me, level) {
+  const free = empties(b); if (!free.length) return -1;
+  if (level === 'easy') return pick(free);
+  if (level === 'hard') return pick(bestMoves(b.slice(), me));
+  const w = completing(b, me); if (w !== null) return w;
+  const blk = completing(b, other(me)); if (blk !== null) return blk;
+  if (!b[4]) return 4;
+  const corners = [0, 2, 6, 8].filter(i => !b[i]); if (corners.length) return pick(corners);
+  return pick(free);
+}
+
+// ---------- UI ----------
+const $ = (id) => document.getElementById(id);
+const boardEl = $('board'), statusEl = $('status');
+const cells = [];
+for (let i = 0; i < 9; i++) { const c = document.createElement('button'); c.className = 'cell'; c.dataset.i = i; c.addEventListener('click', () => humanPlay(i)); boardEl.appendChild(c); cells.push(c); }
+
+const prefs = Object.assign({ side: 'X', first: 'you', level: 'normal' }, JSON.parse(localStorage.getItem('ttt.prefs') || '{}'));
+const score = Object.assign({ you: 0, draw: 0, ai: 0 }, JSON.parse(localStorage.getItem('ttt.score') || '{}'));
+let board, turn, over, aiTimer = null, humanStartsNext = true;
+
+function seg(id, key, onChange) {
+  const el = $(id);
+  const set = (v) => { prefs[key] = v; for (const btn of el.children) btn.classList.toggle('on', btn.dataset.v === v); localStorage.setItem('ttt.prefs', JSON.stringify(prefs)); };
+  el.addEventListener('click', (e) => { const btn = e.target.closest('button'); if (!btn) return; set(btn.dataset.v); onChange && onChange(); });
+  set(prefs[key]);
+}
+seg('segSide', 'side', newGame);
+seg('segFirst', 'first', newGame);
+seg('segLevel', 'level', () => { if (!over && empties(board).length === 9) newGame(); });
+
+const human = () => prefs.side, ai = () => other(prefs.side);
+function humanStarts() { return prefs.first === 'you' ? true : prefs.first === 'ai' ? false : humanStartsNext; }
+
+function newGame() {
+  clearTimeout(aiTimer); aiTimer = null;
+  board = Array(9).fill(''); over = false;
+  turn = humanStarts() ? human() : ai();
+  for (const c of cells) { c.textContent = ''; c.className = 'cell'; c.disabled = false; }
+  render();
+  if (turn === ai()) scheduleAi();
+}
+function humanPlay(i) { if (over || turn !== human() || board[i]) return; place(i); if (!over) scheduleAi(); }
+function scheduleAi() { aiTimer = setTimeout(() => { aiTimer = null; const i = aiMove(board, ai(), prefs.level); if (i >= 0) place(i); }, 350); }
+function place(i) {
+  board[i] = turn; const c = cells[i]; c.textContent = turn; c.classList.add(turn.toLowerCase(), 'pop'); c.disabled = true;
+  for (const o of cells) o.classList.remove('last'); c.classList.add('last');
+  const L = winLine(board);
+  if (L) { over = true; for (const k of L) cells[k].classList.add('win'); finish(board[L[0]] === human() ? 'you' : 'ai'); }
+  else if (!empties(board).length) { over = true; finish('draw'); }
+  else turn = other(turn);
+  render();
+}
+function finish(result) {
+  score[result]++; localStorage.setItem('ttt.score', JSON.stringify(score));
+  humanStartsNext = !humanStartsNext;
+  for (const c of cells) c.disabled = true;
+}
+function mark(p) { return `<span class="${p.toLowerCase()}">${p}</span>`; }
+function render() {
+  $('sYou').textContent = score.you; $('sDraw').textContent = score.draw; $('sAi').textContent = score.ai;
+  const w = winner(board);
+  statusEl.innerHTML = w ? (w === human() ? `You win with ${mark(w)}!` : `Computer wins with ${mark(w)}.`)
+    : !empties(board).length ? 'Draw.'
+    : turn === human() ? `Your move (${mark(human())})` : `Computer is thinking (${mark(ai())})&hellip;`;
+}
+
+$('newGame').addEventListener('click', newGame);
+$('resetScore').addEventListener('click', () => { score.you = score.draw = score.ai = 0; localStorage.setItem('ttt.score', JSON.stringify(score)); render(); });
+// Numpad layout: 7 8 9 is the top row, 1 2 3 the bottom.
+const KEYMAP = { '7': 0, '8': 1, '9': 2, '4': 3, '5': 4, '6': 5, '1': 6, '2': 7, '3': 8 };
+addEventListener('keydown', (e) => {
+  if (e.key in KEYMAP) humanPlay(KEYMAP[e.key]);
+  else if (e.key === 'n' || e.key === 'N') newGame();
+});
+newGame();
+
+globalThis.__ttt = { LINES, winner, winLine, empties, isOver, completing, minimax, bestMoves, aiMove, other };
+</script>
+</body>
+</html>
