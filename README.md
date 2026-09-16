@@ -11,5 +11,6 @@ Small browser games, one folder each. Every game is a single `index.html` you ca
 | Rush Lane | `rush-lane/` | Three.js kart racer, three jungle circuits against three AI karts. Everything bundled into the one file; no tests. |
 | Battleship | `battleship/` | Dark-ocean Battleship against a hunt-and-target computer or two players pass-and-play. Test: `node test/game.js` inside the folder. |
 | Strike Force | `strike-force/` | Run-and-gun side-scroller: 8-way aim, troops, turrets, boss, power-ups, checkpoints. Test: `node test/sim.js` inside the folder. |
+| Penfight | `penfight/` | 3D pen-flicking on a school desk, against the computer or two players on one device. Imported as a bundled file; no test harness yet. |
 
 Conventions: one folder per game with its own `README.md`, `package.json` (only if it needs tooling) and `test/`. Keep games self-contained so any one can be opened or published on its own.
