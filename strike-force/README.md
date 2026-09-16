@@ -1,0 +1,66 @@
+# Strike Force
+
+Single-file run-and-gun side-scroller in the Contra mould. Open `index.html` in any browser; it works from disk and inside a sandboxed iframe. No build step, no image files: every sprite, background layer and particle is drawn on the canvas, and the only optional network fetch is the "Black Ops One" stencil font from Google Fonts (falls back to Impact / Arial Black).
+
+## How to play
+Run right through eight screens of jungle, over gaps and up platforms, past troops and turrets, into the arena at the end and kill the Warlord boss. Checkpoint flags along the way save your progress. Press **Enter** (or the Deploy button) on the title screen to start; **R** restarts after a win or a game over.
+
+## Controls
+| Action | Keys |
+|---|---|
+| Move | Left / Right arrows, or A / D |
+| Jump | Space, Z or K. Hold for a higher jump, tap for a short hop. |
+| Fire | X, J or F. Hold to keep firing. |
+| Aim | Same direction keys, see the table below |
+| Sound | M toggles synthesized sound (off by default; also a checkbox on the title screen) |
+
+Aim is independent of movement and comes from the direction keys held while you fire. Facing persists: with no keys held you shoot the way you last moved.
+
+| Held | On the ground | In the air |
+|---|---|---|
+| nothing | facing direction | facing direction |
+| Up | straight up | straight up |
+| Left / Right | that way (and turns you) | that way |
+| Left / Right + Up | diagonal up | diagonal up |
+| Left / Right + Down | diagonal down, still moving | diagonal down |
+| Down alone | **crouch**: low hitbox, shoot along the ground in the facing direction | straight down |
+| Left + Right | cancel: facing direction | facing direction |
+| Up + Down | cancel: horizontal | cancel: horizontal |
+
+Deliberate deviation from "Down aims down" while standing: a bullet fired straight down into the floor is useless, so Down on the ground crouches instead (the arcade convention). Down aims straight down only while airborne.
+
+## Health and lives
+Default: **3 hits per life, 3 lives**. Taking a hit costs one pip and gives 1.5 s of invincibility (the sprite blinks). Falling into a pit costs the whole life. Losing a life respawns you at the last checkpoint flag with full health, your score intact and the enemies re-armed. Losing all three is game over.
+
+**Classic: one hit kills** is a toggle on the title screen. It is optional and off by default; when on, each life has a single hit point, just like the arcade originals.
+
+## Enemies
+- **Troops**: walk toward you, stop at range and fire an aimed shot every ~1.3 s; two hits to kill, touching them hurts. Some drop a power-up.
+- **Turrets**: fixed emplacements that track you and fire bursts of three; five hits to kill, explode with screen shake.
+- **Warlord** (boss): waits in the arena at the far right. The camera locks, he advances, fires 5-way spreads and occasionally hops. 40 hits. His health bar sits at the top of the screen. Killing him wins the mission.
+
+## Power-ups
+Timed, shown in the HUD with a draining bar.
+- **S** Spread: three-way shot for 10 s.
+- **R** Rapid: more than double the fire rate for 10 s.
+- **B** Barrier: 8 s of invincibility.
+
+Three are placed in the level; four more drop from specific troops.
+
+## Scoring
+Troop 100, turret 250, boss 2000, power-up 50. Finishing adds 5000 plus 1000 per remaining life.
+
+## Checkpoints
+Five flags at roughly 1000, 2900, 3900, 5800 and 6800 px into the 7680 px level. A flag turns green when passed.
+
+## Accessibility
+`prefers-reduced-motion` cuts screen shake to 15% and particle counts to a quarter.
+
+## Tests
+`node test/sim.js` loads the pure simulation section out of `index.html` (no DOM, no canvas) with node's `vm` module and checks:
+- physics: standing on ground, held vs tapped jump height (at least one 100 px platform step), passing up through a one-way platform, being stopped by a wall, crouch hitbox, pit death;
+- the full aim table above: all 16 key combinations x 2 facings x ground/air (64 cases);
+- bullets despawn off-screen, spread fires three, a troop dies after exactly its hit points, enemy bullets cost one hp and start invincibility frames, Classic one-hit;
+- checkpoint respawn keeps score, decrements lives, restores hp;
+- a scripted bot (run right, jump at gaps and walls, fire forward) reaches the boss arena within a bounded number of frames and then kills the boss, proving the level is traversable; the same bot without god mode is reported for information;
+- game over after losing all lives.
