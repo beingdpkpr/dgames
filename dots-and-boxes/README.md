@@ -17,6 +17,9 @@ Click the gap between two adjacent dots to draw a line. The fourth side of a box
 
 Options are remembered in the browser. N starts a new game.
 
+## High scores
+When you are the only human at the table and win outright, your margin over the best computer (your boxes minus theirs) is a score. If it places in the top ten you are asked for three-letter initials (**Enter** saves, **Esc** skips). There is one table per computer level, keyed by the hardest computer in that game, and each entry notes the grid, the player count and the box count. **High scores** in the controls shows the table for the current seat setup; it lives below the board so it never resizes the canvas. Games with two or more humans, ties and losses are not recorded. Tables are stored in this browser only (localStorage).
+
 ## Tests
 `node test/ai.js` loads the game logic out of `index.html` without a browser and:
 - checks box completion, double-box completion, extra turns, turn passing and game end;
@@ -25,3 +28,5 @@ Options are remembered in the browser. N starts a new game.
 - plays 400-game tournaments between the levels and prints the win / draw / loss mix.
 
 `node test/players.js` plays full games with 2, 3, 4 and 5 players and checks that turns cycle through every seat in order, a completed box keeps the turn, the final scores add up to the number of boxes, and the ranking / winner (or tie) is reported correctly, including scripted three-way ties and an outright win by a late seat.
+
+`node test/hiscore.js` loads the pasted high-score module with a stubbed `localStorage` and checks rank order, the top-ten cap and initials handling; then checks `hiScoreOf()` on scripted games (a lone human winning, losing, two humans, a tie, keyed by the hardest computer) and on 300 random games against the winner and scores.

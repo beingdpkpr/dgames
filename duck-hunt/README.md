@@ -10,6 +10,9 @@ Single-file click-to-shoot duck hunt with a painterly, atmospheric look. Open `i
 - Rounds scale: more ducks, faster flight, up to three in the air at once, and from round 4 some double back mid-flight. The sky slides from dawn to dusk over the first nine rounds.
 - Best score and the mute setting are remembered in the browser. **M** toggles sound; **Enter** or **Space** starts from the overlays.
 
+## High scores
+Game over with a score above zero that places in the top ten asks for three-letter initials (type them, **Enter** saves, **Esc** skips). The table records the final score and the round the dog got you on, and shows on the title and game-over board. There is one table for the game. It is stored in this browser only (localStorage), next to the older single best score, which keeps working.
+
 ## Look
 Everything is drawn on one canvas from layered shapes: gradient sky with sun, drifting clouds and mist; parallax hills and two tree-silhouette layers (pre-rendered, offset by mouse position); ground; two layers of swaying grass plus reeds that use a per-blade sine offset plus a global wind term. Ducks are body, tail, neck, head, beak, eye and two wings; the wings flap by rotating about the shoulder. Each duck casts a soft offset shadow and a ground shadow that sharpens as it gets lower. A shot fires a muzzle flash, a frame of screen-wide glow, screen shake and a smoke puff; a hit bursts feathers, and the duck tumbles, bounces in the grass and fades. The HUD is a hanging wooden sign with brass plates and shell icons. Vignette and animated film grain are CSS overlays. Sounds are synthesised with WebAudio.
 
@@ -20,4 +23,5 @@ Everything is drawn on one canvas from layered shapes: gradient sky with sun, dr
 - checks every flight pattern spawns, flushed ducks level out, and a near miss spooks a duck while a far one does not;
 - plays round 1 with a perfect shooter and asserts it reaches round 2 and the dog retrieves every downed duck;
 - never shoots and asserts the dog appears and the game ends;
-- shoots at random and asserts ammo never goes negative, counters stay consistent, and a round ends within 4 s of the last shell.
+- shoots at random and asserts ammo never goes negative, counters stay consistent, and a round ends within 4 s of the last shell;
+- loads the pasted high-score module with a stubbed `localStorage` and checks rank order, the top-ten cap, initials handling, and that the game's hook reports a finished game's score and round.

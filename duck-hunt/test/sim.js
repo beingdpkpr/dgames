@@ -4,7 +4,9 @@
 //  3. plays round 1 with a perfect shooter and asserts it reaches round 2;
 //  4. never shoots and asserts the dog appears and the game ends;
 //  5. shoots at random and asserts the counters stay consistent, ammo never negative,
-//     and a round ends within a few seconds of the last shell being spent.
+//     and a round ends within a few seconds of the last shell being spent;
+//  6. loads the pasted high-score module with a stubbed localStorage and checks rank order, the
+//     top-10 cap, initials handling, and that hiScoreEntry() reports a finished game's score and round.
 // Run: node test/sim.js
 const vm = require('vm'), fs = require('fs'), path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
@@ -122,6 +124,35 @@ assert(minAmmo >= 0, 'ammo never negative');
 assert(badResolved === 0, 'resolved never exceeds the round duck count');
 assert(slowEnd === 0, 'a round ends within 4s of the last shell being spent');
 console.log('random shooter: reached round', roundsSeen, '| hits', events.hit, 'misses', events.miss, '| phase', S.phase);
+
+// 6. High scores: the module pasted into index.html (stubbed localStorage) and the game's own hook.
+{
+  const store = {};
+  ctx.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+  const hs = g.makeHiScores({ key: 'duck-hunt', order: 'desc', max: 10, label: (v) => `${v} pts` });
+  assert(hs.list().length === 0 && hs.rank(1) === 0, 'empty table: any score ranks first');
+  for (let i = 1; i <= 12; i++) hs.add(i * 100, 'p' + i, 'round ' + i);
+  const l = hs.list();
+  assert(l.length === 10, `table capped at 10 (${l.length})`);
+  assert(l[0].value === 1200 && l[9].value === 300 && l.every((e, i) => i === 0 || l[i - 1].value >= e.value), 'desc order keeps the best ten, best first');
+  assert(hs.rank(5000) === 0 && hs.rank(650) === 6 && hs.rank(300) === -1 && hs.rank(250) === -1, 'rank: top, middle, equal-to-last and below-last');
+  const e = hs.add(999, 'deepak', 'round 3');
+  assert(e.initials === 'DEE', `initials upper-cased and cut to 3 (${e.initials})`);
+  assert(JSON.parse(store['dgames.hiscores.duck-hunt']).length === 10, 'stored under dgames.hiscores.duck-hunt, still capped');
+  // Hook: clear round 1 perfectly, then stand idle so the dog ends the game in round 2 with a score on the board.
+  g.setView(1280, 720); g.startGame(); resetEvents();
+  assert(g.hiScoreEntry() === null, 'no entry while a game is running');
+  runUntil(() => S.round === 2, 90, aim);
+  const scoreAt2 = S.score;
+  const t6 = runUntil(() => S.phase === 'over', 120);
+  assert(t6 > 0 && S.gameOver && S.round === 2, 'idle round 2 ends the game');
+  const entry = g.hiScoreEntry();
+  assert(entry && entry.value === scoreAt2 && entry.value === S.score && entry.detail === 'round 2', `hook reports the final score and round (${JSON.stringify(entry)})`);
+  assert(entry && hs.rank(entry.value) === (entry.value > 300 ? hs.list().findIndex((x) => entry.value > x.value) : -1), 'hook value ranks against the stored table');
+  g.startGame(); g.endGame();
+  assert(g.hiScoreEntry() === null, 'a zero score is never submitted');
+  console.log('hiscore: table', hs.list().map((x) => x.initials + ':' + x.value).join(' '), '| entry', JSON.stringify(entry));
+}
 
 console.log(failures ? `${failures} FAILURE(S)` : 'ALL OK');
 process.exit(failures ? 1 : 0);

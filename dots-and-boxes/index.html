@@ -51,6 +51,11 @@
   .banner .count .row .sw { width: 10px; height: 10px; border-radius: 3px; }
   @keyframes rise { from { transform: translateY(18px) scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
   .hint { color: var(--muted); font-size: 12px; text-align: center; padding-bottom: 16px; }
+  /* high scores: --hs-* skin the shared module to this palette; the panel sits under the board so it never resizes the canvas */
+  :root { --hs-bg: var(--panel); --hs-line: var(--line); --hs-accent: var(--p4); --hs-fg: var(--text); --hs-font: "Segoe UI", system-ui, sans-serif; }
+  #hiscores { width: min(560px, 94vw); margin: 0 0 20px; padding: 12px 14px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  #hiscores[hidden] { display: none; }
+  #hiscores .note { color: var(--muted); font-size: 12px; text-align: center; padding: 8px 0 2px; }
 </style>
 </head>
 <body>
@@ -74,6 +79,7 @@
       <option value="5">5 players</option>
     </select>
     <button id="restart">New game (N)</button>
+    <button id="hiscoresBtn">High scores</button>
   </div>
   <div class="seats" id="seats"></div>
 </div>
@@ -82,9 +88,103 @@
   <div id="over"><div class="banner"><h2 id="winner"></h2><div class="count" id="count"></div><button class="primary" id="again">Play again</button></div></div>
 </div>
 <div class="hint">Click the gap between two dots. Complete a box and you go again.</div>
+<div id="hiscores" hidden></div>
 
 <script>
 'use strict';
+// ---------- dgames high scores ----------
+// Shared snippet, pasted verbatim into every game (games stay self-contained). Keeps a top-N table per
+// key in localStorage with three-letter initials. Usage:
+//   const hs = makeHiScores({ key: 'duck-hunt', order: 'desc', max: 10, label: v => v + ' pts' });
+//   if (hs.rank(score) >= 0) hs.prompt(score, 'round 7').then(() => hs.render(document.getElementById('scores')));
+//   hs.render(el)                       // table of the current list
+// `order` is 'desc' (bigger is better) or 'asc' (smaller is better, e.g. shots or seconds).
+// The overlay swallows key events while open so game controls do not fire. Styling comes from the
+// hs-* classes below; override the --hs-* custom properties to match a game's palette.
+function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), title = 'High scores' }) {
+  const KEY = 'dgames.hiscores.' + key;
+  const load = () => { try { const l = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
+  const save = (l) => { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch (e) {} };
+  const cmp = (a, b) => (order === 'desc' ? b.value - a.value : a.value - b.value) || a.time - b.time;
+  const sorted = (l) => l.slice().sort(cmp);
+  const better = (v, e) => order === 'desc' ? v > e.value : v < e.value;
+  // 0-based position a value would take, or -1 if it misses the table
+  function rank(value) { const l = sorted(load()); let i = 0; while (i < l.length && !better(value, l[i])) i++; return i < max ? i : -1; }
+  function add(value, initials, detail) {
+    const e = { value, initials: (initials || '???').toUpperCase().slice(0, 3), detail: detail || '', time: Date.now() };
+    const l = sorted(load().concat([e])).slice(0, max); save(l); return e;
+  }
+  const list = () => sorted(load());
+  const clear = () => save([]);
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function ensureStyle() {
+    if (document.getElementById('hs-style')) return;
+    const st = document.createElement('style'); st.id = 'hs-style';
+    st.textContent = `
+      .hs-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(3,10,20,.72);font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff)}
+      .hs-card{background:var(--hs-bg,#10233a);border:1px solid var(--hs-line,#2c4a6e);border-radius:16px;padding:22px 26px;width:min(360px,92vw);text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.45)}
+      .hs-card h2{margin:0 0 4px;font-size:22px;letter-spacing:2px;color:var(--hs-accent,#ffd54a)}
+      .hs-card .hs-val{font-size:30px;font-weight:700;margin:6px 0 2px}
+      .hs-card .hs-detail,.hs-card .hs-hint{opacity:.7;font-size:13px}
+      .hs-card .hs-rank{margin:4px 0 14px;font-size:14px}
+      .hs-boxes{display:flex;gap:10px;justify-content:center;margin:8px 0 16px}
+      .hs-boxes span{width:48px;height:58px;border:2px solid var(--hs-line,#2c4a6e);border-radius:10px;display:grid;place-items:center;font-size:30px;font-weight:700;background:rgba(0,0,0,.25)}
+      .hs-boxes span.on{border-color:var(--hs-accent,#ffd54a)}
+      .hs-btns{display:flex;gap:8px;justify-content:center}
+      .hs-btns button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:9px 18px;cursor:pointer;background:var(--hs-accent,#ffd54a);color:#0b1a2b}
+      .hs-btns button.hs-ghost{background:transparent;color:var(--hs-fg,#fff);border:1px solid var(--hs-line,#2c4a6e);font-weight:400}
+      .hs-btns button:focus-visible{outline:2px solid var(--hs-fg,#fff);outline-offset:2px}
+      .hs-table{width:100%;border-collapse:collapse;font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff);font-variant-numeric:tabular-nums}
+      .hs-table caption{text-align:left;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7;padding:0 0 6px}
+      .hs-table td{padding:4px 6px;border-top:1px solid var(--hs-line,#2c4a6e);font-size:14px}
+      .hs-table td:first-child{opacity:.6;width:2em;text-align:right}
+      .hs-table td.hs-ini{font-weight:700;letter-spacing:1px}
+      .hs-table td.hs-score{text-align:right;color:var(--hs-accent,#ffd54a);font-weight:600}
+      .hs-table td.hs-d{opacity:.65;font-size:12px}
+      .hs-table tr.hs-new td{background:rgba(255,213,74,.12)}
+      .hs-table td.hs-empty{opacity:.55;text-align:center;padding:10px}`;
+    document.head.appendChild(st);
+  }
+  // Modal asking for initials. Resolves with the saved entry, or null if skipped. Only call when rank(value) >= 0.
+  function prompt(value, detail) {
+    ensureStyle();
+    return new Promise((resolve) => {
+      const r = rank(value);
+      const ov = document.createElement('div'); ov.className = 'hs-overlay';
+      ov.innerHTML = `<div class="hs-card" role="dialog" aria-label="New high score"><h2>NEW HIGH SCORE</h2>
+        <div class="hs-val">${esc(label(value))}</div><div class="hs-detail">${esc(detail || '')}</div>
+        <div class="hs-rank">#${r + 1} on this device</div>
+        <div class="hs-hint">Type your initials</div>
+        <div class="hs-boxes"><span class="on">_</span><span>_</span><span>_</span></div>
+        <div class="hs-btns"><button class="hs-ok" type="button">Save</button><button class="hs-ghost hs-skip" type="button">Skip</button></div></div>`;
+      document.body.appendChild(ov);
+      const boxes = ov.querySelectorAll('.hs-boxes span'); let s = '';
+      const draw = () => boxes.forEach((b, i) => { b.textContent = s[i] || '_'; b.classList.toggle('on', i === Math.min(s.length, 2)); });
+      const done = (ok) => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('keyup', swallow, true); window.removeEventListener('keypress', swallow, true); ov.remove(); resolve(ok ? add(value, s || 'AAA', detail) : null); };
+      const swallow = (e) => { e.stopPropagation(); };
+      const onKey = (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); done(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+        else if (e.key === 'Backspace') { e.preventDefault(); s = s.slice(0, -1); draw(); }
+        else if (/^[a-zA-Z0-9]$/.test(e.key) && s.length < 3) { e.preventDefault(); s += e.key.toUpperCase(); draw(); }
+      };
+      window.addEventListener('keydown', onKey, true); window.addEventListener('keyup', swallow, true); window.addEventListener('keypress', swallow, true);
+      ov.querySelector('.hs-ok').addEventListener('click', () => done(true));
+      ov.querySelector('.hs-skip').addEventListener('click', () => done(false));
+      ov.querySelector('.hs-ok').focus();
+    });
+  }
+  // Renders the table into el; the entry whose time equals `newTime` is highlighted.
+  function render(el, newTime) {
+    ensureStyle();
+    const l = list();
+    const rows = l.length ? l.map((e, i) => `<tr${e.time === newTime ? ' class="hs-new"' : ''}><td>${i + 1}</td><td class="hs-ini">${esc(e.initials)}</td><td class="hs-score">${esc(label(e.value))}</td><td class="hs-d">${esc(e.detail)}</td></tr>`).join('')
+      : `<tr><td class="hs-empty" colspan="4">No scores yet. Be the first.</td></tr>`;
+    el.innerHTML = `<table class="hs-table"><caption>${esc(title)}</caption><tbody>${rows}</tbody></table>`;
+  }
+  return { key, rank, add, list, clear, prompt, render };
+}
 // ---------- CONSTANTS ----------
 const DEFAULT_GRID = 5;          // dots per side; 5 dots = 4×4 boxes
 const MIN_PLAYERS = 2, MAX_PLAYERS = 5;
@@ -152,6 +252,23 @@ function winner(s) {
   const r = ranking(s);
   return r.length > 1 && r[1].score === r[0].score ? 0 : r[0].p;
 }
+// Computer levels, weakest first. The high-score table is keyed by the hardest computer in the game.
+const LEVELS = ['easy', 'normal', 'hard'];
+// What the high-score table records for a finished game, or null when nothing should be recorded: only a game
+// with exactly one human seat that the human wins outright counts. kinds[p - 1] is the kind of seat p
+// ('human' | 'easy' | 'normal' | 'hard'). value = the human's margin over the best computer.
+function hiScoreOf(s, kinds) {
+  if (!s.over) return null;
+  const humans = [], ais = [];
+  for (let p = 1; p <= s.players; p++) (kinds[p - 1] === 'human' ? humans : ais).push(p);
+  if (humans.length !== 1 || !ais.length) return null;
+  const me = humans[0];
+  if (winner(s) !== me) return null;
+  const bestAi = Math.max(...ais.map((p) => s.scores[p]));
+  const lv = Math.max(...ais.map((p) => LEVELS.indexOf(kinds[p - 1])));
+  if (lv < 0) return null;
+  return { level: LEVELS[lv], value: s.scores[me] - bestAi, detail: s.n + 'x' + s.n + ', ' + s.players + ' players, ' + s.scores[me] + '-' + bestAi };
+}
 
 // Move classification for the AI: does it complete a box; does it hand the next player a 3-sided box.
 function classify(s, e) {
@@ -194,7 +311,8 @@ function aiMove(s, level, rnd = Math.random) {
 const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
 const $ = (id) => document.getElementById(id);
 const ui = { turn: $('turn'), turnName: $('turnName'), scores: $('scores'), seats: $('seats'),
-  grid: $('grid'), players: $('players'), over: $('over'), winner: $('winner'), count: $('count') };
+  grid: $('grid'), players: $('players'), over: $('over'), winner: $('winner'), count: $('count'),
+  hiscores: $('hiscores'), hiscoresBtn: $('hiscoresBtn') };
 const SEAT_KINDS = [['human', 'Human'], ['easy', 'Computer · Easy'], ['normal', 'Computer · Normal'], ['hard', 'Computer · Hard']];
 
 let S, size = 0, pad = 0, cell = 0, hoverEdge = null, particles = [], aiTimer = null, lastFrame = 0;
@@ -221,6 +339,26 @@ function saveOpts() { try { localStorage.setItem('dgames.dots.opts', JSON.string
 const seatKind = (p) => (p === 1 ? 'human' : (opts.seats[p] || 'human'));
 const isAiSeat = (p) => seatKind(p) !== 'human';
 const isAiTurn = () => !S.over && isAiSeat(S.player);
+const seatKinds = () => { const k = []; for (let p = 1; p <= opts.players; p++) k.push(seatKind(p)); return k; };
+
+// ---- high scores: one table per computer level, keyed by the hardest computer at the table ----
+const hsTables = {};
+const hsFor = (level) => hsTables[level] || (hsTables[level] = makeHiScores({ key: 'dots-and-boxes.' + level, order: 'desc', max: 10, label: (v) => '+' + v, title: 'High scores vs ' + level }));
+// Hardest computer level among the current seats, or null when every seat is human.
+function tableLevel() { let best = -1; for (const k of seatKinds()) best = Math.max(best, LEVELS.indexOf(k)); return best < 0 ? null : LEVELS[best]; }
+function renderHiScores(newTime) {
+  const level = tableLevel();
+  ui.hiscores.innerHTML = '';
+  if (level) hsFor(level).render(ui.hiscores, newTime);
+  const note = document.createElement('div'); note.className = 'note';
+  note.textContent = level ? 'Margin over the computer. Recorded when you are the only human and win outright; one table per computer level.'
+    : 'Seat a computer to see its table. Scores are recorded when you are the only human and beat the computer.';
+  ui.hiscores.appendChild(note);
+}
+function toggleHiScores() {
+  ui.hiscores.hidden = !ui.hiscores.hidden;
+  if (!ui.hiscores.hidden) { renderHiScores(); ui.hiscores.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+}
 function playerName(p) {
   let humans = 0, computers = 0;
   for (let q = 1; q <= opts.players; q++) if (isAiSeat(q)) computers++; else humans++;
@@ -268,6 +406,7 @@ function init() {
   ui.over.classList.remove('show');
   buildSeats(); buildScores();
   layout(); drawHUD(false);
+  if (!ui.hiscores.hidden) renderHiScores();
   if (isAiTurn()) scheduleAi();
 }
 
@@ -453,6 +592,10 @@ function endGame() {
   const tot = document.createElement('div'); tot.textContent = total + ' boxes'; ui.count.appendChild(tot);
   ui.over.classList.add('show');
   spawnConfetti(w ? [COLORS[w], '#ffffff', COLORS[w]] : leaders.map((p) => COLORS[p]));
+  const rec = hiScoreOf(S, seatKinds());
+  if (rec && hsFor(rec.level).rank(rec.value) >= 0) {
+    hsFor(rec.level).prompt(rec.value, rec.detail).then((e) => { if (e) ui.hiscores.hidden = false; renderHiScores(e && e.time); });
+  }
 }
 
 function pointerPos(ev) {
@@ -482,10 +625,14 @@ canvas.addEventListener('pointerleave', () => { hoverEdge = null; });
 canvas.addEventListener('pointerdown', handleClick);
 $('restart').addEventListener('click', init);
 $('again').addEventListener('click', init);
+ui.hiscoresBtn.addEventListener('click', toggleHiScores);
 ui.grid.addEventListener('change', init);
 ui.players.addEventListener('change', init);
 window.addEventListener('resize', layout);
-window.addEventListener('keydown', (ev) => { if (ev.key === 'n' || ev.key === 'N') init(); });
+window.addEventListener('keydown', (ev) => {
+  if (document.querySelector('.hs-overlay')) return;   // the initials prompt owns the keyboard while open
+  if (ev.key === 'n' || ev.key === 'N') init();
+});
 
 init();
 requestAnimationFrame(gameLoop);
