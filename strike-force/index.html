@@ -7,7 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&display=swap" rel="stylesheet">
 <style>
-  :root { --bg: #0b1a2b; --gold: #ffd54a; --olive: #9db35a; --red: #ff5a4e; --stencil: "Black Ops One", Impact, "Arial Black", "Segoe UI", sans-serif; }
+  :root { --bg: #0b1a2b; --gold: #ffd54a; --olive: #9db35a; --red: #ff5a4e; --stencil: "Black Ops One", Impact, "Arial Black", "Segoe UI", sans-serif;
+    --hs-bg: #17261a; --hs-line: #3c5a3e; --hs-accent: #ffd54a; --hs-fg: #fff; }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: #fff; font-family: "Segoe UI", system-ui, sans-serif; overflow: hidden; }
   #wrap { position: relative; width: min(960px, 100vw); aspect-ratio: 16 / 9; max-height: 100vh; }
@@ -25,11 +26,16 @@
   #hud .score { text-align: right; }
   .overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(4, 10, 6, .78); text-align: center; }
   .overlay[hidden] { display: none; }
+  .overlay > div { max-height: 100%; overflow-y: auto; padding: 6px 0; }
+  .hs-panel { width: min(400px, 92vw); margin: 10px auto 0; background: rgba(0,0,0,.35); border: 1px solid var(--hs-line); border-radius: 10px; padding: 8px 12px; text-align: left; }
+  .hs-panel[hidden] { display: none; }
+  .btn.ghost { background: transparent; color: #fff; border: 1px solid var(--hs-line); box-shadow: none; font-size: 14px; padding: 8px 16px; }
   .overlay h1 { font-family: var(--stencil); font-size: clamp(36px, 8vw, 72px); margin: 0; color: var(--gold); letter-spacing: 4px; text-shadow: 4px 4px 0 #000; line-height: 1; }
   .overlay h1 small { display: block; font-size: 16px; letter-spacing: 8px; color: var(--olive); }
   .overlay h2 { font-family: var(--stencil); font-size: clamp(28px, 6vw, 56px); margin: 0 0 6px; letter-spacing: 3px; text-shadow: 3px 3px 0 #000; }
   .overlay p { margin: 6px 0; opacity: .85; }
   .controls { display: grid; grid-template-columns: auto auto; gap: 3px 16px; text-align: left; font-size: 13px; margin: 14px auto; width: max-content; max-width: 90%; }
+  .controls[hidden] { display: none; }
   .controls b { color: var(--gold); font-family: var(--stencil); letter-spacing: 1px; font-weight: 400; }
   .btn { font-family: var(--stencil); background: var(--gold); color: #1a1a1a; border: 0; padding: 10px 26px; font-size: 18px; letter-spacing: 2px; cursor: pointer; box-shadow: 3px 3px 0 #000; margin-top: 8px; }
   .btn:hover { filter: brightness(1.08); }
@@ -62,7 +68,7 @@
     <div>
       <h1>STRIKE FORCE<small>RUN &amp; GUN</small></h1>
       <p>Fight through the jungle, reach the arena, take down the boss.</p>
-      <div class="controls">
+      <div class="controls" id="controlsGrid">
         <b>Move</b><span>Left / Right arrows, or A / D</span>
         <b>Jump</b><span>Space, Z or K (hold for a higher jump)</span>
         <b>Fire</b><span>X, J or F (hold to keep firing)</span>
@@ -71,19 +77,21 @@
         <b>Crouch</b><span>Down (S) standing still: crouch, shoot low along the ground</span>
         <b>Sound</b><span>M toggles (off by default)</span>
       </div>
+      <div id="hsTitle" class="hs-panel" hidden></div>
       <div class="toggles">
         <label><input type="checkbox" id="optClassic"> Classic: one hit kills</label>
         <label><input type="checkbox" id="optSound"> Sound</label>
       </div>
-      <button class="btn" id="btnStart">DEPLOY (ENTER)</button>
-      <div class="hint">3 hits per life, 3 lives. Checkpoint flags save your progress.</div>
+      <button class="btn" id="btnStart">DEPLOY (ENTER)</button> <button class="btn ghost" id="btnScores">HIGH SCORES (H)</button>
+      <div class="hint">3 hits per life, 3 lives. Checkpoint flags save your progress. Top ten scores with initials are kept in this browser.</div>
     </div>
   </div>
   <div id="end" class="overlay" hidden>
     <div>
       <h2 id="endTitle">MISSION FAILED</h2>
       <p id="endText"></p>
-      <button class="btn" id="btnRestart">RESTART (R)</button>
+      <button class="btn" id="btnRestart">RESTART (R)</button> <button class="btn ghost" id="btnTitle">TITLE (T)</button>
+      <div id="hsEnd" class="hs-panel"></div>
     </div>
   </div>
   <a class="back" href="../index.html">&larr; all games</a>
@@ -395,6 +403,12 @@ function respawnAtCheckpoint(g) {
   g.events.push('respawn');
 }
 function endGame(g, result) { g.state = result; g.events.push(result); }
+// High-score detail for a finished game: how far the run got.
+function hsDetail(g) {
+  if (g.state === 'won') return 'won';
+  if (g.bossActive) return 'reached boss';
+  return g.checkpoint >= 0 ? 'reached checkpoint ' + (g.checkpoint + 1) : 'reached no checkpoint';
+}
 
 function applyPowerUp(g, pu) {
   const p = g.player;
@@ -443,7 +457,102 @@ function updateCamera(g) {
   g.camera.x += (target - g.camera.x) * C.CAM_EASE;
 }
 
-globalThis.__sf = { C, ENEMY, aimFrom, makeLevel, createGame, startGame, step, moveBody, overlaps, pointIn, findGroundY, groundAhead, spawnEnemy, fireEnemyBullet, damagePlayer, killPlayer, killEnemy, respawnAtCheckpoint, gunTip };
+globalThis.__sf = { C, ENEMY, aimFrom, makeLevel, createGame, startGame, step, moveBody, overlaps, pointIn, findGroundY, groundAhead, spawnEnemy, fireEnemyBullet, damagePlayer, killPlayer, killEnemy, respawnAtCheckpoint, gunTip, hsDetail };
+
+// ---------- dgames high scores ----------
+// Shared snippet, pasted verbatim into every game (games stay self-contained). Keeps a top-N table per
+// key in localStorage with three-letter initials. Usage:
+//   const hs = makeHiScores({ key: 'duck-hunt', order: 'desc', max: 10, label: v => v + ' pts' });
+//   if (hs.rank(score) >= 0) hs.prompt(score, 'round 7').then(() => hs.render(document.getElementById('scores')));
+//   hs.render(el)                       // table of the current list
+// `order` is 'desc' (bigger is better) or 'asc' (smaller is better, e.g. shots or seconds).
+// The overlay swallows key events while open so game controls do not fire. Styling comes from the
+// hs-* classes below; override the --hs-* custom properties to match a game's palette.
+function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), title = 'High scores' }) {
+  const KEY = 'dgames.hiscores.' + key;
+  const load = () => { try { const l = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
+  const save = (l) => { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch (e) {} };
+  const cmp = (a, b) => (order === 'desc' ? b.value - a.value : a.value - b.value) || a.time - b.time;
+  const sorted = (l) => l.slice().sort(cmp);
+  const better = (v, e) => order === 'desc' ? v > e.value : v < e.value;
+  // 0-based position a value would take, or -1 if it misses the table
+  function rank(value) { const l = sorted(load()); let i = 0; while (i < l.length && !better(value, l[i])) i++; return i < max ? i : -1; }
+  function add(value, initials, detail) {
+    const e = { value, initials: (initials || '???').toUpperCase().slice(0, 3), detail: detail || '', time: Date.now() };
+    const l = sorted(load().concat([e])).slice(0, max); save(l); return e;
+  }
+  const list = () => sorted(load());
+  const clear = () => save([]);
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function ensureStyle() {
+    if (document.getElementById('hs-style')) return;
+    const st = document.createElement('style'); st.id = 'hs-style';
+    st.textContent = `
+      .hs-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(3,10,20,.72);font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff)}
+      .hs-card{background:var(--hs-bg,#10233a);border:1px solid var(--hs-line,#2c4a6e);border-radius:16px;padding:22px 26px;width:min(360px,92vw);text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.45)}
+      .hs-card h2{margin:0 0 4px;font-size:22px;letter-spacing:2px;color:var(--hs-accent,#ffd54a)}
+      .hs-card .hs-val{font-size:30px;font-weight:700;margin:6px 0 2px}
+      .hs-card .hs-detail,.hs-card .hs-hint{opacity:.7;font-size:13px}
+      .hs-card .hs-rank{margin:4px 0 14px;font-size:14px}
+      .hs-boxes{display:flex;gap:10px;justify-content:center;margin:8px 0 16px}
+      .hs-boxes span{width:48px;height:58px;border:2px solid var(--hs-line,#2c4a6e);border-radius:10px;display:grid;place-items:center;font-size:30px;font-weight:700;background:rgba(0,0,0,.25)}
+      .hs-boxes span.on{border-color:var(--hs-accent,#ffd54a)}
+      .hs-btns{display:flex;gap:8px;justify-content:center}
+      .hs-btns button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:9px 18px;cursor:pointer;background:var(--hs-accent,#ffd54a);color:#0b1a2b}
+      .hs-btns button.hs-ghost{background:transparent;color:var(--hs-fg,#fff);border:1px solid var(--hs-line,#2c4a6e);font-weight:400}
+      .hs-btns button:focus-visible{outline:2px solid var(--hs-fg,#fff);outline-offset:2px}
+      .hs-table{width:100%;border-collapse:collapse;font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff);font-variant-numeric:tabular-nums}
+      .hs-table caption{text-align:left;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7;padding:0 0 6px}
+      .hs-table td{padding:4px 6px;border-top:1px solid var(--hs-line,#2c4a6e);font-size:14px}
+      .hs-table td:first-child{opacity:.6;width:2em;text-align:right}
+      .hs-table td.hs-ini{font-weight:700;letter-spacing:1px}
+      .hs-table td.hs-score{text-align:right;color:var(--hs-accent,#ffd54a);font-weight:600}
+      .hs-table td.hs-d{opacity:.65;font-size:12px}
+      .hs-table tr.hs-new td{background:rgba(255,213,74,.12)}
+      .hs-table td.hs-empty{opacity:.55;text-align:center;padding:10px}`;
+    document.head.appendChild(st);
+  }
+  // Modal asking for initials. Resolves with the saved entry, or null if skipped. Only call when rank(value) >= 0.
+  function prompt(value, detail) {
+    ensureStyle();
+    return new Promise((resolve) => {
+      const r = rank(value);
+      const ov = document.createElement('div'); ov.className = 'hs-overlay';
+      ov.innerHTML = `<div class="hs-card" role="dialog" aria-label="New high score"><h2>NEW HIGH SCORE</h2>
+        <div class="hs-val">${esc(label(value))}</div><div class="hs-detail">${esc(detail || '')}</div>
+        <div class="hs-rank">#${r + 1} on this device</div>
+        <div class="hs-hint">Type your initials</div>
+        <div class="hs-boxes"><span class="on">_</span><span>_</span><span>_</span></div>
+        <div class="hs-btns"><button class="hs-ok" type="button">Save</button><button class="hs-ghost hs-skip" type="button">Skip</button></div></div>`;
+      document.body.appendChild(ov);
+      const boxes = ov.querySelectorAll('.hs-boxes span'); let s = '';
+      const draw = () => boxes.forEach((b, i) => { b.textContent = s[i] || '_'; b.classList.toggle('on', i === Math.min(s.length, 2)); });
+      const done = (ok) => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('keyup', swallow, true); window.removeEventListener('keypress', swallow, true); ov.remove(); resolve(ok ? add(value, s || 'AAA', detail) : null); };
+      const swallow = (e) => { e.stopPropagation(); };
+      const onKey = (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); done(true); }
+        else if (e.key === ' ' || e.key === 'Tab') { e.preventDefault(); }
+        else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+        else if (e.key === 'Backspace') { e.preventDefault(); s = s.slice(0, -1); draw(); }
+        else if (/^[a-zA-Z0-9]$/.test(e.key) && s.length < 3) { e.preventDefault(); s += e.key.toUpperCase(); draw(); }
+      };
+      window.addEventListener('keydown', onKey, true); window.addEventListener('keyup', swallow, true); window.addEventListener('keypress', swallow, true);
+      ov.querySelector('.hs-ok').addEventListener('click', () => done(true));
+      ov.querySelector('.hs-skip').addEventListener('click', () => done(false));
+      ov.querySelector('.hs-ok').focus();
+    });
+  }
+  // Renders the table into el; the entry whose time equals `newTime` is highlighted.
+  function render(el, newTime) {
+    ensureStyle();
+    const l = list();
+    const rows = l.length ? l.map((e, i) => `<tr${e.time === newTime ? ' class="hs-new"' : ''}><td>${i + 1}</td><td class="hs-ini">${esc(e.initials)}</td><td class="hs-score">${esc(label(e.value))}</td><td class="hs-d">${esc(e.detail)}</td></tr>`).join('')
+      : `<tr><td class="hs-empty" colspan="4">No scores yet. Be the first.</td></tr>`;
+    el.innerHTML = `<table class="hs-table"><caption>${esc(title)}</caption><tbody>${rows}</tbody></table>`;
+  }
+  return { key, rank, add, list, clear, prompt, render };
+}
 
 // ---------- UI ----------
 const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
@@ -456,6 +565,7 @@ const COLORS = {
   troopBody: '#6b6b6b', troopPants: '#4a4a4a', troopSkin: '#d9a982', turret: '#3b3f3a', turretBarrel: '#1c1c1c', boss: '#4a5a3a', bossDark: '#2c3622', bossVisor: '#ff3b3b',
   bullet: '#fff27a', bulletCore: '#fff', enemyBullet: '#ff5a4e', flag: '#d23b2f', flagDone: '#7ee081',
 };
+const hs = makeHiScores({ key: 'strike-force', order: 'desc', max: 10, label: (v) => String(v), title: 'High scores' });
 let reducedMotion = false;
 try { reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) {}
 
@@ -498,11 +608,14 @@ const keys = { left: false, right: false, up: false, down: false, jump: false, f
 const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down',
   Space: 'jump', KeyZ: 'jump', KeyK: 'jump', KeyX: 'fire', KeyJ: 'fire', KeyF: 'fire' };
 function handleInput(e, down) {
+  if (document.querySelector('.hs-overlay')) return; // initials prompt owns the keyboard
   const k = KEYMAP[e.code];
   if (k) { keys[k] = down; e.preventDefault(); }
   if (!down) return;
   if (e.code === 'Enter' && g.state === 'title') beginMission();
   if (e.code === 'KeyR' && (g.state === 'gameover' || g.state === 'won')) beginMission();
+  if (e.code === 'KeyT' && (g.state === 'gameover' || g.state === 'won')) showTitle();
+  if (e.code === 'KeyH' && g.state === 'title') toggleScores();
   if (e.code === 'KeyM') { Snd.on = !Snd.on; $('optSound').checked = Snd.on; if (Snd.on) Snd.ensure(); }
 }
 window.addEventListener('keydown', (e) => handleInput(e, true));
@@ -515,6 +628,9 @@ function init() {
   $('btnStart').addEventListener('click', beginMission);
   $('btnRestart').addEventListener('click', beginMission);
   $('optSound').addEventListener('change', (e) => { Snd.on = e.target.checked; if (Snd.on) Snd.ensure(); });
+  $('btnScores').addEventListener('click', toggleScores);
+  $('btnTitle').addEventListener('click', showTitle);
+  hs.render($('hsTitle'));
   requestAnimationFrame(gameLoop);
 }
 function beginMission() {
@@ -524,11 +640,28 @@ function beginMission() {
   if (Snd.on) Snd.ensure();
   canvas.focus();
 }
+function toggleScores() {
+  const show = $('hsTitle').hidden;
+  if (show) hs.render($('hsTitle'));
+  $('hsTitle').hidden = !show; $('controlsGrid').hidden = show;
+}
+function showTitle() {
+  g = createGame({ reducedMotion });
+  endEl.hidden = true; hud.hidden = true; titleEl.hidden = false;
+  hs.render($('hsTitle'));
+}
 function showEnd(result) {
   hud.hidden = true; endEl.hidden = false;
   $('endTitle').textContent = result === 'won' ? 'MISSION COMPLETE' : 'MISSION FAILED';
   $('endTitle').style.color = result === 'won' ? '#7ee081' : '#ff5a4e';
   $('endText').textContent = (result === 'won' ? 'Boss down. Final score ' : 'All lives lost. Score ') + g.score;
+  hs.render($('hsEnd'));
+  if (g.score > 0 && hs.rank(g.score) >= 0) {
+    hs.prompt(g.score, hsDetail(g)).then((entry) => {
+      for (const k in keys) keys[k] = false; // keyups were swallowed while the prompt was open
+      hs.render($('hsEnd'), entry && entry.time); hs.render($('hsTitle'), entry && entry.time);
+    });
+  }
 }
 
 // --- loop ---

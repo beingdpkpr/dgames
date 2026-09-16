@@ -50,6 +50,9 @@ Three are placed in the level; four more drop from specific troops.
 ## Scoring
 Troop 100, turret 250, boss 2000, power-up 50. Finishing adds 5000 plus 1000 per remaining life.
 
+## High scores
+A top-ten table of final scores with three-letter initials, one table for the whole game (Classic and default share it). When a run ends, by game over or by killing the boss, and the score makes the table, a prompt asks for your initials (type three letters, Enter saves, Esc skips); the entry records how far you got: `reached checkpoint n`, `reached boss` or `won`. A score of zero is never recorded. The table sits on the results screen and behind the HIGH SCORES (H) button on the title screen; T on the results screen returns to the title. Everything is stored in the browser (localStorage), so it is per device and per browser.
+
 ## Checkpoints
 Five flags at roughly 1000, 2900, 3900, 5800 and 6800 px into the 7680 px level. A flag turns green when passed.
 
@@ -64,3 +67,5 @@ Five flags at roughly 1000, 2900, 3900, 5800 and 6800 px into the 7680 px level.
 - checkpoint respawn keeps score, decrements lives, restores hp;
 - a scripted bot (run right, jump at gaps and walls, fire forward) reaches the boss arena within a bounded number of frames and then kills the boss, proving the level is traversable; the same bot without god mode is reported for information;
 - game over after losing all lives.
+
+`node test/hiscore.js` loads the high-score module and the sim the same way with an in-memory localStorage and checks rank ordering, the top-ten cap, initials upper-cased and cut to three, and that the game's detail hook reports `reached no checkpoint` / `reached checkpoint n` / `reached boss` / `won` for games driven to their end.
