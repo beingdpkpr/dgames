@@ -33,3 +33,6 @@ It never fires at the same cell twice. Headless, it sinks a random fleet in abou
 - the AI hunts on the right lattice, targets neighbours after a hit, extends a line after two, and drops hits once a ship sinks;
 - over 300 games against random fleets the AI never repeats a cell, always finishes, and its average shot count is printed next to a pure-random baseline;
 - game-over detection and accuracy rounding.
+
+## High scores
+Wins against the computer are recorded in a local top-10 table: the score is the number of shots it took to sink the whole enemy fleet (fewer is better), with your accuracy as the detail. A winning game that makes the table asks for three-letter initials. Two-player games and losses are not recorded. The table shows on the setup screen and on the victory screen, and lives only in this browser's storage.
