@@ -11,17 +11,18 @@
     --hs-bg: #17261a; --hs-line: #3c5a3e; --hs-accent: #ffd54a; --hs-fg: #fff; }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: #fff; font-family: "Segoe UI", system-ui, sans-serif; overflow: hidden; }
-  #wrap { position: relative; width: min(960px, 100vw); aspect-ratio: 16 / 9; max-height: 100vh; }
-  #game { width: 100%; height: 100%; display: block; background: #000; image-rendering: pixelated; }
-  #hud { position: absolute; inset: 0 0 auto 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 10px 16px; pointer-events: none; font-family: var(--stencil); text-shadow: 2px 2px 0 #000, 0 0 8px rgba(0,0,0,.6); letter-spacing: 1px; }
+  /* The play area fills the window at 16:9; the canvas renders at native resolution and the HUD scales with it (cqw). */
+  #wrap { position: relative; width: min(100vw, calc(100vh * 16 / 9)); aspect-ratio: 16 / 9; container-type: inline-size; }
+  #game { width: 100%; height: 100%; display: block; background: #000; }
+  #hud { position: absolute; inset: 0 0 auto 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 1cqw 1.7cqw; pointer-events: none; font-family: var(--stencil); text-shadow: 0.2cqw 0.2cqw 0 #000, 0 0 0.8cqw rgba(0,0,0,.6); letter-spacing: 0.1cqw; }
   #hud[hidden] { display: none; }
-  #hud .lbl { font-size: 11px; opacity: .75; letter-spacing: 3px; }
-  #hud .val { font-size: 24px; line-height: 1; color: var(--gold); }
-  #hud .pips span { display: inline-block; width: 14px; height: 14px; margin-right: 4px; background: var(--red); border: 2px solid #000; box-shadow: 1px 1px 0 #000; }
+  #hud .lbl { font-size: 1.15cqw; opacity: .75; letter-spacing: 0.3cqw; }
+  #hud .val { font-size: 2.5cqw; line-height: 1; color: var(--gold); }
+  #hud .pips span { display: inline-block; width: 1.45cqw; height: 1.45cqw; margin-right: 0.4cqw; background: var(--red); border: 0.2cqw solid #000; box-shadow: 0.1cqw 0.1cqw 0 #000; }
   #hud .pips span.off { background: #333; }
   #hud .weapon { text-align: center; }
   #hud .weapon .val { color: #fff; }
-  #hud .bar { width: 160px; height: 8px; border: 2px solid #000; background: #222; margin: 4px auto 0; }
+  #hud .bar { width: 16.7cqw; height: 0.85cqw; border: 0.2cqw solid #000; background: #222; margin: 0.4cqw auto 0; }
   #hud .bar i { display: block; height: 100%; background: var(--olive); }
   #hud .score { text-align: right; }
   .overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(4, 10, 6, .78); text-align: center; }
@@ -556,6 +557,13 @@ function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), t
 
 // ---------- UI ----------
 const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+// Back the canvas with the real on-screen pixel size so the picture stays sharp at any window size;
+// render() maps the logical 960x540 world onto it.
+function fitCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+}
+fitCanvas(); window.addEventListener('resize', fitCanvas);
 const $ = (id) => document.getElementById(id);
 const hud = $('hud'), titleEl = $('title'), endEl = $('end');
 const COLORS = {
@@ -842,7 +850,7 @@ function drawHUD() {
 function render() {
   const cam = g.camera.x;
   const sx = g.shake ? (Math.random() - 0.5) * g.shake : 0, sy = g.shake ? (Math.random() - 0.5) * g.shake : 0;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.setTransform(canvas.width / C.W, 0, 0, canvas.height / C.H, 0, 0);      // logical 960x540 onto the native-resolution canvas
   drawParallaxBackground(cam);
   ctx.save(); ctx.translate(Math.round(-cam + sx), Math.round(sy));
   drawLevel(g.level, cam);
