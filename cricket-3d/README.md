@@ -35,9 +35,13 @@ Once a ball is fielded it is thrown at the end the striker is running to. Batter
 ## Celebrations
 Winning a chase brings fireworks over the stands, a bouncing crowd and bat-raised batters; the tournament final gets the long version. Quick play celebrates a new best score.
 
+## High scores
+Quick play keeps a top-ten table of runs scored, one table per overs setting (2, 5 and 10), with three-letter initials like an arcade cabinet. When a finished innings makes the table you are asked for your initials; the table for the selected overs sits on the menu. Tournament chases and abandoned innings are not recorded. Everything is stored in the browser (localStorage), so it is per device and per browser.
+
 ## Injuries
 A missed ball can strike the batter. A blow to the body or helmet leaves them bruised (less power, tighter timing) or forces them to retire hurt, bringing in the next batter without costing a wicket. Fielders can get hurt diving and are replaced by the twelfth man; a bowler can pull up before an over and a part-timer takes it. In a tournament your injured players miss the next round.
 
 ## Tests
 - `npm run balance` auto-bats 20 innings headlessly (no browser) and prints the outcome mix by shot type and timing error.
+- `npm run hiscore` checks the high-score module headlessly (ranking, top-ten cap, initials) and that a finished 2-over innings submits its runs, wickets and balls to the right table.
 - `node test/visual.js` drives the game in headless Chromium with Playwright (`npx playwright install chromium` once) and saves screenshots of the menu, bowling action, shots and fielding to `test/shots/`.

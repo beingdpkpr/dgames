@@ -6,7 +6,7 @@
 <title>Cricket 3D</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=Barlow:wght@400;600&display=swap">
 <style>
-  :root { --hud: rgba(10, 20, 35, 0.72); --accent: #ffd54a; --display: "Barlow Condensed", "Arial Narrow", Impact, sans-serif; }
+  :root { --hud: rgba(10, 20, 35, 0.72); --accent: #ffd54a; --display: "Barlow Condensed", "Arial Narrow", Impact, sans-serif; --hs-font: "Barlow", "Segoe UI", system-ui, sans-serif; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1a2b; font-family: "Barlow", "Segoe UI", system-ui, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
   canvas#c { display: block; width: 100%; height: 100%; touch-action: none; }
   #hud { position: absolute; inset: 0; pointer-events: none; }
@@ -67,6 +67,7 @@
   #summary .bat { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; padding: 4px 0; font-size: 14px; font-variant-numeric: tabular-nums; }
   #summary .bat .how { opacity: .7; font-size: 13px; }
   .tour { background: #0b1a2b; border-radius: 10px; padding: 8px 14px; margin: 6px 0 4px; }
+  #hiscores { background: #0b1a2b; border-radius: 10px; padding: 8px 14px; margin: 6px 0 4px; }
   .tour .rnd { display: grid; grid-template-columns: 92px 1fr auto; gap: 10px; padding: 7px 0; border-bottom: 1px solid #1d3552; font-size: 14px; align-items: center; }
   .tour .rnd:last-child { border-bottom: 0; }
   .tour .rnd .n { font-family: var(--display); font-size: 17px; letter-spacing: 1px; opacity: .85; }
@@ -121,6 +122,7 @@
     <div class="row"><label>Your team</label><div class="seg" id="segTeam"></div></div>
     <div id="tourBox" class="tour hidden"></div>
     <div class="row" id="rowOvers"><label>Overs</label><div class="seg" id="segOvers"><button data-v="2">2</button><button data-v="5" class="on">5</button><button data-v="10">10</button></div></div>
+    <div id="hiscores"></div>
     <div class="row"><label>Difficulty</label><div class="seg" id="segDiff"><button data-v="easy">Easy</button><button data-v="medium" class="on">Medium</button><button data-v="hard">Hard</button><button data-v="veryhard">Very hard</button></div></div>
     <div class="controls">
       <b>Aim</b> — hold arrow keys or WASD (combine two for diagonals). The arrow on the turf and the radar show the shot direction.<br>
@@ -143,6 +145,101 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 'use strict';
+// ---------- dgames high scores ----------
+// Shared snippet, pasted verbatim into every game (games stay self-contained). Keeps a top-N table per
+// key in localStorage with three-letter initials. Usage:
+//   const hs = makeHiScores({ key: 'duck-hunt', order: 'desc', max: 10, label: v => v + ' pts' });
+//   if (hs.rank(score) >= 0) hs.prompt(score, 'round 7').then(() => hs.render(document.getElementById('scores')));
+//   hs.render(el)                       // table of the current list
+// `order` is 'desc' (bigger is better) or 'asc' (smaller is better, e.g. shots or seconds).
+// The overlay swallows key events while open so game controls do not fire. Styling comes from the
+// hs-* classes below; override the --hs-* custom properties to match a game's palette.
+function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), title = 'High scores' }) {
+  const KEY = 'dgames.hiscores.' + key;
+  const load = () => { try { const l = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
+  const save = (l) => { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch (e) {} };
+  const cmp = (a, b) => (order === 'desc' ? b.value - a.value : a.value - b.value) || a.time - b.time;
+  const sorted = (l) => l.slice().sort(cmp);
+  const better = (v, e) => order === 'desc' ? v > e.value : v < e.value;
+  // 0-based position a value would take, or -1 if it misses the table
+  function rank(value) { const l = sorted(load()); let i = 0; while (i < l.length && !better(value, l[i])) i++; return i < max ? i : -1; }
+  function add(value, initials, detail) {
+    const e = { value, initials: (initials || '???').toUpperCase().slice(0, 3), detail: detail || '', time: Date.now() };
+    const l = sorted(load().concat([e])).slice(0, max); save(l); return e;
+  }
+  const list = () => sorted(load());
+  const clear = () => save([]);
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function ensureStyle() {
+    if (document.getElementById('hs-style')) return;
+    const st = document.createElement('style'); st.id = 'hs-style';
+    st.textContent = `
+      .hs-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(3,10,20,.72);font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff)}
+      .hs-card{background:var(--hs-bg,#10233a);border:1px solid var(--hs-line,#2c4a6e);border-radius:16px;padding:22px 26px;width:min(360px,92vw);text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.45)}
+      .hs-card h2{margin:0 0 4px;font-size:22px;letter-spacing:2px;color:var(--hs-accent,#ffd54a)}
+      .hs-card .hs-val{font-size:30px;font-weight:700;margin:6px 0 2px}
+      .hs-card .hs-detail,.hs-card .hs-hint{opacity:.7;font-size:13px}
+      .hs-card .hs-rank{margin:4px 0 14px;font-size:14px}
+      .hs-boxes{display:flex;gap:10px;justify-content:center;margin:8px 0 16px}
+      .hs-boxes span{width:48px;height:58px;border:2px solid var(--hs-line,#2c4a6e);border-radius:10px;display:grid;place-items:center;font-size:30px;font-weight:700;background:rgba(0,0,0,.25)}
+      .hs-boxes span.on{border-color:var(--hs-accent,#ffd54a)}
+      .hs-btns{display:flex;gap:8px;justify-content:center}
+      .hs-btns button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:9px 18px;cursor:pointer;background:var(--hs-accent,#ffd54a);color:#0b1a2b}
+      .hs-btns button.hs-ghost{background:transparent;color:var(--hs-fg,#fff);border:1px solid var(--hs-line,#2c4a6e);font-weight:400}
+      .hs-btns button:focus-visible{outline:2px solid var(--hs-fg,#fff);outline-offset:2px}
+      .hs-table{width:100%;border-collapse:collapse;font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff);font-variant-numeric:tabular-nums}
+      .hs-table caption{text-align:left;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7;padding:0 0 6px}
+      .hs-table td{padding:4px 6px;border-top:1px solid var(--hs-line,#2c4a6e);font-size:14px}
+      .hs-table td:first-child{opacity:.6;width:2em;text-align:right}
+      .hs-table td.hs-ini{font-weight:700;letter-spacing:1px}
+      .hs-table td.hs-score{text-align:right;color:var(--hs-accent,#ffd54a);font-weight:600}
+      .hs-table td.hs-d{opacity:.65;font-size:12px}
+      .hs-table tr.hs-new td{background:rgba(255,213,74,.12)}
+      .hs-table td.hs-empty{opacity:.55;text-align:center;padding:10px}`;
+    document.head.appendChild(st);
+  }
+  // Modal asking for initials. Resolves with the saved entry, or null if skipped. Only call when rank(value) >= 0.
+  function prompt(value, detail) {
+    ensureStyle();
+    return new Promise((resolve) => {
+      const r = rank(value);
+      const ov = document.createElement('div'); ov.className = 'hs-overlay';
+      ov.innerHTML = `<div class="hs-card" role="dialog" aria-label="New high score"><h2>NEW HIGH SCORE</h2>
+        <div class="hs-val">${esc(label(value))}</div><div class="hs-detail">${esc(detail || '')}</div>
+        <div class="hs-rank">#${r + 1} on this device</div>
+        <div class="hs-hint">Type your initials</div>
+        <div class="hs-boxes"><span class="on">_</span><span>_</span><span>_</span></div>
+        <div class="hs-btns"><button class="hs-ok" type="button">Save</button><button class="hs-ghost hs-skip" type="button">Skip</button></div></div>`;
+      document.body.appendChild(ov);
+      const boxes = ov.querySelectorAll('.hs-boxes span'); let s = '';
+      const draw = () => boxes.forEach((b, i) => { b.textContent = s[i] || '_'; b.classList.toggle('on', i === Math.min(s.length, 2)); });
+      const done = (ok) => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('keyup', swallow, true); window.removeEventListener('keypress', swallow, true); ov.remove(); resolve(ok ? add(value, s || 'AAA', detail) : null); };
+      const swallow = (e) => { e.stopPropagation(); };
+      const onKey = (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); done(true); }
+        else if (e.key === ' ' || e.key === 'Tab') { e.preventDefault(); }
+        else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+        else if (e.key === 'Backspace') { e.preventDefault(); s = s.slice(0, -1); draw(); }
+        else if (/^[a-zA-Z0-9]$/.test(e.key) && s.length < 3) { e.preventDefault(); s += e.key.toUpperCase(); draw(); }
+      };
+      window.addEventListener('keydown', onKey, true); window.addEventListener('keyup', swallow, true); window.addEventListener('keypress', swallow, true);
+      ov.querySelector('.hs-ok').addEventListener('click', () => done(true));
+      ov.querySelector('.hs-skip').addEventListener('click', () => done(false));
+      ov.querySelector('.hs-ok').focus();
+    });
+  }
+  // Renders the table into el; the entry whose time equals `newTime` is highlighted.
+  function render(el, newTime) {
+    ensureStyle();
+    const l = list();
+    const rows = l.length ? l.map((e, i) => `<tr${e.time === newTime ? ' class="hs-new"' : ''}><td>${i + 1}</td><td class="hs-ini">${esc(e.initials)}</td><td class="hs-score">${esc(label(e.value))}</td><td class="hs-d">${esc(e.detail)}</td></tr>`).join('')
+      : `<tr><td class="hs-empty" colspan="4">No scores yet. Be the first.</td></tr>`;
+    el.innerHTML = `<table class="hs-table"><caption>${esc(title)}</caption><tbody>${rows}</tbody></table>`;
+  }
+  return { key, rank, add, list, clear, prompt, render };
+}
+
 // =====================================================================
 //  Constants and tuning
 // =====================================================================
@@ -1318,6 +1415,18 @@ function nextBall() {
   startRunup();
 }
 const QUICK_TAGLINE = 'Batting only. Score as many as you can before the overs run out or you lose 5 wickets.';
+// Quick-play high scores: one table per overs setting (tournament chases are not recorded).
+const hiTables = {};
+function hiScores(overs) {
+  return hiTables[overs] || (hiTables[overs] = makeHiScores({ key: `cricket-3d.quick.${overs}`, order: 'desc', max: 10, label: v => `${v} runs`, title: `High scores · ${overs} overs` }));
+}
+// What a finished quick-play innings submits: runs, with the wickets and balls from the batting card. Null when nothing is recorded.
+function quickHiScore() {
+  if (mode !== 'quick' || match.runs <= 0) return null;
+  return { hs: hiScores(totalOvers), value: match.runs, detail: `${match.wkts} wkts, ${match.balls} balls` };
+}
+// The headless tests stub `document` without a body; the table and the initials overlay need one.
+function renderHiScores(entry) { if (!document.body) return; hiScores(totalOvers).render($('hiscores'), entry && entry.time); }
 function endMatch() {
   state = 'end';
   const allOut = match.wkts >= MAX_WICKETS || match.batIdx >= match.order.length;
@@ -1352,11 +1461,15 @@ function endMatch() {
     + match.card.map(c => `<div class="bat"><span>${c.name}</span><span class="how">${c.how}</span><span><b>${c.runs}</b> (${c.balls})</span></div>`).join('');
   renderMenu();
   $('overlay').classList.remove('hidden');
+  const q = quickHiScore();
+  if (q && document.body && q.hs.rank(q.value) >= 0) q.hs.prompt(q.value, q.detail).then(renderHiScores);
 }
 function renderMenu() {
   const isT = mode === 'tournament';
   $('rowOvers').classList.toggle('hidden', isT);
   $('tourBox').classList.toggle('hidden', !isT);
+  $('hiscores').classList.toggle('hidden', isT);
+  if (!isT) renderHiScores();
   for (const b of $('segTeam').children) b.classList.toggle('on', b.dataset.v === myTeam.name);
   if (!isT) { $('play').textContent = state === 'end' ? 'PLAY AGAIN' : 'PLAY'; return; }
   if (!tour || tour.team !== myTeam.name) newTour();
@@ -1680,7 +1793,7 @@ function toggleMute() { muted = !muted; $('mute').textContent = muted ? '🔇 Mu
 $('mute').addEventListener('click', toggleMute);
 
 for (const t of TEAMS) { const b = document.createElement('button'); b.dataset.v = t.name; b.textContent = t.name; $('segTeam').appendChild(b); }
-for (const [id, set] of [['segOvers', v => { totalOvers = +v; }], ['segDiff', v => { diff = DIFF[v]; }], ['segMode', v => { mode = v; renderMenu(); }],
+for (const [id, set] of [['segOvers', v => { totalOvers = +v; renderHiScores(); }], ['segDiff', v => { diff = DIFF[v]; }], ['segMode', v => { mode = v; renderMenu(); }],
   ['segTeam', v => { myTeam = TEAMS.find(t => t.name === v); try { localStorage.setItem('cricket3d_team', v); } catch (e) {} renderMenu(); }]]) {
   $(id).addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
