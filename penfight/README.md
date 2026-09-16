@@ -15,5 +15,11 @@ Press on one of your glowing pens where you want to hit it, pull back like a sli
 
 The camera can be dragged on an empty spot to look around, scrolled or pinched to zoom, and right-dragged or two-finger-dragged to pan. Side, Top and Pen jump to preset views.
 
+## High scores
+Only matches against the computer that you win are recorded. The score is flicks per opposing pen knocked off (your flicks ÷ pens knocked off, one decimal), so lower is better. There is one top-10 table per computer skill (Easy, Medium, Hard) with three-letter initials, plus the flicks, pens and desk of the match. When a win makes the table, the result screen asks for your initials. The table lives under "High scores" beneath the Computer skill selector on the main menu and on the result screen after a win. Two-player matches, draws and losses are not recorded. Stored in the browser's localStorage (`dgames.hiscores.penfight.<skill>`), so it is per device and per browser.
+
+## Tests
+`node test/hiscore.js` pulls the high-score module and the scoring helper out of `index.html` and checks the ordering (lower flicks/pen first), the top-10 cap, the initials rules, the per-skill storage key and which results are not recorded. There is no harness for the game itself.
+
 ## Status
-Imported as-is from a bundled build. No test harness yet.
+Imported as-is from a bundled build; the high-score table was added on top of it.
