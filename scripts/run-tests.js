@@ -6,7 +6,10 @@
 //
 //  1. Tests listed in the `dgames.browserTests` block of package.json. They drive a real browser, which
 //     is too slow and too fragile for the default suite. `npm run test:visual` runs those and only those.
-//  2. Tests whose `require()`s cannot be resolved. Every cricket-3d test needs `three` or `playwright`
+//  2. Files listed in `dgames.reportOnly`. These assert nothing and always exit 0 — they print a tuning
+//     distribution for a human to read. A file that cannot fail cannot gate anything, so running one in
+//     CI only makes the gate slower. `npm run test:all` includes them when you actually want to read one.
+//  3. Tests whose `require()`s cannot be resolved. Every cricket-3d test needs `three` or `playwright`
 //     from cricket-3d/node_modules, which is gitignored — so on a fresh clone they would explode with
 //     "Cannot find module" and look like real failures. Skipping names the missing package and the fix.
 //
@@ -21,6 +24,10 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const BROWSER_TESTS = new Set((pkg.dgames && pkg.dgames.browserTests) || []);
+// Files that are reports rather than tests: they assert nothing and always exit 0, so running them in a
+// gate costs time and buys no signal. Kept out of the default suite for that reason, not for being slow.
+const REPORT_ONLY = new Set((pkg.dgames && pkg.dgames.reportOnly) || []);
+const isExcluded = (f) => BROWSER_TESTS.has(f) || REPORT_ONLY.has(f);
 
 const args = new Set(process.argv.slice(2));
 const only = args.has('--only-browser') ? 'browser' : args.has('--all') ? 'all' : 'default';
@@ -61,7 +68,7 @@ function missingDeps(file) {
   });
 }
 
-const tests = findTests().filter((f) => (only === 'browser' ? BROWSER_TESTS.has(f) : only === 'all' || !BROWSER_TESTS.has(f)));
+const tests = findTests().filter((f) => (only === 'browser' ? BROWSER_TESTS.has(f) : only === 'all' || !isExcluded(f)));
 if (!tests.length) {
   console.log(only === 'browser' ? 'no browser tests configured' : 'no tests found');
   process.exit(0);

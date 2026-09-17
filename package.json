@@ -10,9 +10,13 @@
     "test:all": "node scripts/run-tests.js --all"
   },
   "dgames": {
-    "comment": "Tests that drive a real browser. Too slow and too flaky for the default suite, so the runner leaves them out and `npm run test:visual` runs them on purpose. Everything else is discovered by walking <game>/test/*.js; nothing is listed here just to be found.",
+    "comment": "The only files the runner does not treat as gating tests. Everything else is discovered by walking <game>/test/*.js; nothing is listed here just to be found. `npm run test:all` runs these too.",
     "browserTests": [
       "cricket-3d/test/visual.js"
+    ],
+    "reportOnlyComment": "Tuning reports, not tests: they print a distribution and always exit 0, so they cannot fail a gate — they can only make one slower. balance.js auto-bats 20 innings of random physics and its runtime varies from about 50s to over 180s, which is a long time to spend learning nothing.",
+    "reportOnly": [
+      "cricket-3d/test/balance.js"
     ]
   }
 }
