@@ -14,6 +14,7 @@ Play them at **<https://beingdpkpr.github.io/dgames/>**, or open any `index.html
 | Battleship | `battleship/` | Dark-ocean Battleship against a hunt-and-target computer or two players pass-and-play. Test: `node test/game.js` inside the folder. |
 | Strike Force | `strike-force/` | Run-and-gun side-scroller: 8-way aim, troops, turrets, boss, power-ups, checkpoints. On-screen pad on phones. Tests: `node test/sim.js`, `node test/touch.js` inside the folder. |
 | Penfight | `penfight/` | 3D pen-flicking on a school desk, against the computer or two players on one device. Imported as a bundled file; no test harness yet. |
+| Ludo | `ludo/` | Classic Indian Ludo, 2 to 4 players, each seat human or computer (three levels). Tests: `node test/rules.js`, `node test/ai.js`, `node test/record.js` inside the folder. |
 
 Conventions: one folder per game with its own `README.md`, `package.json` (only if it needs tooling) and `test/`. Keep games self-contained so any one can be opened or published on its own.
 
@@ -31,6 +32,6 @@ Every path in the manifest and the worker is relative. This is a GitHub Pages *p
 
 ## Tests
 
-`npm test` from the root runs every game's tests. It finds them by walking `<game>/test/*.js`, so a new game or a new test file needs no wiring. Tests whose dependencies are not installed are skipped with the reason rather than failed, and skips are reported separately from passes — `npm run test:strict` turns a skip into a failure, which is what CI uses once it has installed them. `npm run test:visual` runs the browser-driven cricket-3d test, which the default suite leaves out.
+`npm test` from the root runs every game's tests. It finds them by walking `<game>/test/*.js`, so a new game or a new test file needs no wiring. Tests whose dependencies are not installed are skipped with the reason rather than failed, and skips are reported separately from passes — `npm run test:strict` turns a skip into a failure, which is what CI uses once it has installed them. Two cricket-3d files sit outside the default suite: `test/visual.js`, which drives a real browser (`npm run test:visual`), and `test/balance.js`, which is a tuning report rather than a test — it asserts nothing and always exits 0, so it can only make a gate slower, never catch anything. `npm run test:all` runs both when you want to read them.
 
 GitHub Actions runs the suite on every pull request and branch push, and again on `main` before publishing to Pages, so a red test blocks the deploy.

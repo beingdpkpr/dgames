@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#0b1a2b">
+<link rel="icon" href="../icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="dgames">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+  /* Installable, and playable with no network once a game has been opened. Registered from every page so
+     a deep link into one game works offline too, not only a visit that started at the launcher. Over
+     file:// there is no service worker and register() rejects; the catch keeps that silent. */
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('../sw.js').catch(() => {}));
+</script>
+<meta name="description" content="Classic Indian Ludo for two to four players, each seat human or computer.">
+<title>Ludo</title>
+<style>
+  :root {
+    --bg: #0b1a2b; --panel: #10233a; --line: #2c4a6e; --muted: #8fa9c6; --gold: #ffd54a;
+    --p1: #e5484d; --p2: #46a758; --p3: #f5d90a; --p4: #3b82f6;
+    --board: #0e1f33; --track: #16304c; --safe: #1e4166;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: #fff;
+    font-family: "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; align-items: center;
+    padding: 10px 10px max(10px, env(safe-area-inset-bottom)); gap: 10px; }
+  h1 { font-size: 22px; letter-spacing: 3px; margin: 2px 0 0; }
+  h1 span { color: var(--gold); }
+
+  /* The board is square and sized off whichever of width/height runs out first, so a portrait phone
+     never scrolls sideways and a laptop never pushes the dice below the fold. */
+  #board { --s: min(94vw, 58vh, 520px); width: var(--s); height: var(--s); position: relative;
+    display: grid; grid-template: repeat(15, 1fr) / repeat(15, 1fr);
+    background: var(--board); border: 2px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .cell { position: relative; }
+  .cell.track { background: var(--track); box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); }
+  .cell.safe { background: var(--safe); }
+  .cell.safe::after { content: "\2605"; position: absolute; inset: 0; display: grid; place-items: center;
+    font-size: calc(var(--s) / 30); color: rgba(255,255,255,.45); }
+  .cell.start { box-shadow: inset 0 0 0 2px currentColor; }
+  .cell.home-run { background: currentColor; opacity: .55; }
+  .cell.yard { background: currentColor; opacity: .16; }
+  .cell.centre { background: currentColor; opacity: .5; }
+
+  /* Tokens sit above the grid so they can be moved and stacked without disturbing the board. */
+  .tok { position: absolute; width: calc(var(--s) / 15 * .78); height: calc(var(--s) / 15 * .78);
+    margin: calc(var(--s) / 15 * -.39) 0 0 calc(var(--s) / 15 * -.39);
+    border-radius: 50%; background: currentColor; border: 2px solid rgba(0,0,0,.55);
+    box-shadow: 0 2px 4px rgba(0,0,0,.5); transition: left .18s ease, top .18s ease; z-index: 2;
+    display: grid; place-items: center; font-size: calc(var(--s) / 42); font-weight: 700; color: #08131f; }
+  /* A movable token gets a 44px hit area whatever the board size, so small screens stay tappable. */
+  .tok.can { cursor: pointer; z-index: 3; animation: pulse 1.1s ease-in-out infinite; }
+  .tok.can::before { content: ""; position: absolute; left: 50%; top: 50%; width: max(44px, 100%); height: max(44px, 100%);
+    transform: translate(-50%, -50%); border-radius: 50%; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 calc(var(--s) / 150) #fff, 0 2px 4px rgba(0,0,0,.5); } }
+
+  .bar { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+    width: min(94vw, 520px); }
+  #turn { font-size: 15px; min-height: 22px; text-align: center; flex: 1 1 100%; }
+  #turn b { letter-spacing: 1px; }
+  #note { font-size: 13px; color: var(--muted); min-height: 18px; text-align: center; flex: 1 1 100%; }
+
+  #die { width: 64px; height: 64px; border-radius: 14px; border: 2px solid var(--line); background: var(--panel);
+    color: #fff; font-size: 30px; font-weight: 700; cursor: pointer; display: grid; place-items: center;
+    -webkit-tap-highlight-color: transparent; }
+  #die:disabled { opacity: .45; cursor: default; }
+  #die.roll { animation: shake .4s ease; }
+  @keyframes shake { 25% { transform: rotate(-14deg) } 75% { transform: rotate(14deg) } }
+
+  /* Move chips duplicate the on-board tokens as full-size buttons. On a phone the board cells are ~24px,
+     which is below any sane tap target, so these are the reliable way to play. */
+  #moves { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .chip { min-height: 44px; padding: 0 14px; border-radius: 22px; border: 2px solid currentColor;
+    background: var(--panel); font: inherit; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+  .chip i { width: 14px; height: 14px; border-radius: 50%; background: currentColor; display: inline-block; }
+  .chip span { color: #fff; }
+
+  .seats { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .seat { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+  .seat .sw { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
+  select, .btn { background: var(--panel); color: #fff; border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 10px; font: inherit; font-size: 13px; min-height: 44px; }
+  .btn { cursor: pointer; }
+  #record { font-size: 12px; color: var(--muted); text-align: center; }
+  #record b { color: var(--gold); }
+  a.back { color: var(--muted); font-size: 12px; text-decoration: none; }
+  a.back:hover { color: #fff; }
+  .over { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(4,10,20,.8); }
+  .over[hidden] { display: none; }
+  .over > div { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px 26px;
+    text-align: center; width: min(340px, 90vw); }
+  .over h2 { margin: 0 0 6px; font-size: 24px; letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<h1>LU<span>DO</span></h1>
+<div id="board"></div>
+<div class="bar"><div id="turn"></div></div>
+<div class="bar">
+  <button id="die" title="Roll">&middot;</button>
+  <div id="moves"></div>
+</div>
+<div class="bar"><div id="note"></div></div>
+<div class="bar seats" id="seats"></div>
+<div class="bar">
+  <label class="seat">Players
+    <select id="players"><option>2</option><option>3</option><option>4</option></select>
+  </label>
+  <button class="btn" id="newGame">New game</button>
+</div>
+<div class="bar"><div id="record"></div></div>
+<div class="bar"><a class="back" href="../index.html">&larr; all games</a></div>
+
+<div class="over" id="over" hidden><div>
+  <h2 id="overTitle">Game over</h2>
+  <p id="overText"></p>
+  <button class="btn" id="overAgain">Play again</button>
+</div></div>
+
+<script>
+'use strict';
+// ---------- RULES (pure: no DOM and no randomness anywhere in this section) ----------
+// A token's position is a single "progress" number along its own path, which keeps every rule a
+// comparison rather than a coordinate lookup:
+//   -1            in the yard
+//   0 .. 50       on the shared 52-square ring, at ring index (START[player] + progress) % 52
+//   51 .. 55      in that player's five-square home run, which no other player can enter
+//   56            home
+// A lap is 51 ring squares, not 52: the 52nd square of the loop is the one the player diverts off.
+const YARD = -1, HOME = 56, RING_LEN = 52, LAST_RING = 50, PLAYERS_MAX = 4, TOKENS = 4;
+
+// One arm of the cross, listed in travel order; rotating it 90 degrees three times gives the whole ring.
+// The track turns diagonally at each of the four corners because the corner square belongs to the
+// centre triangle, so consecutive ring cells are not always orthogonally adjacent.
+const ARM = [[5, 8], [4, 8], [3, 8], [2, 8], [1, 8], [0, 8], [0, 7], [0, 6], [1, 6], [2, 6], [3, 6], [4, 6], [5, 6]];
+const rot = ([c, r]) => [14 - r, c];
+const RING = [];
+for (let i = 0, arm = ARM; i < 4; i++, arm = arm.map(rot)) RING.push(...arm);
+
+// Where each player joins the ring, 13 apart, and the five squares of its home run from ring to centre.
+const START = [8, 21, 34, 47];
+const HOME_RUN = [[[1, 7], [2, 7], [3, 7], [4, 7], [5, 7]], [[7, 1], [7, 2], [7, 3], [7, 4], [7, 5]],
+  [[13, 7], [12, 7], [11, 7], [10, 7], [9, 7]], [[7, 13], [7, 12], [7, 11], [7, 10], [7, 9]]];
+// Top-left corner of each player's yard, and the centre home triangle.
+const YARD_AT = [[0, 0], [9, 0], [9, 9], [0, 9]];
+// Safe squares: the four start squares and the four stars eight ahead of them. A token standing on one
+// cannot be captured, which is what makes them worth racing to.
+const SAFE = new Set([...START, ...START.map((i) => (i + 8) % RING_LEN)]);
+
+const ringIndexOf = (player, progress) => (START[player] + progress) % RING_LEN;
+const onRing = (progress) => progress >= 0 && progress <= LAST_RING;
+
+function newState(players) {
+  const tokens = [];
+  for (let p = 0; p < players; p++) tokens.push([YARD, YARD, YARD, YARD]);
+  return { players, player: 0, tokens, sixes: 0, over: false, winner: -1 };
+}
+const cloneState = (s) => ({ ...s, tokens: s.tokens.map((t) => t.slice()) });
+
+// Every token of `player` sitting on ring index `idx`.
+function tokensOnRing(s, player, idx) {
+  const out = [];
+  for (let t = 0; t < TOKENS; t++) {
+    const g = s.tokens[player][t];
+    if (onRing(g) && ringIndexOf(player, g) === idx) out.push(t);
+  }
+  return out;
+}
+// Two tokens of one player on a square wall it off: nobody else may land on it or pass through it.
+function blockedFor(s, player, idx) {
+  for (let q = 0; q < s.players; q++) if (q !== player && tokensOnRing(s, q, idx).length >= 2) return true;
+  return false;
+}
+// Opponent tokens a landing on `to` would send home. Empty on a safe square, in the home run, or at home.
+function capturesAt(s, player, to) {
+  if (!onRing(to)) return [];
+  const idx = ringIndexOf(player, to);
+  if (SAFE.has(idx)) return [];
+  const out = [];
+  for (let q = 0; q < s.players; q++) {
+    if (q === player) continue;
+    for (const t of tokensOnRing(s, q, idx)) out.push({ player: q, token: t });
+  }
+  return out;
+}
+// A move is illegal if any square it crosses, the destination included, is walled off by an opponent.
+function pathBlocked(s, player, from, to) {
+  const first = from === YARD ? 0 : from + 1;
+  for (let g = first; g <= to; g++) if (onRing(g) && blockedFor(s, player, ringIndexOf(player, g))) return true;
+  return false;
+}
+
+// Every move the current player could make with this roll. The roll is an argument, never drawn here:
+// the dice live entirely in the UI, which is what lets the tests drive an exact scenario.
+function legalMoves(s, roll) {
+  if (s.over) return [];
+  const p = s.player, out = [];
+  for (let t = 0; t < TOKENS; t++) {
+    const from = s.tokens[p][t];
+    if (from === HOME) continue;
+    let to;
+    if (from === YARD) { if (roll !== 6) continue; to = 0; }      // only a six brings a token out
+    else { to = from + roll; if (to > HOME) continue; }           // home needs the exact count
+    if (pathBlocked(s, p, from, to)) continue;
+    out.push({ token: t, from, to, roll, captures: capturesAt(s, p, to) });
+  }
+  return out;
+}
+
+// Plays a move for the current player and settles whose turn it is next. A six or a capture buys
+// another turn; anything else passes the seat on.
+function applyMove(s, m) {
+  if (s.over) return null;
+  const p = s.player;
+  s.tokens[p][m.token] = m.to;
+  for (const c of m.captures) s.tokens[c.player][c.token] = YARD;
+  if (s.tokens[p].every((g) => g === HOME)) { s.over = true; s.winner = p; return { captures: m.captures, extra: false }; }
+  const extra = m.roll === 6 || m.captures.length > 0;
+  if (m.roll !== 6) s.sixes = 0;
+  if (!extra) s.player = (p + 1) % s.players;
+  return { captures: m.captures, extra };
+}
+
+// Opens a turn with an already-drawn roll. Handles the two ways a turn can end before a move is made:
+// a third six in a row is forfeited outright, and a roll with nowhere to go simply passes.
+function beginRoll(s, roll) {
+  if (s.over) return { forfeit: false, moves: [] };
+  if (roll === 6 && ++s.sixes === 3) {
+    s.sixes = 0; s.player = (s.player + 1) % s.players;
+    return { forfeit: true, moves: [] };
+  }
+  const moves = legalMoves(s, roll);
+  if (!moves.length) { s.sixes = 0; s.player = (s.player + 1) % s.players; }
+  return { forfeit: false, moves };
+}
+
+// How many opponent tokens could reach `to` on their next roll. Only counts tokens that would still be
+// on the ring when they got there, since one already turning into its home run can no longer strike.
+function threatsAt(s, player, to) {
+  if (!onRing(to)) return 0;
+  const idx = ringIndexOf(player, to);
+  let n = 0;
+  for (let q = 0; q < s.players; q++) {
+    if (q === player) continue;
+    for (let t = 0; t < TOKENS; t++) {
+      const g = s.tokens[q][t];
+      if (!onRing(g)) continue;
+      const d = (idx - ringIndexOf(q, g) + RING_LEN) % RING_LEN;
+      if (d >= 1 && d <= 6 && g + d <= LAST_RING) n++;
+    }
+  }
+  return n;
+}
+// What a move is worth. `wary` adds the cost of parking somewhere an opponent can reach, which is the
+// only difference between Normal and Hard.
+function moveScore(s, m, wary) {
+  const p = s.player;
+  let v = m.to / 4;                                              // all else equal, advance the leader
+  for (const c of m.captures) v += 100 + s.tokens[c.player][c.token];
+  if (m.to === HOME) v += 80;
+  if (m.from === YARD) v += 60;                                  // a spare token on the board is worth more
+  if (m.to > LAST_RING) v += 40;                                 // into the home run, permanently out of reach
+  else if (SAFE.has(ringIndexOf(p, m.to))) v += 25;
+  else if (wary) v -= 40 * threatsAt(s, p, m.to);
+  return v;
+}
+// easy: any legal move. normal: plays the value up. hard: also refuses to park under an opponent's nose.
+// Deterministic for normal and hard given (state, roll): ties go to the lowest token index.
+function aiMove(s, roll, level, rnd = Math.random) {
+  const moves = legalMoves(s, roll);
+  if (!moves.length) return null;
+  if (level === 'easy') return moves[Math.floor(rnd() * moves.length)];
+  const wary = level === 'hard';
+  let best = moves[0], bestV = moveScore(s, moves[0], wary);
+  for (const m of moves.slice(1)) {
+    const v = moveScore(s, m, wary);
+    if (v > bestV) { best = m; bestV = v; }
+  }
+  return best;
+}
+
+// Small seeded generator so a whole game can be replayed move for move from one number.
+function makeRng(seed) {
+  let a = (seed >>> 0) || 1;
+  return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const rollDie = (rnd) => 1 + Math.floor(rnd() * 6);
+
+// Win / loss and an unbeaten streak, kept per table size so a 2-player record is not mixed with a 4-player
+// one. Ludo has no score to rank, so there is no high-score table here on purpose.
+function makeRecord(key = 'dgames.ludo.record') {
+  const blank = () => ({ wins: 0, losses: 0, streak: 0, best: 0 });
+  const load = () => { try { const o = JSON.parse(localStorage.getItem(key) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; } };
+  const save = (o) => { try { localStorage.setItem(key, JSON.stringify(o)); } catch (e) { /* ignore */ } };
+  const get = (players) => ({ ...blank(), ...(load()[players] || {}) });
+  function add(players, won) {
+    const all = load(), r = { ...blank(), ...(all[players] || {}) };
+    if (won) { r.wins++; r.streak++; r.best = Math.max(r.best, r.streak); } else { r.losses++; r.streak = 0; }
+    all[players] = r; save(all); return r;
+  }
+  return { get, add, clear: () => save({}), key };
+}
+
+globalThis.__ludo = { YARD, HOME, RING_LEN, LAST_RING, TOKENS, RING, START, HOME_RUN, YARD_AT, SAFE,
+  ringIndexOf, onRing, newState, cloneState, tokensOnRing, blockedFor, capturesAt, pathBlocked,
+  legalMoves, applyMove, beginRoll, threatsAt, moveScore, aiMove, makeRng, rollDie, makeRecord };
+
+// ---------- UI ----------
+const $ = (id) => document.getElementById(id);
+const COLOURS = ['var(--p1)', 'var(--p2)', 'var(--p3)', 'var(--p4)'];
+const NAMES = ['Red', 'Green', 'Yellow', 'Blue'];
+const PIPS = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+const SEAT_KINDS = [['human', 'Human'], ['easy', 'Computer · Easy'], ['normal', 'Computer · Normal'], ['hard', 'Computer · Hard']];
+const cellKey = (c, r) => r * 15 + c;
+
+// opts.seats[p] is 'human' | 'easy' | 'normal' | 'hard' for seats 2..players; seat 1 is always human.
+function loadOpts() {
+  let o = { players: 4, seats: {} };
+  try {
+    const saved = JSON.parse(localStorage.getItem('dgames.ludo.opts') || '{}');
+    o = { ...o, ...saved, seats: { ...(saved.seats || {}) } };
+  } catch (e) { /* ignore */ }
+  o.players = Math.max(2, Math.min(PLAYERS_MAX, +o.players || 4));
+  $('players').value = o.players;
+  return o;
+}
+const saveOpts = () => { try { localStorage.setItem('dgames.ludo.opts', JSON.stringify(opts)); } catch (e) { /* ignore */ } };
+
+const opts = loadOpts();
+const record = makeRecord();
+const seatKind = (p) => (p === 1 ? 'human' : (opts.seats[p] || 'hard'));
+const isAiSeat = (p) => seatKind(p) !== 'human';
+// The engine counts players from 0; the seat pickers count from 1, the way dots-and-boxes does.
+const isAiTurn = () => !S.over && isAiSeat(S.player + 1);
+
+let S = newState(opts.players);
+let rnd = Math.random, pending = [], lastRoll = 0, timer = null, tokEls = [];
+
+// ---- board ----
+// Painted once: every square's role is fixed, so only the tokens move afterwards.
+function buildBoard() {
+  const b = $('board');
+  b.innerHTML = '';
+  const cells = [];
+  for (let i = 0; i < 225; i++) {
+    const d = document.createElement('div');
+    d.className = 'cell';
+    cells.push(d); b.appendChild(d);
+  }
+  RING.forEach(([c, r], i) => {
+    const d = cells[cellKey(c, r)];
+    d.classList.add('track');
+    if (SAFE.has(i)) d.classList.add('safe');
+    const owner = START.indexOf(i);
+    if (owner >= 0) { d.classList.add('start'); d.style.color = COLOURS[owner]; }
+  });
+  HOME_RUN.forEach((run, p) => run.forEach(([c, r]) => {
+    const d = cells[cellKey(c, r)];
+    d.classList.add('home-run'); d.style.color = COLOURS[p];
+  }));
+  YARD_AT.forEach(([yc, yr], p) => {
+    for (let r = 0; r < 6; r++) for (let c = 0; c < 6; c++) {
+      const d = cells[cellKey(yc + c, yr + r)];
+      d.classList.add('yard'); d.style.color = COLOURS[p];
+    }
+  });
+  for (let r = 6; r <= 8; r++) for (let c = 6; c <= 8; c++) {
+    const d = cells[cellKey(c, r)];
+    d.classList.add('centre');
+    d.style.color = COLOURS[quadrantOf(c, r)];
+  }
+  // tokens live above the grid
+  tokEls = [];
+  for (let p = 0; p < PLAYERS_MAX; p++) {
+    const row = [];
+    for (let t = 0; t < TOKENS; t++) {
+      const e = document.createElement('div');
+      e.className = 'tok'; e.style.color = COLOURS[p]; e.hidden = true;
+      e.addEventListener('click', () => onTokenTap(p, t));
+      b.appendChild(e); row.push(e);
+    }
+    tokEls.push(row);
+  }
+}
+// Which player's wedge of the centre triangle a cell belongs to, so home tokens sit on their own colour.
+function quadrantOf(c, r) {
+  if (c === 6) return 0;
+  if (r === 6) return 1;
+  if (c === 8) return 2;
+  return 3;
+}
+
+// Pixel position, in board percentages, of a token at `progress` for `player`. Yard and home get their
+// own little four-slot arrangements.
+function spotOf(player, token, progress) {
+  if (progress === YARD) {
+    const [yc, yr] = YARD_AT[player];
+    const dx = [1.5, 3.5, 1.5, 3.5][token], dy = [1.5, 1.5, 3.5, 3.5][token];
+    return [yc + dx, yr + dy];
+  }
+  if (progress === HOME) {
+    // the four finished tokens fan out inside their own wedge of the centre triangle
+    const spread = [[-0.22, 0], [0.22, 0], [0, -0.22], [0, 0.22]][token];
+    const base = [[6.6, 7.5], [7.5, 6.6], [8.4, 7.5], [7.5, 8.4]][player];
+    return [base[0] + spread[0], base[1] + spread[1]];
+  }
+  if (progress > LAST_RING) {
+    const [c, r] = HOME_RUN[player][progress - LAST_RING - 1];
+    return [c + 0.5, r + 0.5];
+  }
+  const [c, r] = RING[ringIndexOf(player, progress)];
+  return [c + 0.5, r + 0.5];
+}
+
+function render() {
+  const movable = new Map();
+  for (const m of pending) movable.set(S.player + ':' + m.token, m);
+  // stack offsets: two tokens sharing a ring square are nudged apart so both stay visible
+  const seen = new Map();
+  for (let p = 0; p < PLAYERS_MAX; p++) for (let t = 0; t < TOKENS; t++) {
+    const e = tokEls[p][t];
+    if (p >= S.players) { e.hidden = true; continue; }
+    const g = S.tokens[p][t];
+    e.hidden = false;
+    let [x, y] = spotOf(p, t, g);
+    if (onRing(g)) {
+      const k = ringIndexOf(p, g);
+      const n = seen.get(k) || 0; seen.set(k, n + 1);
+      if (n) { x += n * 0.18; y += n * 0.18; }
+    }
+    e.style.left = (x / 15 * 100) + '%';
+    e.style.top = (y / 15 * 100) + '%';
+    e.classList.toggle('can', movable.has(p + ':' + t) && !isAiTurn());
+    e.textContent = g === HOME ? '✓' : '';
+  }
+  const name = NAMES[S.player];
+  $('turn').innerHTML = S.over
+    ? `<b style="color:${COLOURS[S.winner]}">${NAMES[S.winner]}</b> wins`
+    : `<b style="color:${COLOURS[S.player]}">${name}</b> to play${lastRoll ? ' · rolled ' + lastRoll : ''}${isAiTurn() ? ' · computer' : ''}`;
+  $('die').textContent = lastRoll ? PIPS[lastRoll] : '·';
+  $('die').disabled = S.over || isAiTurn() || pending.length > 0;
+  renderMoves();
+  renderRecord();
+}
+
+function renderMoves() {
+  const box = $('moves');
+  box.innerHTML = '';
+  if (isAiTurn() || S.over) return;
+  for (const m of pending) {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.style.color = COLOURS[S.player];
+    const where = m.to === HOME ? 'home' : m.from === YARD ? 'out of the yard' : m.to > LAST_RING ? 'home run' : 'square ' + (m.to + 1);
+    b.innerHTML = `<i></i><span>Token ${m.token + 1} → ${where}${m.captures.length ? ' · capture' : ''}</span>`;
+    b.addEventListener('click', () => choose(m));
+    box.appendChild(b);
+  }
+}
+function renderRecord() {
+  const r = record.get(S.players);
+  $('record').innerHTML = `${S.players} players: <b>${r.wins}</b>W ${r.losses}L · streak <b>${r.streak}</b> (best ${r.best})`;
+}
+function renderSeats() {
+  const box = $('seats');
+  box.innerHTML = '';
+  for (let p = 1; p <= opts.players; p++) {
+    const wrap = document.createElement('label');
+    wrap.className = 'seat'; wrap.style.color = COLOURS[p - 1];
+    const sw = document.createElement('span'); sw.className = 'sw';
+    wrap.appendChild(sw);
+    const nm = document.createElement('span'); nm.textContent = NAMES[p - 1]; nm.style.color = '#fff';
+    wrap.appendChild(nm);
+    if (p === 1) { const s = document.createElement('span'); s.textContent = 'You'; wrap.appendChild(s); }
+    else {
+      const sel = document.createElement('select');
+      for (const [v, label] of SEAT_KINDS) { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o); }
+      sel.value = seatKind(p);
+      sel.addEventListener('change', () => { opts.seats[p] = sel.value; saveOpts(); newGame(); });
+      wrap.appendChild(sel);
+    }
+    box.appendChild(wrap);
+  }
+}
+
+// ---- turn flow ----
+const note = (t) => { $('note').textContent = t; };
+const wait = (ms, fn) => { clearTimeout(timer); timer = setTimeout(fn, ms); };
+
+function doRoll() {
+  if (S.over || pending.length) return;
+  lastRoll = rollDie(rnd);
+  $('die').classList.remove('roll'); void $('die').offsetWidth; $('die').classList.add('roll');
+  const who = NAMES[S.player];
+  const r = beginRoll(S, lastRoll);
+  if (r.forfeit) { note(`${who} rolled a third six — turn forfeited`); pending = []; render(); wait(700, afterTurn); return; }
+  pending = r.moves;
+  if (!pending.length) { note(`${who} rolled ${lastRoll} — no legal move`); render(); wait(700, afterTurn); return; }
+  note('');
+  render();
+  if (isAiTurn()) wait(500, () => choose(aiMove(S, lastRoll, seatKind(S.player + 1), rnd)));
+  else if (pending.length === 1) wait(420, () => choose(pending[0]));   // nothing to decide, so get on with it
+}
+
+function choose(m) {
+  if (!m || !pending.length) return;
+  const mover = NAMES[S.player];
+  const res = applyMove(S, m);
+  pending = [];
+  if (res && res.captures.length) note(`${mover} sent ${res.captures.map((c) => NAMES[c.player]).join(' and ')} home — another turn`);
+  else if (res && res.extra) note(`${mover} rolled a six — another turn`);
+  render();
+  if (S.over) return finish();
+  wait(res && res.extra ? 450 : 350, afterTurn);
+}
+
+function afterTurn() {
+  lastRoll = 0;
+  render();
+  if (isAiTurn()) wait(450, doRoll);
+}
+
+function onTokenTap(p, t) {
+  if (isAiTurn() || p !== S.player) return;
+  const m = pending.find((x) => x.token === t);
+  if (m) choose(m);
+}
+
+function finish() {
+  const won = S.winner === 0;
+  record.add(S.players, won);
+  renderRecord();
+  $('overTitle').textContent = won ? 'You win' : NAMES[S.winner] + ' wins';
+  $('overTitle').style.color = COLOURS[S.winner];
+  const r = record.get(S.players);
+  $('overText').textContent = won
+    ? `${r.streak} in a row against ${S.players - 1} opponent${S.players > 2 ? 's' : ''}.`
+    : 'Streak reset. Try again.';
+  $('over').hidden = false;
+}
+
+function newGame() {
+  clearTimeout(timer);
+  opts.players = +$('players').value || 4;
+  saveOpts();
+  S = newState(opts.players);
+  rnd = Math.random; pending = []; lastRoll = 0;
+  $('over').hidden = true;
+  note('Roll a six to bring a token out.');
+  renderSeats(); render();
+  if (isAiTurn()) wait(600, doRoll);
+}
+
+buildBoard();
+$('die').addEventListener('click', doRoll);
+$('newGame').addEventListener('click', newGame);
+$('overAgain').addEventListener('click', newGame);
+$('players').addEventListener('change', newGame);
+newGame();
+</script>
+</body>
+</html>
