@@ -1,0 +1,18 @@
+{
+  "name": "dgames",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small browser games, one folder each. Every game is a single self-contained index.html.",
+  "scripts": {
+    "test": "node scripts/run-tests.js",
+    "test:strict": "node scripts/run-tests.js --strict",
+    "test:visual": "node scripts/run-tests.js --only-browser",
+    "test:all": "node scripts/run-tests.js --all"
+  },
+  "dgames": {
+    "comment": "Tests that drive a real browser. Too slow and too flaky for the default suite, so the runner leaves them out and `npm run test:visual` runs them on purpose. Everything else is discovered by walking <game>/test/*.js; nothing is listed here just to be found.",
+    "browserTests": [
+      "cricket-3d/test/visual.js"
+    ]
+  }
+}

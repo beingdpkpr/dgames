@@ -1,0 +1,37 @@
+# Tests for work in progress: pull requests, and pushes to any branch except main.
+# main is deliberately left out — deploy.yml already runs the same suite there before publishing, and
+# running it twice on the same commit buys nothing.
+#
+# The test job here is a copy of the one in deploy.yml. Keep the two in step; if they drift, this one
+# going green stops meaning the deploy will.
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # The games themselves have no dependencies, but cricket-3d's tests need `three`, and its
+      # node_modules is gitignored. Without this the runner skips those three tests, and --strict
+      # below turns that skip into a failure rather than letting the suite look complete.
+      - name: Install cricket-3d test dependencies
+        working-directory: cricket-3d
+        # playwright is in the same devDependencies but only test:visual uses it, and that is not run
+        # here; skipping the browser download keeps this install to a few seconds.
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test:strict

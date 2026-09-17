@@ -1,0 +1,72 @@
+# Publishes the site to GitHub Pages, but only over a green test run. The `needs: test` on the deploy
+# job is the whole point of this file: a broken game should never reach the live URL.
+#
+# ONE-TIME SETUP: this only publishes once the repository's Pages source is set to "GitHub Actions"
+# (Settings -> Pages -> Build and deployment -> Source). Until then the site keeps being served from the
+# main branch and this workflow's deploy step will fail. configure-pages below deliberately does not
+# set `enablement`, so it never flips that setting on its own.
+#
+# Note that with the Actions source there is no Jekyll build at all — the artifact is served exactly as
+# uploaded — so the root .nojekyll file becomes belt-and-braces rather than load-bearing. It is kept in
+# the artifact anyway (see include-hidden-files below) so the published tree matches the repo.
+name: deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. Not cancel-in-progress: a half-finished Pages deploy is worse than a slow one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # Same job as in ci.yml. Keep the two in step.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Install cricket-3d test dependencies
+        working-directory: cricket-3d
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test:strict
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/configure-pages@v6
+
+      # Every game is a static single file, so the whole repo is the site. The launcher's index.html
+      # sits at the root and links to each game with a relative path.
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: .
+          # Not optional: this input defaults to false, and when false the action tars with
+          # `--exclude=.[^/]*`, which drops every root dotfile — .nojekyll with them. (.git and .github
+          # are excluded either way, which is what we want.)
+          include-hidden-files: 'true'
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
