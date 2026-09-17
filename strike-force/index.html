@@ -8,7 +8,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&display=swap" rel="stylesheet">
 <style>
   :root { --bg: #0b1a2b; --gold: #ffd54a; --olive: #9db35a; --red: #ff5a4e; --stencil: "Black Ops One", Impact, "Arial Black", "Segoe UI", sans-serif;
-    --hs-bg: #17261a; --hs-line: #3c5a3e; --hs-accent: #ffd54a; --hs-fg: #fff; }
+    --hs-bg: #17261a; --hs-line: #3c5a3e; --hs-accent: #ffd54a; --hs-fg: #fff;
+    --tp-bg: rgba(23, 38, 26, .5); --tp-line: #3c5a3e; --tp-accent: #ffd54a; --tp-fg: #fff; }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: #fff; font-family: "Segoe UI", system-ui, sans-serif; overflow: hidden; }
   /* The play area fills the window at 16:9; the canvas renders at native resolution and the HUD scales with it (cqw). */
@@ -77,6 +78,7 @@
         <b>Aim down</b><span>Down (S) while moving: diagonal down; in the air: straight down</span>
         <b>Crouch</b><span>Down (S) standing still: crouch, shoot low along the ground</span>
         <b>Sound</b><span>M toggles (off by default)</span>
+        <b>Touch</b><span>On a phone a stick and two buttons appear when you deploy</span>
       </div>
       <div id="hsTitle" class="hs-panel" hidden></div>
       <div class="toggles">
@@ -555,6 +557,144 @@ function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), t
   return { key, rank, add, list, clear, prompt, render };
 }
 
+// ---------- dgames touch controls ----------
+// Shared snippet, pasted verbatim into every game that wants a keyboard (games stay self-contained).
+// A phone has no keys, so the pad turns thumbs into the very same KeyboardEvents the game already
+// listens for: nothing in the game logic knows the difference. Usage:
+//   const pad = makeTouchPad({
+//     stick: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' },
+//     buttons: [{ code: 'Space', label: 'JUMP' }, { code: 'KeyX', label: 'FIRE', main: true }],
+//   });
+//   pad.show(); pad.hide();             // e.g. show on start, hide on the title and end screens
+// `stick` is an eight-way thumbstick (a diagonal holds two keys at once). Pass `dpad` instead for four
+// discrete keys that never combine, which is what a driving game wants. Either may be omitted.
+// The pad renders only on a coarse pointer, so desktop is untouched; `?touch=1` forces it on for testing.
+// Styling comes from the tp-* classes below; override the --tp-* custom properties to match a palette.
+
+// Eight-way: the circle is cut into eight 45-degree sectors, so a diagonal press holds two directions.
+const TP_SECTORS = [['right'], ['right', 'down'], ['down'], ['left', 'down'], ['left'], ['left', 'up'], ['up'], ['right', 'up']];
+// Offset from the stick centre, in units of the stick radius, to the directions it stands for.
+function tpStickDirs(dx, dy, deadzone = 0.35) {
+  if (Math.hypot(dx, dy) < deadzone) return [];
+  const s = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
+  return TP_SECTORS[((s % 8) + 8) % 8];
+}
+
+// Holds a set of key codes down, sending only the transitions so a resting thumb does not restream keydown.
+function tpKeySynth(target) {
+  const held = new Set();
+  const send = (type, code) => target.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true, cancelable: true }));
+  const set = (code, down) => {
+    if (down === held.has(code)) return;
+    if (down) held.add(code); else held.delete(code);
+    send(down ? 'keydown' : 'keyup', code);
+  };
+  return {
+    set, held,
+    // Make exactly `codes` the held set, releasing whatever else this synth was holding.
+    hold(codes) { const want = new Set(codes); for (const c of [...held]) if (!want.has(c)) set(c, false); for (const c of want) set(c, true); },
+    releaseAll() { for (const c of [...held]) set(c, false); },
+  };
+}
+
+function makeTouchPad({ stick = null, dpad = null, buttons = [], target = window } = {}) {
+  const coarse = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)
+    || /[?&]touch=1/.test(location.search);
+  if (!coarse) return { el: null, show() {}, hide() {} };   // desktop: no pad, no listeners, no cost
+
+  if (!document.getElementById('tp-style')) {
+    const st = document.createElement('style'); st.id = 'tp-style';
+    st.textContent = [
+      '.tp{position:fixed;inset:auto 0 0 0;z-index:40;display:flex;justify-content:space-between;align-items:flex-end;',
+      'padding:12px max(14px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));',
+      'pointer-events:none;touch-action:none;user-select:none;-webkit-user-select:none;font-family:var(--tp-font,"Segoe UI",system-ui,sans-serif)}',
+      '.tp[hidden]{display:none}',
+      '.tp-stick{position:relative;width:var(--tp-size,38vw);max-width:170px;aspect-ratio:1;border-radius:50%;pointer-events:auto;touch-action:none;',
+      'background:var(--tp-bg,rgba(8,18,30,.42));border:2px solid var(--tp-line,rgba(255,255,255,.28))}',
+      '.tp-knob{position:absolute;left:50%;top:50%;width:42%;height:42%;border-radius:50%;transform:translate(-50%,-50%);',
+      'background:var(--tp-accent,#ffd54a);opacity:.85;pointer-events:none}',
+      '.tp-dpad{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:6px;width:var(--tp-size,38vw);max-width:170px;aspect-ratio:1;pointer-events:none}',
+      '.tp-dpad .tp-btn{min-width:0;min-height:0;width:100%;height:100%;border-radius:12px;font-size:20px}',
+      '.tp-dpad .tp-up{grid-area:1/2}.tp-dpad .tp-left{grid-area:2/1}.tp-dpad .tp-right{grid-area:2/3}.tp-dpad .tp-down{grid-area:3/2}',
+      // Steering only: two wide paddles side by side beat two small cells marooned in a 3x3 square.
+      '.tp-dpad.tp-lr{grid-template-columns:repeat(2,1fr);grid-template-rows:1fr;gap:10px;aspect-ratio:2.1/1;width:var(--tp-lr-size,52vw);max-width:240px}',
+      '.tp-dpad.tp-lr .tp-left{grid-area:1/1}.tp-dpad.tp-lr .tp-right{grid-area:1/2}',
+      '.tp-btns{display:flex;flex-wrap:wrap-reverse;justify-content:flex-end;align-items:flex-end;gap:10px;max-width:46vw;pointer-events:none}',
+      '.tp-btn{pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;appearance:none;cursor:pointer;',
+      'min-width:74px;min-height:74px;padding:0 10px;border-radius:50%;font:inherit;font-size:13px;font-weight:700;letter-spacing:1px;',
+      'color:var(--tp-fg,#fff);background:var(--tp-bg,rgba(8,18,30,.42));border:2px solid var(--tp-line,rgba(255,255,255,.28))}',
+      '.tp-btn.tp-main{min-width:92px;min-height:92px;font-size:15px;border-color:var(--tp-accent,#ffd54a)}',
+      '.tp-btn.tp-on{background:var(--tp-accent,#ffd54a);color:var(--tp-on-fg,#1a1a1a)}',
+      '@media (orientation:portrait){.tp-stick,.tp-dpad{--tp-size:42vw}}',
+    ].join('');
+    document.head.appendChild(st);
+  }
+
+  const synth = tpKeySynth(target);
+
+  function tpButton(code, label, main, extra) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'tp-btn' + (main ? ' tp-main' : '') + (extra ? ' ' + extra : '');
+    b.tabIndex = -1; b.textContent = label;
+    const down = (e) => { b.setPointerCapture(e.pointerId); b.classList.add('tp-on'); synth.set(code, true); e.preventDefault(); };
+    const up = (e) => { b.classList.remove('tp-on'); synth.set(code, false); e.preventDefault(); };
+    b.addEventListener('pointerdown', down);
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
+    return b;
+  }
+
+  const el = document.createElement('div');
+  el.className = 'tp'; el.hidden = true;
+  // The pad mirrors keys the game already documents, so it is noise to a screen reader.
+  el.setAttribute('aria-hidden', 'true');
+
+  const left = document.createElement('div');
+  if (stick) {
+    left.className = 'tp-stick';
+    const knob = document.createElement('i'); knob.className = 'tp-knob';
+    left.appendChild(knob);
+    let id = null;
+    const move = (e) => {
+      const r = left.getBoundingClientRect(), rad = r.width / 2;
+      const dx = (e.clientX - (r.left + rad)) / rad, dy = (e.clientY - (r.top + rad)) / rad;
+      synth.hold(tpStickDirs(dx, dy).map((d) => stick[d]).filter(Boolean));
+      const m = Math.min(1, Math.hypot(dx, dy)), a = Math.atan2(dy, dx);
+      knob.style.transform = 'translate(calc(-50% + ' + (Math.cos(a) * m * 42) + '%), calc(-50% + ' + (Math.sin(a) * m * 42) + '%))';
+    };
+    const end = (e) => {
+      if (id !== e.pointerId) return;
+      id = null; synth.releaseAll(); knob.style.transform = 'translate(-50%,-50%)';
+    };
+    left.addEventListener('pointerdown', (e) => { id = e.pointerId; left.setPointerCapture(e.pointerId); move(e); e.preventDefault(); });
+    left.addEventListener('pointermove', (e) => { if (id === e.pointerId) { move(e); e.preventDefault(); } });
+    left.addEventListener('pointerup', end); left.addEventListener('pointercancel', end);
+  } else if (dpad) {
+    // Steering only, no throttle keys: use the wide two-paddle layout instead of a marooned 3x3 cross.
+    const lr = dpad.left && dpad.right && !dpad.up && !dpad.down;
+    left.className = 'tp-dpad' + (lr ? ' tp-lr' : '');
+    const glyph = { up: '▲', down: '▼', left: '◀', right: '▶' };
+    for (const d of ['up', 'left', 'right', 'down']) if (dpad[d]) left.appendChild(tpButton(dpad[d], glyph[d], false, 'tp-' + d));
+  }
+  el.appendChild(left);
+
+  const right = document.createElement('div');
+  right.className = 'tp-btns';
+  for (const b of buttons) right.appendChild(tpButton(b.code, b.label, b.main));
+  el.appendChild(right);
+
+  document.body.appendChild(el);
+  // Backgrounding the tab must not leave the throttle pinned open.
+  window.addEventListener('blur', () => synth.releaseAll());
+  document.addEventListener('visibilitychange', () => { if (document.hidden) synth.releaseAll(); });
+
+  return {
+    el,
+    show() { el.hidden = false; },
+    hide() { synth.releaseAll(); el.hidden = true; },
+  };
+}
+
 // ---------- UI ----------
 const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
 // Back the canvas with the real on-screen pixel size so the picture stays sharp at any window size;
@@ -632,6 +772,12 @@ window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; }
 
 // --- game state ---
 let g = createGame({ reducedMotion });
+// Eight-way stick: aiming up/down and the diagonals are the whole point of the gun, so a four-key d-pad
+// would cost half the moves. Jump and fire sit under the right thumb.
+const pad = makeTouchPad({
+  stick: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' },
+  buttons: [{ code: 'Space', label: 'JUMP' }, { code: 'KeyX', label: 'FIRE', main: true }],
+});
 function init() {
   $('btnStart').addEventListener('click', beginMission);
   $('btnRestart').addEventListener('click', beginMission);
@@ -644,7 +790,7 @@ function init() {
 function beginMission() {
   g = createGame({ classic: $('optClassic').checked, reducedMotion });
   startGame(g);
-  titleEl.hidden = true; endEl.hidden = true; hud.hidden = false;
+  titleEl.hidden = true; endEl.hidden = true; hud.hidden = false; pad.show();
   if (Snd.on) Snd.ensure();
   canvas.focus();
 }
@@ -655,11 +801,11 @@ function toggleScores() {
 }
 function showTitle() {
   g = createGame({ reducedMotion });
-  endEl.hidden = true; hud.hidden = true; titleEl.hidden = false;
+  endEl.hidden = true; hud.hidden = true; titleEl.hidden = false; pad.hide();
   hs.render($('hsTitle'));
 }
 function showEnd(result) {
-  hud.hidden = true; endEl.hidden = false;
+  hud.hidden = true; endEl.hidden = false; pad.hide();
   $('endTitle').textContent = result === 'won' ? 'MISSION COMPLETE' : 'MISSION FAILED';
   $('endTitle').style.color = result === 'won' ? '#7ee081' : '#ff5a4e';
   $('endText').textContent = (result === 'won' ? 'Boss down. Final score ' : 'All lives lost. Score ') + g.score;

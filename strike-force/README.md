@@ -13,6 +13,9 @@ Run right through eight screens of jungle, over gaps and up platforms, past troo
 | Fire | X, J or F. Hold to keep firing. |
 | Aim | Same direction keys, see the table below |
 | Sound | M toggles synthesized sound (off by default; also a checkbox on the title screen) |
+| Touch | An on-screen pad on phones, see below |
+
+On a touch screen a pad appears when you deploy and goes away on the title and results screens: an eight-way thumbstick on the left, JUMP and FIRE on the right. It is a stick rather than a four-key cross because the diagonals are half of the aim table above. The pad synthesises the very same key events the keyboard sends, so every rule here applies to it unchanged. Desktop never builds it; `?touch=1` forces it on for a look.
 
 Aim is independent of movement and comes from the direction keys held while you fire. Facing persists: with no keys held you shoot the way you last moved.
 
@@ -67,5 +70,7 @@ Five flags at roughly 1000, 2900, 3900, 5800 and 6800 px into the 7680 px level.
 - checkpoint respawn keeps score, decrements lives, restores hp;
 - a scripted bot (run right, jump at gaps and walls, fire forward) reaches the boss arena within a bounded number of frames and then kills the boss, proving the level is traversable; the same bot without god mode is reported for information;
 - game over after losing all lives.
+
+`node test/touch.js` loads the shared touch-pad snippet and the `// --- input ---` block out of `index.html` the same way and checks the eight-way stick maps an offset to the right direction pair, the deadzone, that a resting thumb sends one keydown rather than one per frame, that every code the pad emits is in the game’s `KEYMAP` (a button wired to an unmapped code looks fine on screen and does nothing), and, end to end against a stand-in DOM, that a thumb on the pad flips the game’s own `keys` object and that lifting off or losing focus releases everything.
 
 `node test/hiscore.js` loads the high-score module and the sim the same way with an in-memory localStorage and checks rank ordering, the top-ten cap, initials upper-cased and cut to three, and that the game's detail hook reports `reached no checkpoint` / `reached checkpoint n` / `reached boss` / `won` for games driven to their end.
