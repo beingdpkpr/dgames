@@ -57,6 +57,9 @@
   .btn.ghost { background: transparent; color: #fff; border: 1px solid var(--line); font-weight: 400; }
   .btn:hover { filter: brightness(1.08); }
   .hint { text-align: center; font-size: 12px; opacity: .55; }
+  @media (prefers-reduced-motion: reduce) {
+    .cell, .cell span { animation-duration: .01ms !important; }
+  }
 </style>
 </head>
 <body>

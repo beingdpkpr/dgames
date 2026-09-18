@@ -105,6 +105,11 @@
   #pause .btns button { font-family: var(--display); font-size: 22px; letter-spacing: 2px; padding: 12px; border-radius: 10px; border: 0; color: #fff; cursor: pointer; }
   #resume { background: #2e8b57; } #quit { background: #1d3552; }
   .hidden { display: none !important; }
+  /* pop and fade carry the score callouts, so they shorten rather than vanish: the message still has to
+     announce itself, it just stops leaping. */
+  @media (prefers-reduced-motion: reduce) {
+    #msg, #timing { animation-duration: .01ms !important; }
+  }
 </style>
 </head>
 <body>

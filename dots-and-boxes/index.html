@@ -71,6 +71,12 @@
   #hiscores { width: min(560px, 94vw); margin: 0 0 20px; padding: 12px 14px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
   #hiscores[hidden] { display: none; }
   #hiscores .note { color: var(--muted); font-size: 12px; text-align: center; padding: 8px 0 2px; }
+  /* Four animations here, and blink runs forever on the thinking indicator -- an infinite animation with
+     no opt-out is the one most likely to actually cause discomfort. The others are one-shot feedback, so
+     they collapse to instant rather than disappearing and losing the cue. */
+  @media (prefers-reduced-motion: reduce) {
+    .thinking, .box, .score, .turn { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+  }
 </style>
 </head>
 <body>
