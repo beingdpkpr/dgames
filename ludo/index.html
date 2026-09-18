@@ -22,7 +22,11 @@
   :root {
     --bg: #0b1a2b; --panel: #10233a; --line: #2c4a6e; --muted: #8fa9c6; --gold: #ffd54a;
     --p1: #e5484d; --p2: #46a758; --p3: #f5d90a; --p4: #3b82f6;
-    --board: #0e1f33; --track: #16304c; --safe: #1e4166;
+    /* Track was #16304c on a #0e1f33 board: a contrast ratio of 1.24:1, which is invisible — you could
+       not follow the route a token takes, and Ludo is a game about counting squares along that route.
+       #4d74a3 measures 3.44:1 against the board, clearing the 3:1 that WCAG asks of a non-text element. */
+    --board: #0e1f33; --track: #4d74a3; --safe: #c3d6ea;
+    --tilt: 15deg;
   }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; background: var(--bg); color: #fff;
@@ -31,32 +35,58 @@
   h1 { font-size: 22px; letter-spacing: 3px; margin: 2px 0 0; }
   h1 span { color: var(--gold); }
 
-  /* The board is square and sized off whichever of width/height runs out first, so a portrait phone
-     never scrolls sideways and a laptop never pushes the dice below the fold. */
-  #board { --s: min(94vw, 58vh, 520px); width: var(--s); height: var(--s); position: relative;
-    display: grid; grid-template: repeat(15, 1fr) / repeat(15, 1fr);
-    background: var(--board); border: 2px solid var(--line); border-radius: 10px; overflow: hidden; }
+  /* The 3D is deliberately mild. Ludo is counted, not flown through: a steep camera shrinks the far rank
+     and lets tokens hide behind each other, so the board only leans back far enough to read as a table.
+     The depth that sells it lives in the pieces and the die, which stand up off the surface. */
+  #stage { perspective: 1400px; perspective-origin: 50% 42%; width: min(94vw, 58vh, 520px); aspect-ratio: 1; }
+  #board { width: 100%; height: 100%; position: relative; transform: rotateX(var(--tilt));
+    transform-style: preserve-3d; display: grid; grid-template: repeat(15, 1fr) / repeat(15, 1fr);
+    background: var(--board); border: 2px solid var(--line); border-radius: 10px;
+    box-shadow: 0 24px 40px rgba(0,0,0,.55); --s: min(94vw, 58vh, 520px); }
+  /* preserve-3d and overflow:hidden cannot coexist — clipping forces a flat plane — so the four corner
+     cells round themselves instead of letting the board clip them. */
+  .cell:nth-child(1) { border-radius: 8px 0 0 0; }
+  .cell:nth-child(15) { border-radius: 0 8px 0 0; }
+  .cell:nth-child(211) { border-radius: 0 0 0 8px; }
+  .cell:nth-child(225) { border-radius: 0 0 8px 0; }
+
   .cell { position: relative; }
-  .cell.track { background: var(--track); box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); }
+  /* A visible grid line matters more once the board is tilted: it is the only cue left for how far a
+     token has to travel. The old 5%-white inset was not perceptible. */
+  .cell.track { background: var(--track); box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); }
   .cell.safe { background: var(--safe); }
   .cell.safe::after { content: "\2605"; position: absolute; inset: 0; display: grid; place-items: center;
-    font-size: calc(var(--s) / 30); color: rgba(255,255,255,.45); }
-  .cell.start { box-shadow: inset 0 0 0 2px currentColor; }
-  .cell.home-run { background: currentColor; opacity: .55; }
-  .cell.yard { background: currentColor; opacity: .16; }
-  .cell.centre { background: currentColor; opacity: .5; }
+    font-size: calc(var(--s) / 26); color: rgba(8,19,31,.62); }
+  /* The entry square is FILLED with its owner's colour, not outlined in it. As an outline the four
+     colours measured 1.24, 1.60, 3.41 and 1.31 against the track — three of them invisible. Filled,
+     the hue carries the ownership and an opaque #08131f keyline carries the edge at 3.87:1 against
+     the track, which is what actually clears the bar — the fill colours themselves do not, because
+     WCAG measures luminance and red, green and blue all sit at roughly the track's lightness. */
+  .cell.start { background: currentColor; box-shadow: inset 0 0 0 2px #08131f; }
+  .cell.home-run { background: currentColor; opacity: .85; }
+  /* Yards were opacity .16, which left the four bases as faint tints barely separable from the board.
+     .34 plus an owned border makes each corner read as that player's territory at a glance. */
+  .cell.yard { background: currentColor; opacity: .34; }
+  .cell.centre { background: currentColor; opacity: .7; }
 
-  /* Tokens sit above the grid so they can be moved and stacked without disturbing the board. */
-  .tok { position: absolute; width: calc(var(--s) / 15 * .78); height: calc(var(--s) / 15 * .78);
-    margin: calc(var(--s) / 15 * -.39) 0 0 calc(var(--s) / 15 * -.39);
-    border-radius: 50%; background: currentColor; border: 2px solid rgba(0,0,0,.55);
-    box-shadow: 0 2px 4px rgba(0,0,0,.5); transition: left .18s ease, top .18s ease; z-index: 2;
-    display: grid; place-items: center; font-size: calc(var(--s) / 42); font-weight: 700; color: #08131f; }
-  /* A movable token gets a 44px hit area whatever the board size, so small screens stay tappable. */
+  /* Tokens stand up off the board: lifted on Z, then counter-rotated by the board's own tilt so they
+     face the player like real pieces rather than lying flat as discs. */
+  .tok { position: absolute; width: calc(var(--s) / 15 * .8); height: calc(var(--s) / 15 * .8);
+    margin: calc(var(--s) / 15 * -.4) 0 0 calc(var(--s) / 15 * -.4);
+    border-radius: 50%; background: currentColor; border: 2px solid rgba(0,0,0,.6);
+    transform-style: preserve-3d; transform: translateZ(calc(var(--s) / 15 * .42)) rotateX(calc(var(--tilt) * -1));
+    box-shadow: 0 calc(var(--s) / 15 * .12) calc(var(--s) / 15 * .2) rgba(0,0,0,.55);
+    transition: left .18s ease, top .18s ease; z-index: 2;
+    display: grid; place-items: center; font-size: calc(var(--s) / 40); font-weight: 700; color: #08131f; }
+  /* The shadow the piece casts on the square below it, which is what actually reads as height. */
+  .tok::after { content: ""; position: absolute; left: 50%; top: 50%; width: 96%; height: 96%;
+    border-radius: 50%; background: rgba(0,0,0,.42); z-index: -1;
+    transform: translate(-50%, -50%) rotateX(var(--tilt)) translateZ(calc(var(--s) / 15 * -.42)); }
+  /* A movable token keeps a 44px hit area whatever the board size, so small screens stay tappable. */
   .tok.can { cursor: pointer; z-index: 3; animation: pulse 1.1s ease-in-out infinite; }
   .tok.can::before { content: ""; position: absolute; left: 50%; top: 50%; width: max(44px, 100%); height: max(44px, 100%);
     transform: translate(-50%, -50%); border-radius: 50%; }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 calc(var(--s) / 150) #fff, 0 2px 4px rgba(0,0,0,.5); } }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 calc(var(--s) / 130) #fff, 0 calc(var(--s) / 15 * .12) calc(var(--s) / 15 * .2) rgba(0,0,0,.55); } }
 
   .bar { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
     width: min(94vw, 520px); }
@@ -64,12 +94,22 @@
   #turn b { letter-spacing: 1px; }
   #note { font-size: 13px; color: var(--muted); min-height: 18px; text-align: center; flex: 1 1 100%; }
 
-  #die { width: 64px; height: 64px; border-radius: 14px; border: 2px solid var(--line); background: var(--panel);
-    color: #fff; font-size: 30px; font-weight: 700; cursor: pointer; display: grid; place-items: center;
-    -webkit-tap-highlight-color: transparent; }
-  #die:disabled { opacity: .45; cursor: default; }
-  #die.roll { animation: shake .4s ease; }
-  @keyframes shake { 25% { transform: rotate(-14deg) } 75% { transform: rotate(14deg) } }
+  /* A real tumbling cube. Six faces at half the cube's width on Z, the whole thing spun to bring the
+     rolled face to the front — the one place a board game genuinely wants 3D. */
+  #die { width: 72px; height: 72px; border: 0; background: none; padding: 0; perspective: 420px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  #die:disabled { opacity: .5; cursor: default; }
+  #cube { position: relative; width: 100%; height: 100%; transform-style: preserve-3d;
+    transition: transform .6s cubic-bezier(.2,.8,.3,1); transform: rotateX(-18deg) rotateY(22deg); }
+  #cube .f { position: absolute; inset: 0; display: grid; place-items: center; font-size: 42px; line-height: 1;
+    background: #f3f6fa; color: #12263d; border-radius: 12px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.18); }
+  #cube .f1 { transform: translateZ(36px); }
+  #cube .f6 { transform: rotateY(180deg) translateZ(36px); }
+  #cube .f2 { transform: rotateY(90deg) translateZ(36px); }
+  #cube .f5 { transform: rotateY(-90deg) translateZ(36px); }
+  #cube .f3 { transform: rotateX(90deg) translateZ(36px); }
+  #cube .f4 { transform: rotateX(-90deg) translateZ(36px); }
+  #dieHint { font-size: 12px; color: var(--muted); }
 
   /* Move chips duplicate the on-board tokens as full-size buttons. On a phone the board cells are ~24px,
      which is below any sane tap target, so these are the reliable way to play. */
@@ -79,12 +119,19 @@
   .chip i { width: 14px; height: 14px; border-radius: 50%; background: currentColor; display: inline-block; }
   .chip span { color: #fff; }
 
+  /* Each seat is its own bordered pill. Before, the colour labels and the dropdowns ran together in one
+     wrapping row, so "Red You Green [Computer]" read as though the dropdown might belong to Red. */
   .seats { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-  .seat { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
-  .seat .sw { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
+  .seat { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--line); border-left: 4px solid currentColor;
+    border-radius: 10px; padding: 4px 8px 4px 7px; min-height: 44px; }
+  .seat .sw { width: 10px; height: 10px; border-radius: 50%; background: currentColor; flex: none; }
+  .seat select { min-height: 36px; padding: 4px 6px; }
+  .seat .you { color: var(--gold); font-weight: 700; }
   select, .btn { background: var(--panel); color: #fff; border: 1px solid var(--line); border-radius: 8px;
     padding: 7px 10px; font: inherit; font-size: 13px; min-height: 44px; }
   .btn { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   #record { font-size: 12px; color: var(--muted); text-align: center; }
   #record b { color: var(--gold); }
   a.back { color: var(--muted); font-size: 12px; text-decoration: none; }
@@ -94,16 +141,28 @@
   .over > div { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px 26px;
     text-align: center; width: min(340px, 90vw); }
   .over h2 { margin: 0 0 6px; font-size: 24px; letter-spacing: 2px; }
+
+  /* Someone who gets motion sick from a tilted plane can have it flat; the game is identical either way. */
+  @media (prefers-reduced-motion: reduce) {
+    :root { --tilt: 0deg; }
+    #cube { transition: none; }
+    .tok { transition: none; }
+    .tok.can { animation: none; box-shadow: 0 0 0 3px #fff; }
+  }
 </style>
 </head>
 <body>
 <h1>LU<span>DO</span></h1>
-<div id="board"></div>
+<div id="stage"><div id="board"></div></div>
 <div class="bar"><div id="turn"></div></div>
 <div class="bar">
-  <button id="die" title="Roll">&middot;</button>
+  <button id="die" title="Roll the die" aria-label="Roll the die"><div id="cube">
+    <div class="f f1">&#9856;</div><div class="f f2">&#9857;</div><div class="f f3">&#9858;</div>
+    <div class="f f4">&#9859;</div><div class="f f5">&#9860;</div><div class="f f6">&#9861;</div>
+  </div></button>
   <div id="moves"></div>
 </div>
+<div class="bar"><div id="dieHint"></div></div>
 <div class="bar"><div id="note"></div></div>
 <div class="bar seats" id="seats"></div>
 <div class="bar">
@@ -313,7 +372,6 @@ globalThis.__ludo = { YARD, HOME, RING_LEN, LAST_RING, TOKENS, RING, START, HOME
 const $ = (id) => document.getElementById(id);
 const COLOURS = ['var(--p1)', 'var(--p2)', 'var(--p3)', 'var(--p4)'];
 const NAMES = ['Red', 'Green', 'Yellow', 'Blue'];
-const PIPS = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 const SEAT_KINDS = [['human', 'Human'], ['easy', 'Computer · Easy'], ['normal', 'Computer · Normal'], ['hard', 'Computer · Hard']];
 const cellKey = (c, r) => r * 15 + c;
 
@@ -441,10 +499,23 @@ function render() {
   $('turn').innerHTML = S.over
     ? `<b style="color:${COLOURS[S.winner]}">${NAMES[S.winner]}</b> wins`
     : `<b style="color:${COLOURS[S.player]}">${name}</b> to play${lastRoll ? ' · rolled ' + lastRoll : ''}${isAiTurn() ? ' · computer' : ''}`;
-  $('die').textContent = lastRoll ? PIPS[lastRoll] : '·';
+  showDie(lastRoll, false);
   $('die').disabled = S.over || isAiTurn() || pending.length > 0;
+  // The cube is the only place the roll is shown, and it is pure geometry — no text for a screen reader
+  // and nothing to read if the 3D transform is unsupported. This line is the value in words.
+  $('dieHint').textContent = lastRoll ? 'Rolled ' + lastRoll : ($('die').disabled ? '' : 'Tap to roll');
   renderMoves();
   renderRecord();
+}
+
+// Each face sits on one side of the cube, so bringing a value to the front means applying that side's
+// inverse rotation. The extra whole turns are what make it tumble rather than snap to the answer.
+const DIE_FACE = { 1: [0, 0], 2: [0, -90], 3: [-90, 0], 4: [90, 0], 5: [0, 90], 6: [0, -180] };
+let dieSpins = 0;
+function showDie(n, tumble) {
+  if (tumble) dieSpins += 2;
+  const [rx, ry] = DIE_FACE[n] || [-18, 22];   // never rolled yet: rest on a corner so it reads as a cube
+  $('cube').style.transform = `rotateX(${rx + dieSpins * 360}deg) rotateY(${ry + dieSpins * 360}deg)`;
 }
 
 function renderMoves() {
@@ -474,7 +545,7 @@ function renderSeats() {
     wrap.appendChild(sw);
     const nm = document.createElement('span'); nm.textContent = NAMES[p - 1]; nm.style.color = '#fff';
     wrap.appendChild(nm);
-    if (p === 1) { const s = document.createElement('span'); s.textContent = 'You'; wrap.appendChild(s); }
+    if (p === 1) { const s = document.createElement('span'); s.textContent = 'You'; s.className = 'you'; wrap.appendChild(s); }
     else {
       const sel = document.createElement('select');
       for (const [v, label] of SEAT_KINDS) { const o = document.createElement('option'); o.value = v; o.textContent = label; sel.appendChild(o); }
@@ -493,7 +564,7 @@ const wait = (ms, fn) => { clearTimeout(timer); timer = setTimeout(fn, ms); };
 function doRoll() {
   if (S.over || pending.length) return;
   lastRoll = rollDie(rnd);
-  $('die').classList.remove('roll'); void $('die').offsetWidth; $('die').classList.add('roll');
+  showDie(lastRoll, true);
   const who = NAMES[S.player];
   const r = beginRoll(S, lastRoll);
   if (r.forfeit) { note(`${who} rolled a third six — turn forfeited`); pending = []; render(); wait(700, afterTurn); return; }
