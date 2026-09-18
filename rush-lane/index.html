@@ -55,7 +55,7 @@
 
   /* Touch pad: glassy like the rest of the chrome, lemon for the pressed state. */
   --tp-bg: rgba(255, 255, 255, 0.5);
-  --tp-line: rgba(255, 255, 255, 0.9);
+  --tp-line: rgba(74, 68, 88, 0.9);   /* was white: 1.20:1 on the sand. This clears 3:1 on every scene colour. */
   --tp-accent: #f2d06b;
   --tp-fg: #4a4458;
   --tp-on-fg: #4a4458;
@@ -1334,6 +1334,14 @@ function makeTouchPad({ stick = null, dpad = null, buttons = [], target = window
       '.tp-btn.tp-main{min-width:92px;min-height:92px;font-size:15px;border-color:var(--tp-accent,#ffd54a)}',
       '.tp-btn.tp-on{background:var(--tp-accent,#ffd54a);color:var(--tp-on-fg,#1a1a1a)}',
       '@media (orientation:portrait){.tp-stick,.tp-dpad{--tp-size:42vw}}',
+      // Landscape is the orientation an action game wants, and there the playfield fills the screen, so
+      // the pad has nowhere to sit but on top of it. At 844x390 the full-size pad was 196px of a 390px
+      // playfield — half of it. Shrunk, it is about 136px, roughly a third, and every button still
+      // clears 44px. Some overlap is inherent to on-screen controls; the translucent fill is the rest
+      // of the answer, and the player stays horizontally centred where the pad is not.
+      '@media (orientation:landscape) and (pointer:coarse){.tp{padding-top:6px}',
+      '.tp-stick{max-width:116px}.tp-dpad{max-width:150px}',
+      '.tp-btn{min-width:60px;min-height:60px}.tp-btn.tp-main{min-width:72px;min-height:72px}}',
     ].join('');
     document.head.appendChild(st);
   }

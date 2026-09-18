@@ -1,6 +1,8 @@
 # Cricket 3D — batting
 
-Single-file 3D cricket batting game built on Three.js. Open `index.html` in any modern browser (internet needed for the Three.js CDN script and fonts).
+Single-file 3D cricket batting game built on Three.js. Open `index.html` in any modern browser; Three.js is bundled inline, so the game works offline and off the filesystem. Only the Google Fonts (Barlow, Barlow Condensed) are fetched from the network, and they fall back to system faces.
+
+Three.js used to load from a CDN, which made the game silently unplayable with no network: the menu is static HTML so it rendered as normal, but `new THREE.Scene()` threw before the PLAY button was ever wired up, leaving a button that did nothing and said nothing.
 
 ## Play types
 - **Quick play** — 2, 5 or 10 overs, five wickets, score as many as you can. Best score is remembered.
