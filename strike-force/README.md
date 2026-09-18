@@ -3,7 +3,7 @@
 Single-file run-and-gun side-scroller in the Contra mould. Open `index.html` in any browser; it works from disk and inside a sandboxed iframe. No build step, no image files: every sprite, background layer and particle is drawn on the canvas, and the only optional network fetch is the "Black Ops One" stencil font from Google Fonts (falls back to Impact / Arial Black).
 
 ## How to play
-Run right through eight screens of jungle, over gaps and up platforms, past troops and turrets, into the arena at the end and kill the Warlord boss. Checkpoint flags along the way save your progress. Press **Enter** (or the Deploy button) on the title screen to start; **R** restarts after a win or a game over.
+Fight through three stages of jungle — **Jungle Patrol**, **Ridge Assault** and **The Compound** — over gaps and up platforms, past troops and turrets, into the arena at the end of the third and kill the Warlord boss. Reaching the extraction point on the right of a stage carries you straight into the next one with your score, lives and current weapon intact. Checkpoint flags within each stage save your progress, and dying sends you back to the last flag of the stage you are on, never to an earlier one. Press **Enter** (or the Deploy button) on the title screen to start; **R** restarts after a win or a game over.
 
 ## Controls
 | Action | Keys |
@@ -51,15 +51,31 @@ Timed, shown in the HUD with a draining bar.
 Three are placed in the level; four more drop from specific troops.
 
 ## Scoring
-Troop 100, turret 250, boss 2000, power-up 50. Finishing adds 5000 plus 1000 per remaining life.
+Troop 100, turret 250, boss 2000, power-up 50, and 1500 for clearing a stage — so a run that dies on stage 3 outscores one that dies on stage 1. Finishing adds 5000 plus 1000 per remaining life.
 
 ## High scores
-A top-ten table of final scores under your saved player name, one table for the whole game (Classic and default share it). When a run ends, by game over or by killing the boss, and the score makes the table, a prompt asks for your name; the entry records how far you got: `reached checkpoint n`, `reached boss` or `won`.
+A top-ten table of final scores under your saved player name, one table for the whole game (Classic and default share it). When a run ends, by game over or by killing the boss, and the score makes the table, a prompt asks for your name; the entry records how far you got: `stage 2 (Ridge Assault), flag 1`, `reached the boss` or `won`.
 
 Finishing pays for *how* you finished, not just that you did. Kills, the level and the win bonus are all fixed, so every finisher who kept three lives used to score exactly the same 13100 — a table on which everyone ties. On top of the win and life bonuses you now earn for beating par (45 s) and for your accuracy over the whole run, which are the two things a good player can actually push. A score of zero is never recorded. The table sits on the results screen and behind the HIGH SCORES (H) button on the title screen; T on the results screen returns to the title. Everything is stored in the browser (localStorage), so it is per device and per browser.
 
 ## Checkpoints
-Five flags at roughly 1000, 2900, 3900, 5800 and 6800 px into the 7680 px level. A flag turns green when passed.
+Each stage has its own flags — two in stage 1, three in stages 2 and 3 — and a flag turns green when passed. The flag index resets at a stage boundary because it indexes into the new stage's list; you are never sent back past the stage you died on.
+
+## Stages
+
+The game used to be one flat 7680 px run to one boss, and it could not threaten anybody: a bot holding right and firing won every attempt without dying once, and across the whole level damage landed in only two 1000 px zones — five of seven were harmless. Tuning constants did not help, because the problem was not arithmetic. Two things were wrong.
+
+The first was **range**. A player bullet lived 120 frames at speed 9, which carries it 1080 px across a 960 px screen, so every shot reached the far edge. Troops spawn as they come into frame, about 540 px away, and died during their own 24-frame firing wind-up — every exchange was won off-screen against an enemy you never saw. A bullet now lives 52 frames, about 468 px, so a firefight starts inside the visible frame and is decided by who shoots first.
+
+The second was **shape**. One long corridor has nowhere to escalate to. Three stages do:
+
+| Stage | Troops see / reload | Turrets | Character |
+|---|---|---|---|
+| 1 · Jungle Patrol | 400 px / 95 f | 1, on the ground | You out-range everything. Shoot first and you take no damage at all. |
+| 2 · Ridge Assault | 520 px / 62 f | 4, two on the ridge | Troops arrive in pairs. Turrets sit above the walkway. |
+| 3 · The Compound | 620 px / 50 f | 6, in nests | Tightest spacing, fastest reloads, the Warlord at the end. |
+
+Elevated turrets are the reason the 8-way aim exists. The gun fires level or at 45°, with nothing in between, so something directly above can only be hit from underneath or from a horizontal distance equal to its height — either way you have to move. Enemies are deliberately placed level or clearly elevated and never at the awkward shallow angle where neither shot connects.
 
 ## Accessibility
 `prefers-reduced-motion` cuts screen shake to 15% and particle counts to a quarter.
@@ -70,9 +86,9 @@ Five flags at roughly 1000, 2900, 3900, 5800 and 6800 px into the 7680 px level.
 - the full aim table above: all 16 key combinations x 2 facings x ground/air (64 cases);
 - bullets despawn off-screen, spread fires three, a troop dies after exactly its hit points, enemy bullets cost one hp and start invincibility frames, Classic one-hit;
 - checkpoint respawn keeps score, decrements lives, restores hp, and does not pay out a second time for enemies on a stretch already cleared;
-- a scripted bot (run right, jump at gaps and walls, fire forward) reaches the boss arena within a bounded number of frames and then kills the boss, proving the level is traversable; the same bot without god mode is reported for information;
+- a scripted bot (run right, jump at gaps and walls, fire forward, and turn to face the boss) crosses all three stages and kills the boss within a bounded number of frames, proving the whole game is traversable; the same bot without god mode is reported for information;
 - game over after losing all lives.
 
 `node test/touch.js` loads the shared touch-pad snippet and the `// --- input ---` block out of `index.html` the same way and checks the eight-way stick maps an offset to the right direction pair, the deadzone, that a resting thumb sends one keydown rather than one per frame, that every code the pad emits is in the game’s `KEYMAP` (a button wired to an unmapped code looks fine on screen and does nothing), and, end to end against a stand-in DOM, that a thumb on the pad flips the game’s own `keys` object and that lifting off or losing focus releases everything.
 
-`node test/hiscore.js` loads the high-score module and the sim the same way with an in-memory localStorage and checks rank ordering, the top-ten cap, initials upper-cased and cut to three, and that the game's detail hook reports `reached no checkpoint` / `reached checkpoint n` / `reached boss` / `won` for games driven to their end.
+`node test/hiscore.js` loads the high-score module and the sim the same way with an in-memory localStorage and checks rank ordering, the top-ten cap, initials upper-cased and cut to three, and that the game's detail hook reports the stage and flag a run ended on, or `reached the boss` / `won`, for games driven to their end.

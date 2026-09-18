@@ -81,9 +81,11 @@
   /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
      ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
      A dark disc with a light ring reads on a bright pastel scene and on a black one without being
-     re-themed per game. z-index 15 clears the HUDs but stays under the high-score prompt at 9999. */
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
   .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
-    z-index: 15; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
     background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
     font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
   .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
@@ -151,7 +153,7 @@ const C = {
   // so beating par means actually pushing. perSecond and aim are the two bonuses that let one finished
   // run outscore another -- see the win bonus in step().
   PAR_SECONDS: 45,
-  SCORE: { troop: 100, turret: 250, boss: 2000, powerup: 50, win: 5000, lifeBonus: 1000, perSecond: 60, aim: 3000 },
+  SCORE: { troop: 100, turret: 250, boss: 2000, powerup: 50, win: 5000, lifeBonus: 1000, perSecond: 60, aim: 3000, stage: 1500 },
 };
 const ENEMY = {
   troop:  { w: 20, h: 40, hp: 2,  speed: 1.2, sight: 520, range: 190, shootCd: 80, gravity: true,  contact: true },
@@ -172,42 +174,110 @@ function aimFrom(input, facing, onGround) {
   return { dx: h, dy: v, crouch: false };
 }
 
-function makeLevel() {
+// ---------- stages ----------
+// One flat run to one boss could not threaten anyone. A bot holding right and fire won 20/20 with zero
+// deaths, and across the whole 7680px level damage landed in just two 1000px zones -- five of seven were
+// harmless. No constant fixed it: twelve combinations of hit points, invulnerability, fire rate and range
+// all came out 0% or 100%, because the cause was encounter density, not arithmetic.
+//
+// Three stages escalate it instead. Two levers do the work, both of which already existed:
+//   * DENSITY. With 90 frames of invulnerability per hit, a lone troop can never kill anybody -- the next
+//     shot always lands inside the window. Damage only accumulates where several threats overlap, so the
+//     later stages cluster enemies and cross turret fire rather than spreading them along the walkway.
+//   * REACH. Per-spawn `shootCd` and `range` (see spawnEnemy) let stage 3's troops fire roughly twice as
+//     often as stage 1's, from further out, without inventing a new enemy type.
+// Turrets also sit above and below the walkway from stage 2 on, so the 8-way aim stops being decoration:
+// a ground-level shot cannot reach them.
+const STAGES = [
+  {
+    name: 'Jungle Patrol',
+    width: 4200, exitX: 4080,
+    troop: { sight: 400, shootCd: 95 }, turret: { cd: 150, sight: 360 },
+    ground: [[0, 1300], [1400, 2700], [2800, 4200]],
+    plats: [[500, 380, 120], [1230, 370, 110], [2000, 360, 100], [3050, 390, 110], [3500, 340, 120]],
+    blocks: [[2200, 410, 300, 60]],
+    spawns: [
+      ['troop', 760], ['troop', 1500], ['turret', 1850],
+      ['troop', 2120, { drop: 'spread' }],
+      ['troop', 3050], ['turret', 3500, { y: 340 }], ['troop', 3800],
+    ],
+    checkpoints: [1000, 2600],
+    powerUps: [[2040, 330, 'rapid']],
+  },
+  {
+    // Turrets on the ridge and in the pit: neither is reachable with a level shot, so the diagonals
+    // have to come out. Troops arrive in pairs from here on, which is what starts stacking damage.
+    name: 'Ridge Assault',
+    width: 4800, exitX: 4680,
+    troop: { shootCd: 62, range: 240, sight: 560 }, turret: { cd: 100 },
+    ground: [[0, 900], [1000, 2200], [2300, 3400], [3500, 4800]],
+    plats: [[420, 360, 110], [900, 300, 110], [1450, 380, 100], [1620, 310, 100], [1800, 250, 120],
+            [2500, 370, 110], [2900, 300, 120], [3650, 380, 110], [4050, 320, 120]],
+    blocks: [[1990, 400, 40, 70], [3180, 400, 40, 70]],
+    spawns: [
+      ['troop', 520], ['troop', 640], ['turret', 760],
+      ['troop', 1180], ['troop', 1300], ['turret', 1840, { y: 250 }], ['troop', 1500],
+      ['troop', 2400], ['troop', 2520], ['turret', 2920, { y: 300 }], ['troop', 2700, { drop: 'rapid' }],
+      ['troop', 3600], ['troop', 3720], ['turret', 3900], ['troop', 4100], ['troop', 4220],
+    ],
+    checkpoints: [1100, 2400, 3600],
+    powerUps: [[1820, 200, 'shield'], [2940, 250, 'spread']],
+  },
+  {
+    // The compound. Tightest spacing, fastest troops, turret nests covering every approach, and the boss
+    // at the end. This is the stage meant to end most runs.
+    name: 'The Compound',
+    width: 5400,
+    troop: { shootCd: 50, range: 280, sight: 620 }, turret: { cd: 86 },
+    ground: [[0, 1000], [1100, 2000], [2100, 3100], [3200, 5400]],
+    plats: [[400, 350, 110], [700, 280, 110], [1300, 370, 100], [1500, 300, 110], [1700, 240, 120],
+            [2300, 360, 110], [2600, 290, 120], [3400, 370, 110], [3700, 300, 120], [4000, 240, 120]],
+    blocks: [[1780, 400, 40, 70], [2880, 400, 40, 70], [5360, 300, 40, 170]],
+    spawns: [
+      ['troop', 480], ['troop', 600], ['turret', 720, { y: 280 }], ['troop', 840],
+      ['troop', 1250], ['troop', 1370], ['turret', 1540, { y: 300 }], ['troop', 1660], ['turret', 1740, { y: 240 }],
+      ['troop', 2250], ['troop', 2370], ['troop', 2490, { drop: 'shield' }], ['turret', 2640, { y: 290 }],
+      ['troop', 3350], ['troop', 3470], ['turret', 3640], ['troop', 3760], ['troop', 3880, { drop: 'spread' }],
+      ['turret', 4040, { y: 240 }], ['troop', 4200], ['troop', 4320],
+      ['boss', 5070],
+    ],
+    checkpoints: [1200, 2300, 3400],
+    powerUps: [[1720, 190, 'rapid'], [4020, 190, 'shield']],
+    boss: { triggerX: 4620, arenaX: 4440 },
+  },
+];
+
+function makeLevel(stage = 0) {
+  const S = STAGES[clamp(stage, 0, STAGES.length - 1)];
   const G = C.GROUND_Y;
   const ground = (x0, x1) => ({ x: x0, y: G, w: x1 - x0, h: C.H - G + 60, solid: true, kind: 'ground' });
   const plat = (x, y, w) => ({ x, y, w, h: 14, solid: false, kind: 'platform' });
   const block = (x, y, w, h) => ({ x, y, w, h, solid: true, kind: 'block' });
+  // A spawn point inherits the stage's troop or turret profile, then its own overrides win. That is what
+  // lets one stage's troops press twice as hard as another's without a second enemy table.
+  const spawn = ([type, x, extra]) => ({ type, x, ...(type === 'troop' ? S.troop : type === 'turret' ? S.turret : {}), ...(extra || {}), spawned: false });
   return {
-    width: C.LEVEL_W,
+    stage, name: S.name, last: stage === STAGES.length - 1,
+    width: S.width,
+    exitX: S.exitX != null ? S.exitX : null,
     start: { x: 80 },
     platforms: [
-      ground(0, 1300), ground(1400, 2700), ground(2800, 3550), ground(3650, 5000), ground(5100, 5300), ground(5400, C.LEVEL_W),
-      plat(500, 380, 120), plat(1230, 370, 110), plat(2000, 360, 100), block(2200, 410, 300, 60),
-      plat(3000, 400, 100), plat(3150, 340, 100), plat(3300, 280, 120), block(4100, 410, 30, 60),
-      plat(5040, 380, 90), plat(5330, 370, 90), plat(5950, 380, 120), plat(6150, 320, 120), plat(6450, 380, 120),
-      block(7640, 300, 40, 170),
+      ...S.ground.map(([a, b]) => ground(a, b)),
+      ...S.plats.map(([x, y, w]) => plat(x, y, w)),
+      ...(S.blocks || []).map(([x, y, w, h]) => block(x, y, w, h)),
     ],
-    spawnPoints: [
-      { type: 'troop', x: 700 }, { type: 'troop', x: 1150 }, { type: 'troop', x: 1600 }, { type: 'turret', x: 1850 },
-      { type: 'troop', x: 2150 }, { type: 'troop', x: 2450, drop: 'spread' },
-      { type: 'troop', x: 3100 }, { type: 'turret', x: 3340, y: 280 }, { type: 'troop', x: 3450 }, { type: 'troop', x: 3800 },
-      { type: 'troop', x: 4000 }, { type: 'troop', x: 4300 }, { type: 'troop', x: 4550, drop: 'rapid' }, { type: 'turret', x: 4750 },
-      { type: 'troop', x: 5200 }, { type: 'troop', x: 5600, drop: 'shield' }, { type: 'turret', x: 5720 },
-      { type: 'troop', x: 5900 }, { type: 'troop', x: 6050 }, { type: 'troop', x: 6250 }, { type: 'turret', x: 6300 },
-      { type: 'troop', x: 6450, drop: 'spread' }, { type: 'turret', x: 6620 },
-      { type: 'boss', x: 7350 },
-    ].map((s) => ({ ...s, spawned: false })),
-    checkpoints: [{ x: 1000 }, { x: 2900 }, { x: 3900 }, { x: 5800 }, { x: 6800 }],
-    powerUps: [{ x: 2040, y: 330, kind: 'rapid' }, { x: 4400, y: 430, kind: 'shield' }, { x: 6200, y: 290, kind: 'spread' }],
-    boss: { triggerX: 6900, arenaX: 6720 },
+    spawnPoints: S.spawns.map(spawn),
+    checkpoints: S.checkpoints.map((x) => ({ x })),
+    powerUps: (S.powerUps || []).map(([x, y, kind]) => ({ x, y, kind })),
+    boss: S.boss || null,
   };
 }
 
 function createGame(opts = {}) {
-  const level = makeLevel();
+  const level = makeLevel(0);
   const g = {
     opts: { classic: !!opts.classic, reducedMotion: !!opts.reducedMotion, god: !!opts.god },
-    level, frame: 0, nextId: 1, state: 'title', score: 0, lives: C.LIVES, checkpoint: -1,
+    level, stage: 0, frame: 0, nextId: 1, state: 'title', score: 0, lives: C.LIVES, checkpoint: -1,
     player: null, bullets: [], enemies: [], powerUps: [], particles: [], camera: { x: 0 },
     shake: 0, deadTimer: 0, bossActive: false, bossDeadTimer: 0, prevJump: false, events: [],
     // Shots and hits are counted so a finished run can be scored on how it was played, not just on
@@ -309,7 +379,7 @@ function updatePlayer(g, input) {
   if (p.vy >= 0) p.jumping = false;
   p.vy = Math.min(C.MAX_FALL, p.vy + C.GRAVITY);
   moveBody(L, p);
-  const minX = g.bossActive ? L.boss.arenaX + 4 : 0;
+  const minX = g.bossActive && L.boss ? L.boss.arenaX + 4 : 0;
   p.x = clamp(p.x, minX, L.width - p.w);
   if (p.y > C.DEATH_Y) { killPlayer(g); return; }
   // timers
@@ -325,11 +395,13 @@ function updatePlayer(g, input) {
   }
   // checkpoints and boss trigger
   L.checkpoints.forEach((cp, i) => { if (i > g.checkpoint && p.x >= cp.x) { g.checkpoint = i; g.events.push('checkpoint'); } });
-  if (!g.bossActive && p.x >= L.boss.triggerX) {
+  // Only the last stage has a boss; the earlier ones end at an extraction point on the right edge.
+  if (L.boss && !g.bossActive && p.x >= L.boss.triggerX) {
     g.bossActive = true;
     const sp = L.spawnPoints.find((s) => s.type === 'boss');
     if (sp && !sp.spawned) spawnEnemy(g, sp);
   }
+  if (L.exitX != null && p.x >= L.exitX) advanceStage(g);
 }
 
 function gunTip(p) {
@@ -343,7 +415,12 @@ function fireWeapon(g) {
   const base = Math.atan2(t.dy, t.dx);
   for (const a of angles) {
     const vx = Math.cos(base + a) * C.BULLET_SPEED, vy = Math.sin(base + a) * C.BULLET_SPEED;
-    g.bullets.push({ x: t.x, y: t.y, px: t.x, py: t.y, vx, vy, owner: 'player', life: 120, w: 4, h: 4 });
+    // life 120 at BULLET_SPEED 9 carried a shot 1080px across a 960px screen, so every bullet reached
+    // the far edge. Troops spawn as they enter frame, about 540px away, and died during their 24-frame
+    // firing wind-up -- the player won every exchange off-screen, against an enemy they never saw. 46
+    // frames is ~468px: roughly the distance from the player to the edge of frame, so a firefight starts
+    // on screen. Stage 1 troops see 460px and are out-ranged; stage 3's see 620px and shoot first.
+    g.bullets.push({ x: t.x, y: t.y, px: t.x, py: t.y, vx, vy, owner: 'player', life: 52, w: 4, h: 4 });
   }
 }
 function fireEnemyBullet(g, x, y, dx, dy, speed) {
@@ -366,7 +443,12 @@ function spawnEnemy(g, sp) {
   const surface = sp.y != null ? sp.y : findGroundY(g.level, sp.x, d.w);
   const e = { id: g.nextId++, type: sp.type, x: sp.x, y: surface - d.h, w: d.w, h: d.h, vx: 0, vy: 0, hp: d.hp, maxHp: d.hp,
     // 'claimed' marks an enemy respawned after a death on a stretch that has already paid out once.
-    state: 'idle', facing: -1, timer: 0, cd: 45, burst: 0, drop: sp.drop || null, claimed: !!sp.claimed, onGround: false, aim: { dx: -1, dy: 0 }, anim: 0, flash: 0, blocked: false };
+    state: 'idle', facing: -1, timer: 0, cd: 45, burst: 0, drop: sp.drop || null, claimed: !!sp.claimed, onGround: false, aim: { dx: -1, dy: 0 }, anim: 0, flash: 0, blocked: false,
+    // Per-spawn overrides. Later stages escalate along the axes that already exist -- how often a troop
+    // fires and how far it will engage from -- rather than inventing new enemy types. Falling back to the
+    // ENEMY table keeps every existing spawn point behaving exactly as it did.
+    shootCd: sp.shootCd != null ? sp.shootCd : d.shootCd, range: sp.range != null ? sp.range : d.range,
+    sight: sp.sight != null ? sp.sight : d.sight, cdBase: sp.cd != null ? sp.cd : d.cd };
   g.enemies.push(e); sp.spawned = true; return e;
 }
 function updateEnemies(g) {
@@ -379,23 +461,23 @@ function updateEnemies(g) {
     const ecx = e.x + e.w / 2, ecy = e.y + e.h / 2, dist = pcx - ecx;
     const d = ENEMY[e.type];
     if (e.type === 'troop') {
-      if (e.state === 'idle') { if (Math.abs(dist) < d.sight) e.state = 'walk'; }
+      if (e.state === 'idle') { if (Math.abs(dist) < e.sight) e.state = 'walk'; }
       if (e.state === 'walk') {
         e.facing = dist < 0 ? -1 : 1;
-        if (Math.abs(dist) > d.range && groundAhead(L, e, e.facing)) { e.vx = e.facing * d.speed; e.anim++; } else e.vx = 0;
-        if (e.cd > 0) e.cd--; else if (Math.abs(dist) < d.sight) { e.state = 'shoot'; e.timer = 24; e.vx = 0; }
+        if (Math.abs(dist) > e.range && groundAhead(L, e, e.facing)) { e.vx = e.facing * d.speed; e.anim++; } else e.vx = 0;
+        if (e.cd > 0) e.cd--; else if (Math.abs(dist) < e.sight) { e.state = 'shoot'; e.timer = 24; e.vx = 0; }
       } else if (e.state === 'shoot') {
         e.vx = 0; e.timer--;
         if (e.timer === 12) { const mx = ecx + e.facing * 12, my = e.y + 16; fireEnemyBullet(g, mx, my, pcx - mx, clamp(pcy - my, -60, 60)); g.events.push('eshot'); }
-        if (e.timer <= 0) { e.state = 'walk'; e.cd = d.shootCd; }
+        if (e.timer <= 0) { e.state = 'walk'; e.cd = e.shootCd; }
       }
     } else if (e.type === 'turret') {
       const ang = Math.atan2(pcy - ecy, pcx - ecx);
       e.aim = { dx: Math.cos(ang), dy: Math.sin(ang) }; e.facing = dist < 0 ? -1 : 1;
-      if (Math.abs(dist) < d.sight) {
+      if (Math.abs(dist) < e.sight) {
         e.state = 'shoot';
         if (e.burst > 0) { if (e.timer <= 0) { fireEnemyBullet(g, ecx + e.aim.dx * 20, ecy - 6 + e.aim.dy * 20, e.aim.dx, e.aim.dy); e.burst--; e.timer = d.burstGap; g.events.push('eshot'); } else e.timer--; }
-        else if (e.cd > 0) e.cd--; else { e.burst = d.burst; e.cd = d.cd; }
+        else if (e.cd > 0) e.cd--; else { e.burst = d.burst; e.cd = e.cdBase; }
       } else e.state = 'idle';
     } else if (e.type === 'boss') {
       if (e.state === 'idle') { if (g.bossActive) { e.state = 'walk'; e.timer = 50; } }
@@ -453,6 +535,27 @@ function killPlayer(g) {
   spawnParticles(g, p.x + p.w / 2, p.y + p.h / 2, 30, '#ff5a4e', 4);
   g.events.push('die');
 }
+// Clearing a stage carries the run forward: score, lives and the weapon you earned all survive, but the
+// checkpoint index resets because it indexes into the NEW stage's list. Dying on stage 3 therefore sends
+// you back to stage 3's last flag, never to stage 1.
+function advanceStage(g) {
+  if (g.stage >= STAGES.length - 1) return false;
+  g.score += C.SCORE.stage;
+  g.stage++;
+  g.level = makeLevel(g.stage);
+  g.checkpoint = -1;
+  g.bossActive = false;
+  g.bullets = []; g.enemies = []; g.particles = [];
+  g.powerUps = g.level.powerUps.map((p) => ({ x: p.x, y: p.y, w: 18, h: 18, kind: p.kind, vx: 0, vy: 0, bob: 0 }));
+  const keep = g.player;
+  g.player = makePlayer(g, g.level.start.x);
+  // The weapon and its timer are earned, so they travel; hp is restored because a fresh stage with one
+  // hit point left would decide itself before the player saw it.
+  g.player.weapon = keep.weapon; g.player.weaponTimer = keep.weaponTimer;
+  g.camera.x = clamp(g.player.x - C.W / 2 + C.CAM_LEAD, 0, g.level.width - C.W);
+  g.events.push('stage');
+  return true;
+}
 function respawnAtCheckpoint(g) {
   const L = g.level;
   const x = g.checkpoint >= 0 ? L.checkpoints[g.checkpoint].x : L.start.x;
@@ -472,8 +575,9 @@ function endGame(g, result) { g.state = result; g.events.push(result); }
 // High-score detail for a finished game: how far the run got.
 function hsDetail(g) {
   if (g.state === 'won') return 'won';
-  if (g.bossActive) return 'reached boss';
-  return g.checkpoint >= 0 ? 'reached checkpoint ' + (g.checkpoint + 1) : 'reached no checkpoint';
+  const st = 'stage ' + (g.stage + 1) + ' (' + g.level.name + ')';
+  if (g.bossActive) return 'reached the boss';
+  return g.checkpoint >= 0 ? st + ', flag ' + (g.checkpoint + 1) : st;
 }
 
 function applyPowerUp(g, pu) {
@@ -518,12 +622,12 @@ function updateParticles(g) {
 function addShake(g, amt) { if (g.opts.reducedMotion) amt *= 0.15; g.shake = Math.max(g.shake, amt); }
 function updateCamera(g) {
   const p = g.player, L = g.level;
-  if (g.bossActive) { g.camera.x += (L.boss.arenaX - g.camera.x) * 0.1; return; }
+  if (g.bossActive && L.boss) { g.camera.x += (L.boss.arenaX - g.camera.x) * 0.1; return; }
   const target = clamp(p.x + p.w / 2 + p.facing * C.CAM_LEAD - C.W / 2, 0, L.width - C.W);
   g.camera.x += (target - g.camera.x) * C.CAM_EASE;
 }
 
-globalThis.__sf = { C, ENEMY, aimFrom, makeLevel, createGame, startGame, step, moveBody, overlaps, pointIn, findGroundY, groundAhead, spawnEnemy, fireEnemyBullet, damagePlayer, killPlayer, killEnemy, respawnAtCheckpoint, gunTip, hsDetail };
+globalThis.__sf = { C, ENEMY, STAGES, aimFrom, makeLevel, createGame, startGame, step, moveBody, overlaps, pointIn, findGroundY, groundAhead, spawnEnemy, fireEnemyBullet, damagePlayer, killPlayer, killEnemy, respawnAtCheckpoint, advanceStage, gunTip, hsDetail };
 
 // ---------- dgames high scores ----------
 // Shared snippet, pasted verbatim into every game (games stay self-contained). Keeps a top-N table per

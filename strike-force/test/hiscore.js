@@ -1,6 +1,6 @@
 // Headless high-score check (no browser). Loads makeHiScores and the pure sim out of index.html with an
 // in-memory localStorage and asserts: rank ordering (desc), the top-10 cap, the player name kept as typed and cut to
-// three, and that hsDetail reports "won" / "reached boss" / "reached checkpoint n" for finished games.
+// three, and that hsDetail reports the stage and flag a run died on, or "won" / "reached the boss".
 // Run: node test/hiscore.js
 const vm = require('vm'), fs = require('fs'), path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
@@ -38,24 +38,32 @@ function bot(g) {
   const p = g.player, L = g.level, aheadX = p.x + p.w + 30, feetY = p.y + p.h + 2;
   const gapAhead = p.onGround && !S.pointIn(L, aheadX, feetY, false) && !S.pointIn(L, aheadX, feetY + 30, false);
   const wallAhead = p.onGround && (p.blocked || S.pointIn(L, aheadX - 10, p.y + p.h - 6, true));
-  return inp({ right: true, fire: true, jump: gapAhead || wallAhead || (!p.onGround && p.vy < 0) });
+  const jump = gapAhead || wallAhead || (!p.onGround && p.vy < 0);
+  // Turn to face the boss: a player bullet reaches 468px, so holding right at the arena wall while the
+  // boss closes from the left hits nothing.
+  const boss = g.enemies.find((e) => e.type === 'boss' && e.state !== 'dead');
+  if (boss && g.bossActive) {
+    const toLeft = boss.x + boss.w / 2 < p.x + p.w / 2;
+    return inp({ left: toLeft, right: !toLeft, fire: true, jump });
+  }
+  return inp({ right: true, fire: true, jump });
 }
 const run = (g, input, n, until) => { for (let i = 0; i < n && !until(); i++) S.step(g, typeof input === 'function' ? input() : input); };
 // a) three pit deaths right at the start: game over, no checkpoint
 let g = S.createGame(); S.startGame(g);
 for (let i = 0; i < C.LIVES; i++) { g.player.y = 700; run(g, NONE, C.DEATH_FRAMES + 5, () => false); }
-assert(g.state === 'gameover' && S.hsDetail(g) === 'reached no checkpoint', 'game over before any flag: "' + S.hsDetail(g) + '"');
+assert(g.state === 'gameover' && S.hsDetail(g) === 'stage 1 (Jungle Patrol)', 'game over before any flag: "' + S.hsDetail(g) + '"');
 // b) game over after passing the first flag
 g = S.createGame(); S.startGame(g); g.player.x = 1100; S.step(g, NONE);
 for (let i = 0; i < C.LIVES; i++) { g.player.y = 700; run(g, NONE, C.DEATH_FRAMES + 5, () => false); }
-assert(g.state === 'gameover' && S.hsDetail(g) === 'reached checkpoint 1', 'game over after flag 1: "' + S.hsDetail(g) + '"');
+assert(g.state === 'gameover' && S.hsDetail(g) === 'stage 1 (Jungle Patrol), flag 1', 'game over after flag 1: "' + S.hsDetail(g) + '"');
 // c) game over inside the boss arena
 g = S.createGame({ god: true }); S.startGame(g);
 run(g, () => bot(g), 60 * 120, () => g.bossActive);
 g.opts.god = false;
 for (let i = 0; i < C.LIVES; i++) { g.player.y = 700; run(g, NONE, C.DEATH_FRAMES + 5, () => false); }
 assert(g.state === 'gameover', 'bot run then three deaths ends in game over');
-assert(S.hsDetail(g) === 'reached checkpoint 5', 'losing in the arena reports the last flag once respawn clears bossActive: "' + S.hsDetail(g) + '"');
+assert(/^stage 3 \(The Compound\), flag \d+$/.test(S.hsDetail(g)), 'losing in the arena reports the stage and last flag once respawn clears bossActive: "' + S.hsDetail(g) + '"');
 // d) win
 g = S.createGame({ god: true }); S.startGame(g);
 run(g, () => bot(g), 60 * 200, () => g.state === 'won');
@@ -65,7 +73,7 @@ assert(g.score > 0 && hs.rank(g.score) === 0, 'a winning score of ' + g.score + 
 g = S.createGame({ god: true }); S.startGame(g);
 run(g, () => bot(g), 60 * 120, () => g.bossActive);
 g.opts.god = false; g.lives = 1; g.player.y = 700; run(g, NONE, C.DEATH_FRAMES + 5, () => false);
-assert(g.state === 'gameover' && S.hsDetail(g) === 'reached boss', 'final death in the arena reports "reached boss": "' + S.hsDetail(g) + '"');
+assert(g.state === 'gameover' && S.hsDetail(g) === 'reached the boss', 'final death in the arena reports "reached the boss": "' + S.hsDetail(g) + '"');
 
 console.log(failures ? failures + ' FAILURE(S)' : 'all checks passed');
 process.exit(failures ? 1 : 0);

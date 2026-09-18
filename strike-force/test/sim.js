@@ -33,10 +33,10 @@ function run(g, input, n, each) { for (let i = 0; i < n; i++) { S.step(g, typeof
   const g4 = newGame(); place(g4, 540); run(g4, NONE, 2);
   run(g4, (i) => inp({ jump: i < 25 }), 120);
   assert(Math.abs(g4.player.y + g4.player.h - 380) < 0.01, 'jumping under a one-way platform passes through and lands on it (feet at ' + (g4.player.y + g4.player.h) + ')');
-  // wall: block at 4100 (y 410..470). Running right from 4050 must stop at its face.
-  const g5 = newGame(); place(g5, 4050);
+  // wall: stage 1's block at 2200 (y 410..470). Running right from 2150 must stop at its face.
+  const g5 = newGame(); place(g5, 2150);
   run(g5, inp({ right: true }), 120);
-  assert(g5.player.x + g5.player.w <= 4100 + 1e-9 && g5.player.x > 4070, 'player cannot pass through a wall (x ' + g5.player.x.toFixed(1) + ')');
+  assert(g5.player.x + g5.player.w <= 2200 + 1e-9 && g5.player.x > 2170, 'player cannot pass through a wall (x ' + g5.player.x.toFixed(1) + ')');
   // crouch lowers hitbox, feet stay put; standing up restores it
   const g6 = newGame(); const feet = g6.player.y + g6.player.h;
   run(g6, inp({ down: true }), 5);
@@ -142,7 +142,16 @@ function bot(g) {
   const aheadX = p.x + p.w + 30, feetY = p.y + p.h + 2;
   const gapAhead = p.onGround && !S.pointIn(L, aheadX, feetY, false) && !S.pointIn(L, aheadX, feetY + 30, false);
   const wallAhead = p.onGround && (p.blocked || S.pointIn(L, aheadX - 10, p.y + p.h - 6, true));
-  return inp({ right: true, fire: true, jump: gapAhead || wallAhead || (!p.onGround && p.vy < 0) });
+  const jump = gapAhead || wallAhead || (!p.onGround && p.vy < 0);
+  // Face the boss rather than the scenery. A player bullet now reaches 468px rather than the 1080px it
+  // used to, so the old "always hold right" bot ran to the arena wall and fired at it while the boss
+  // closed in from the left. A human turns round; so does the bot.
+  const boss = g.enemies.find((e) => e.type === 'boss' && e.state !== 'dead');
+  if (boss && g.bossActive) {
+    const toLeft = boss.x + boss.w / 2 < p.x + p.w / 2;
+    return inp({ left: toLeft, right: !toLeft, fire: true, jump });
+  }
+  return inp({ right: true, fire: true, jump });
 }
 {
   const MAXF = 60 * 120;
