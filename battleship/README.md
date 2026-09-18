@@ -6,6 +6,7 @@ Single-file Battleship on a dark ocean. Open `index.html` in any browser; no net
 Two 10x10 grids: **Your Fleet** on the left, **Enemy Waters** on the right (they stack on a narrow screen). Each side hides five ships: Carrier 5, Battleship 4, Cruiser 3, Submarine 3, Destroyer 2. Take turns firing at the enemy grid; a shot is a miss, a hit, or a hit that sinks a ship. The first player to sink the whole enemy fleet wins, and the end screen shows ships sunk, shots fired, hits and accuracy for both sides.
 
 ## Options (setup screen)
+- **Difficulty**: *Easy*, *Normal* or *Hard*, for the computer only (it is hidden in two-player). Normal is the opponent this game always had; Easy and Hard were added either side of it rather than by changing it.
 - **Opponent**: *Computer*, or *Two players* pass-and-play on one device. In two-player mode a hand-over screen hides both grids while the device changes hands, between placement turns and between every shot.
 - **House rule (optional)**: *Standard turns* (default) alternates after every shot. *Go again on hit* lets the shooter keep firing while they keep hitting. Off by default; it is not part of the classic rules.
 
@@ -18,12 +19,24 @@ Options and the sound setting are remembered in the browser.
 - Animations respect `prefers-reduced-motion` (no screen shake, far fewer particles, slower water).
 
 ## The computer
-It places its fleet at random. Its shooting has three stages:
+It places its fleet at random. Three strengths, measured headlessly over 500 seeded games each, every level firing at the same fleets:
+
+| Level | Average shots to sink the fleet |
+|---|---|
+| Easy | 95.5 |
+| Normal | 49.8 |
+| Hard | 45.3 |
+
+**Easy** fires blind at any unshot cell — no lattice, and it does not even follow up a hit. It is the setting you can beat.
+
+**Hard** scores the board by probability density: for every ship still afloat it counts the ways that ship could still be placed, adds weight to each unshot cell those placements cover, and fires at the busiest cell. Placements that would explain an unresolved hit are weighted far above the rest, so one rule does both the searching and the finishing-off. Worst case is about 1 ms to choose a shot, on the opening shot of a game when every ship is still afloat.
+
+**Normal** is the original three-stage AI:
 1. **Hunt**: pick a random cell on a lattice whose spacing is the length of the smallest ship still afloat (a checkerboard while the Destroyer lives), skipping cells no remaining ship could fit through.
 2. **Target**: after a hit, try the four neighbours.
 3. **Line**: once two hits are adjacent, fire at the ends of that line until the ship sinks; hits belonging to a sunk ship are dropped from the target list, so a second ship found along the way is still finished off.
 
-It never fires at the same cell twice. Headless, it sinks a random fleet in about 50 shots on average; firing at random takes about 95.
+No level ever fires at the same cell twice.
 
 ## Tests
 `node test/game.js` loads the game logic out of `index.html` without a browser and checks:

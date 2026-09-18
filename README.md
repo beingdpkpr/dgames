@@ -11,7 +11,7 @@ Play them at **<https://beingdpkpr.github.io/dgames/>**, or open any `index.html
 | Dots & Boxes | `dots-and-boxes/` | 2 to 5 players, each seat human or computer (three levels). Tests: `node test/ai.js`, `node test/players.js` inside the folder. |
 | Duck Hunt Reimagined | `duck-hunt/` | Click-to-shoot duck hunt with a painterly canvas look, rounds and a mocking dog. Test: `node test/sim.js` inside the folder. |
 | Rush Lane | `rush-lane/` | Three.js kart racer, three jungle circuits against three AI karts. Everything bundled into the one file. On-screen pad on phones. Tests: `node test/race.js`, `node test/touch.js` inside the folder. |
-| Battleship | `battleship/` | Dark-ocean Battleship against a hunt-and-target computer or two players pass-and-play. Test: `node test/game.js` inside the folder. |
+| Battleship | `battleship/` | Dark-ocean Battleship against the computer (three levels, Hard scores by probability density) or two players pass-and-play. Test: `node test/game.js` inside the folder. |
 | Strike Force | `strike-force/` | Run-and-gun side-scroller: 8-way aim, troops, turrets, boss, power-ups, checkpoints. On-screen pad on phones. Tests: `node test/sim.js`, `node test/touch.js` inside the folder. |
 | Penfight | `penfight/` | 3D pen-flicking on a school desk, against the computer or two players on one device. Imported as a bundled file. Tests: `node test/physics.js`, `node test/hiscore.js` inside the folder. |
 | Ludo | `ludo/` | Classic Indian Ludo, 2 to 4 players, each seat human or computer (three levels). Tests: `node test/rules.js`, `node test/ai.js`, `node test/record.js` inside the folder. |

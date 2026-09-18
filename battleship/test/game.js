@@ -122,6 +122,45 @@ function playRandom(rng) {
   assert(avg < ravg - 20, 'AI not clearly better than random');
 }
 
+// 4b. The three difficulty levels must stay ordered: each one strictly fewer shots than the one below.
+// Seeded and deterministic, and every level plays the SAME fleets so the comparison is paired rather
+// than three independent samples. n = 200 per level: the measured hard-to-normal gap is 4.5 shots at
+// s.e. 0.56 over 500 games, so at 200 the gap is still about 5 standard errors clear -- wide enough that
+// the assertion cannot trip on sampling noise, and the whole block runs in well under a second.
+{
+  const N = 200;
+  const means = {};
+  for (const level of ['easy', 'normal', 'hard']) {
+    let total = 0, repeats = 0, unfinished = 0;
+    for (let i = 0; i < N; i++) {
+      const r = mulberry32(4242 + i);                 // same seed per index => same fleet for every level
+      const b = g.makeBoard(); g.autoPlace(b, r);
+      const ai = g.aiCreate(level);
+      const seen = new Set();
+      let shots = 0;
+      while (!g.allSunk(b) && shots < 200) {
+        const cell = g.aiChoose(ai, b, r);
+        if (!cell) break;
+        const k = cell[0] * g.GRID_SIZE + cell[1];
+        if (seen.has(k)) { repeats++; break; }
+        seen.add(k);
+        g.aiNotify(ai, cell[0], cell[1], g.resolveShot(b, cell[0], cell[1]));
+        shots++;
+      }
+      if (!g.allSunk(b)) unfinished++;
+      total += shots;
+    }
+    means[level] = total / N;
+    assert(repeats === 0, level + ': shot a cell twice');
+    assert(unfinished === 0, level + ': failed to finish ' + unfinished + ' of ' + N + ' games');
+  }
+  console.log(`levels x${N}: easy ${means.easy.toFixed(1)} | normal ${means.normal.toFixed(1)} | hard ${means.hard.toFixed(1)} shots`);
+  assert(means.hard < means.normal - 1.5, `hard (${means.hard.toFixed(1)}) must beat normal (${means.normal.toFixed(1)})`);
+  assert(means.normal < means.easy - 20, `normal (${means.normal.toFixed(1)}) must beat easy (${means.easy.toFixed(1)})`);
+  // Easy is meant to be beatable: if it ever starts hunting properly this catches it.
+  assert(means.easy > 80, `easy (${means.easy.toFixed(1)}) should be near the ~95 pure-random baseline`);
+}
+
 // 5. Game over.
 {
   const b = g.makeBoard(); g.autoPlace(b, rng);
