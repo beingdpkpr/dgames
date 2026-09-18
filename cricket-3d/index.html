@@ -56,6 +56,17 @@
   #hint { bottom: 14px; left: 176px; font-size: 12px; line-height: 1.6; opacity: .85; white-space: nowrap; }
   #hint b { color: var(--accent); }
   #touchbar { position: absolute; bottom: 18px; right: 18px; display: flex; gap: 12px; pointer-events: auto; }
+  /* The timing bar is a fixed 340px centred at bottom:92px, and the radar reaches x=164 in the corner,
+     so the bar's left edge -- (100vw-340)/2 -- slides under it on anything narrower than 668px. On a phone
+     the radar covered roughly the left 40% of the one gauge the batting depends on. Shrink the radar and
+     lift the bar above it. The keyboard hint goes too: it is nowrap from x=176 and runs clean off the side
+     of a phone, and the touch bar already offers the same two shots. */
+  @media (max-width: 700px) {
+    #radar { width: 96px; height: 96px; }
+    #tbar { bottom: 132px; width: min(340px, calc(100vw - 28px)); }
+    #tbarLbl { bottom: 152px; }
+    #hint { display: none; }
+  }
   #touchbar button { font-family: var(--display); font-size: 22px; letter-spacing: 1px; font-weight: 800; padding: 18px 26px; border-radius: 14px; border: 0; color: #fff; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
   #btnGround { background: #2e8b57; } #btnLoft { background: #e67e22; }
   #mute { position: absolute; top: 90px; right: 14px; pointer-events: auto; background: var(--hud); border: 0; color: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 13px; }

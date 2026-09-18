@@ -9,8 +9,8 @@ Run right through eight screens of jungle, over gaps and up platforms, past troo
 | Action | Keys |
 |---|---|
 | Move | Left / Right arrows, or A / D |
-| Jump | Space, Z or K. Hold for a higher jump, tap for a short hop. |
-| Fire | X, J or F. Hold to keep firing. |
+| Jump | Space. Hold for a higher jump, tap for a short hop. Z and K also work. |
+| Fire | Shift. Hold to keep firing. X, J and F also work. |
 | Aim | Same direction keys, see the table below |
 | Sound | M toggles synthesized sound (off by default; also a checkbox on the title screen) |
 | Touch | An on-screen pad on phones, see below |

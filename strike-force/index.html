@@ -95,8 +95,8 @@
       <p>Fight through the jungle, reach the arena, take down the boss.</p>
       <div class="controls" id="controlsGrid">
         <b>Move</b><span>Left / Right arrows, or A / D</span>
-        <b>Jump</b><span>Space, Z or K (hold for a higher jump)</span>
-        <b>Fire</b><span>X, J or F (hold to keep firing)</span>
+        <b>Jump</b><span>Space (hold for a higher jump) &middot; also Z or K</span>
+        <b>Fire</b><span>Shift (hold to keep firing) &middot; also X, J or F</span>
         <b>Aim up</b><span>Up (W): straight up; with Left/Right: diagonal up</span>
         <b>Aim down</b><span>Down (S) while moving: diagonal down; in the air: straight down</span>
         <b>Crouch</b><span>Down (S) standing still: crouch, shoot low along the ground</span>
@@ -810,7 +810,10 @@ const Snd = {
 // --- input ---
 const keys = { left: false, right: false, up: false, down: false, jump: false, fire: false };
 const KEYMAP = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down',
-  Space: 'jump', KeyZ: 'jump', KeyK: 'jump', KeyX: 'fire', KeyJ: 'fire', KeyF: 'fire' };
+  Space: 'jump', KeyZ: 'jump', KeyK: 'jump',
+  // Shift fires because that is where the rest of the collection puts a second action key and it is what
+  // a hand expects; X, J and F stay as aliases so nobody's muscle memory breaks.
+  ShiftLeft: 'fire', ShiftRight: 'fire', KeyX: 'fire', KeyJ: 'fire', KeyF: 'fire' };
 function handleInput(e, down) {
   if (document.querySelector('.hs-overlay')) return; // initials prompt owns the keyboard
   const k = KEYMAP[e.code];

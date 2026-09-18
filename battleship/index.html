@@ -35,10 +35,10 @@
   .row + .row { margin-top: 8px; }
   .row label { opacity: .85; font-size: 15px; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-  .seg button { background: transparent; color: #fff; border: 0; padding: 7px 12px; cursor: pointer; font: inherit; font-size: 14px; }
+  .seg button { background: transparent; color: #fff; border: 0; padding: 7px 12px; min-height: 44px; cursor: pointer; font: inherit; font-size: 14px; }
   .seg button + button { border-left: 1px solid var(--line); }
   .seg button.on { background: var(--gold); color: #0b1a2b; font-weight: 700; }
-  .btn { background: var(--gold); color: #0b1a2b; border: 0; border-radius: 10px; padding: 9px 18px; font: inherit; font-weight: 700; cursor: pointer; letter-spacing: .5px; }
+  .btn { background: var(--gold); color: #0b1a2b; border: 0; border-radius: 10px; padding: 9px 18px; min-height: 44px; font: inherit; font-weight: 700; cursor: pointer; letter-spacing: .5px; }
   .btn.ghost { background: transparent; color: #fff; border: 1px solid var(--line); font-weight: 500; }
   .btn.teal { background: var(--teal); }
   .btn:hover { filter: brightness(1.08); }
@@ -76,7 +76,7 @@
   .strip span.sunk i { background: var(--hit); }
 
   .chips { display: flex; gap: 8px; flex-wrap: wrap; }
-  .chip { background: transparent; color: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font: inherit; font-size: 14px; cursor: pointer; }
+  .chip { background: transparent; color: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; min-height: 44px; font: inherit; font-size: 14px; cursor: pointer; }
   .chip.on { border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal), 0 0 12px rgba(46, 230, 197, .35); }
   .chip.placed { opacity: .55; }
   .chip.placed::after { content: " \2713"; }
@@ -510,39 +510,108 @@ function roundRect(ctx, x, y, w, h, r) {
   r = Math.min(r, w / 2, h / 2); ctx.beginPath();
   ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
-function drawShip(ctx, ship, now, flashUntil) {
-  const inset = 4, x = AREA.x + ship.c * CELL + inset, y = AREA.y + ship.r * CELL + inset;
-  const w = (ship.horizontal ? ship.length * CELL : CELL) - inset * 2, h = (ship.horizontal ? CELL : ship.length * CELL) - inset * 2;
-  const flashing = flashUntil && now < flashUntil && Math.floor(now / 90) % 2 === 0;
-  ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4;
-  const g = ship.horizontal ? ctx.createLinearGradient(0, y, 0, y + h) : ctx.createLinearGradient(x, 0, x + w, 0);
-  const stops = flashing ? ['#fff4e0', '#ffd54a', '#ff6a3d', '#ffd54a', '#fff4e0'] : ship.sunk ? COLORS.wreck : COLORS.ship;
-  stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
-  roundRect(ctx, x, y, w, h, Math.min(w, h) * .45); ctx.fillStyle = g; ctx.fill();
-  ctx.shadowColor = 'transparent';
-  ctx.lineWidth = 1.2; ctx.strokeStyle = ship.sunk ? 'rgba(0,0,0,.6)' : 'rgba(12,22,32,.75)'; ctx.stroke();
-  // deck details: centre line, turrets on each cell after the bow, a bridge amidships
-  const cx = (i) => ship.horizontal ? x + i * CELL + CELL / 2 - inset : x + w / 2, cy = (i) => ship.horizontal ? y + h / 2 : y + i * CELL + CELL / 2 - inset;
-  ctx.globalAlpha = ship.sunk ? .5 : 1;
-  ctx.strokeStyle = 'rgba(25,40,55,.35)'; ctx.lineWidth = 2; ctx.beginPath();
-  if (ship.horizontal) { ctx.moveTo(x + 8, y + h / 2); ctx.lineTo(x + w - 8, y + h / 2); } else { ctx.moveTo(x + w / 2, y + 8); ctx.lineTo(x + w / 2, y + h - 8); }
-  ctx.stroke();
-  const mid = Math.floor(ship.length / 2), bw = CELL * .5, bh = CELL * .34;
-  for (let i = 0; i < ship.length; i++) {
-    if (i === mid && ship.length > 2) {
-      const rx = ship.horizontal ? cx(i) - bw / 2 : cx(i) - bh / 2, ry = ship.horizontal ? cy(i) - bh / 2 : cy(i) - bw / 2;
-      roundRect(ctx, rx, ry, ship.horizontal ? bw : bh, ship.horizontal ? bh : bw, 3);
-      ctx.fillStyle = ship.sunk ? '#2a2f35' : '#5c7385'; ctx.fill(); ctx.strokeStyle = ship.sunk ? '#111' : '#d7e1ea'; ctx.lineWidth = 1; ctx.stroke();
-    } else if (i !== 0) {
-      ctx.beginPath(); ctx.arc(cx(i), cy(i), CELL * .15, 0, Math.PI * 2);
-      ctx.fillStyle = ship.sunk ? '#2a2f35' : '#3f5263'; ctx.fill(); ctx.strokeStyle = ship.sunk ? '#111' : '#dbe5ee'; ctx.lineWidth = 1; ctx.stroke();
-    }
+// Every ship used to be the same rounded capsule with dots on it, distinguishable only by how long it
+// was. Each class now gets its own silhouette, drawn in the ship's own frame: the canvas is rotated once
+// so the keel always runs along +x with the bow at the far end, which means one set of shapes covers both
+// orientations instead of two. Carrier and Battleship differ by length anyway, but Cruiser and Submarine
+// are both three cells, so the drawing is chosen by name, not size.
+function shipHull(ctx, L, B, kind) {
+  const hl = L / 2, hb = B / 2;
+  ctx.beginPath();
+  if (kind === 'Submarine') {
+    // A sub is a cigar: rounded at both ends, no flared bow, sitting lower in the water.
+    const r = hb * .92;
+    ctx.moveTo(-hl + r, -hb); ctx.lineTo(hl - r, -hb);
+    ctx.arcTo(hl, -hb, hl, 0, r); ctx.arcTo(hl, hb, hl - r, hb, r);
+    ctx.lineTo(-hl + r, hb);
+    ctx.arcTo(-hl, hb, -hl, 0, r); ctx.arcTo(-hl, -hb, -hl + r, -hb, r);
+  } else if (kind === 'Carrier') {
+    // A carrier is a slab: the flight deck overhangs the hull, so the bow is blunt and squared off.
+    const n = hb * .28;
+    ctx.moveTo(hl, -hb + n); ctx.lineTo(hl, hb - n);
+    ctx.lineTo(hl - n, hb); ctx.lineTo(-hl + n * 1.4, hb);
+    ctx.quadraticCurveTo(-hl, hb, -hl, hb * .5);
+    ctx.lineTo(-hl, -hb * .5);
+    ctx.quadraticCurveTo(-hl, -hb, -hl + n * 1.4, -hb);
+    ctx.lineTo(hl - n, -hb);
+  } else {
+    // Surface combatant: a raked bow that comes to a point, a flared forebody, a squared-off transom.
+    const bow = Math.min(B * 1.15, L * .34);
+    ctx.moveTo(hl, 0);
+    ctx.quadraticCurveTo(hl - bow * .3, -hb * .96, hl - bow, -hb);
+    ctx.lineTo(-hl + hb * .45, -hb);
+    ctx.quadraticCurveTo(-hl, -hb, -hl, -hb * .6);
+    ctx.lineTo(-hl, hb * .6);
+    ctx.quadraticCurveTo(-hl, hb, -hl + hb * .45, hb);
+    ctx.lineTo(hl - bow, hb);
+    ctx.quadraticCurveTo(hl - bow * .3, hb * .96, hl, 0);
   }
-  if (ship.sunk && !flashing) { // cracks
+  ctx.closePath();
+}
+
+function drawShip(ctx, ship, now, flashUntil) {
+  const inset = 4;
+  const L = ship.length * CELL - inset * 2, B = CELL - inset * 2;
+  const span = ship.length * CELL;
+  const px = AREA.x + ship.c * CELL + (ship.horizontal ? span : CELL) / 2;
+  const py = AREA.y + ship.r * CELL + (ship.horizontal ? CELL : span) / 2;
+  const flashing = flashUntil && now < flashUntil && Math.floor(now / 90) % 2 === 0;
+  const dead = ship.sunk;
+  const ink = dead ? '#111' : '#d7e1ea', metal = dead ? '#2a2f35' : '#5c7385', dark = dead ? '#23272c' : '#3f5263';
+
+  ctx.save();
+  ctx.translate(px, py);
+  if (!ship.horizontal) ctx.rotate(Math.PI / 2);   // keel along +x from here on, bow at +L/2
+
+  // Hull
+  ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4;
+  const g = ctx.createLinearGradient(0, -B / 2, 0, B / 2);
+  const stops = flashing ? ['#fff4e0', '#ffd54a', '#ff6a3d', '#ffd54a', '#fff4e0'] : dead ? COLORS.wreck : COLORS.ship;
+  stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
+  shipHull(ctx, L, B, ship.name);
+  ctx.fillStyle = g; ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.lineWidth = 1.2; ctx.strokeStyle = dead ? 'rgba(0,0,0,.6)' : 'rgba(12,22,32,.75)'; ctx.stroke();
+
+  ctx.globalAlpha = dead ? .5 : 1;
+  const hl = L / 2, hb = B / 2;
+  const turret = (x, r) => { ctx.beginPath(); ctx.arc(x, 0, r, 0, Math.PI * 2); ctx.fillStyle = dark; ctx.fill(); ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.stroke(); };
+  const block = (x, w, h, r) => { roundRect(ctx, x - w / 2, -h / 2, w, h, r); ctx.fillStyle = metal; ctx.fill(); ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.stroke(); };
+
+  if (ship.name === 'Carrier') {
+    // Flight deck stripe down the length, with the island offset to one side the way a real one is.
+    ctx.strokeStyle = dead ? 'rgba(0,0,0,.5)' : 'rgba(25,40,55,.5)';
+    ctx.lineWidth = 2; ctx.setLineDash([CELL * .22, CELL * .16]);
+    ctx.beginPath(); ctx.moveTo(-hl + CELL * .3, 0); ctx.lineTo(hl - CELL * .3, 0); ctx.stroke();
+    ctx.setLineDash([]);
+    roundRect(ctx, -CELL * .1, hb * .12, CELL * .42, hb * .66, 2);
+    ctx.fillStyle = metal; ctx.fill(); ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.stroke();
+  } else if (ship.name === 'Submarine') {
+    // Conning tower amidships plus a periscope, and no guns.
+    block(0, CELL * .34, hb * 1.05, 2);
+    ctx.beginPath(); ctx.moveTo(CELL * .02, -hb * .5); ctx.lineTo(CELL * .02, -hb * 1.25);
+    ctx.strokeStyle = ink; ctx.lineWidth = 1.6; ctx.stroke();
+  } else if (ship.name === 'Battleship') {
+    turret(hl - CELL * .52, CELL * .17);
+    turret(hl - CELL * 1.28, CELL * .15);
+    block(-CELL * .28, CELL * .5, hb * 1.15, 3);
+    turret(-hl + CELL * .5, CELL * .15);
+  } else if (ship.name === 'Cruiser') {
+    turret(hl - CELL * .5, CELL * .16);
+    block(0, CELL * .44, hb * 1.05, 3);
+    ctx.beginPath(); ctx.arc(-hl + CELL * .45, 0, CELL * .1, 0, Math.PI * 2);   // funnel
+    ctx.fillStyle = dark; ctx.fill(); ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.stroke();
+  } else {
+    // Destroyer, two cells: one gun forward, a small bridge behind it.
+    turret(hl - CELL * .45, CELL * .15);
+    block(-CELL * .25, CELL * .38, hb * .95, 2);
+  }
+
+  if (dead && !flashing) {   // cracks, drawn in the ship's own frame so they follow the hull
     ctx.globalAlpha = .8; ctx.strokeStyle = '#0d0f11'; ctx.lineWidth = 1.5; ctx.beginPath();
-    ctx.moveTo(x + w * .2, y + h * .15); ctx.lineTo(x + w * .45, y + h * .6); ctx.lineTo(x + w * .35, y + h * .9);
-    ctx.moveTo(x + w * .7, y + h * .1); ctx.lineTo(x + w * .6, y + h * .5); ctx.lineTo(x + w * .85, y + h * .85); ctx.stroke();
+    ctx.moveTo(-hl * .6, -hb * .7); ctx.lineTo(-hl * .1, hb * .2); ctx.lineTo(-hl * .3, hb * .8);
+    ctx.moveTo(hl * .4, -hb * .8); ctx.lineTo(hl * .2, 0); ctx.lineTo(hl * .7, hb * .7);
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -687,7 +756,24 @@ function handleCellClick(view, r, c) {
   if (view === fleetView && state.phase === 'placement') {
     const board = state.boards[state.placing];
     if (state.curShip >= 0 && placeShip(board, state.curShip, r, c, state.horizontal)) { sound.play('place'); selectNextShip(); message(''); }
-    else if (shipAt(board, r, c) >= 0) { const i = shipAt(board, r, c); removeShip(board, i); state.curShip = i; state.horizontal = board.ships[i].horizontal; message(`${board.ships[i].name} picked up.`); }
+    else if (shipAt(board, r, c) >= 0) {
+      // Tapping a ship already on the board turns it where it lies, which is what a hand reaches for and
+      // the only rotation a phone can do without hunting for the Rotate button first. It used to pick the
+      // ship up instead, which is a surprising answer to "I put that down the wrong way round". If the
+      // turn will not fit, fall back to picking it up so the tap is never a silent no-op, and say which
+      // of the two happened. To move a ship rather than turn it, tap its chip in the fleet list.
+      const i = shipAt(board, r, c), s = board.ships[i];
+      const was = { r: s.r, c: s.c, horizontal: s.horizontal };
+      removeShip(board, i);
+      if (placeShip(board, i, was.r, was.c, !was.horizontal)) {
+        sound.play('place'); message(`${s.name} turned ${was.horizontal ? 'vertical' : 'horizontal'}.`);
+      } else {
+        // placeShip leaves the board alone when it refuses, so the ship is already off it: that is the
+        // pick-up, no undo needed.
+        state.curShip = i; state.horizontal = was.horizontal;
+        message(`${s.name} picked up — no room to turn it there.`);
+      }
+    }
     else message('That does not fit there.', 'hit');
     render();
   } else if (view === enemyView && state.phase === 'battle' && !state.busy && state.current === state.viewer) {
@@ -807,8 +893,20 @@ function render() {
   if (p === 'placement') {
     const board = state.boards[state.placing], box = $('ships'); box.innerHTML = '';
     board.ships.forEach((s, i) => { const b = document.createElement('button'); b.className = 'chip' + (i === state.curShip ? ' on' : '') + (s.placed ? ' placed' : ''); b.textContent = `${s.name} (${s.length})`;
-      b.addEventListener('click', () => { if (s.placed) { removeShip(board, i); state.horizontal = s.horizontal; } state.curShip = i; render(); }); box.appendChild(b); });
-    $('rotate').textContent = `Rotate (R): ${state.horizontal ? 'horizontal' : 'vertical'}`;
+      // Tapping a placed ship's chip lifts it so it can be moved; tapping the chip of the ship you are
+      // already holding turns it. That gives rotation a second home next to the fleet list, where a
+      // player who has not found the button yet is already tapping.
+      b.addEventListener('click', () => {
+        if (s.placed) { removeShip(board, i); state.horizontal = s.horizontal; state.curShip = i; }
+        else if (i === state.curShip) state.horizontal = !state.horizontal;
+        else state.curShip = i;
+        render();
+      });
+      box.appendChild(b); });
+    // Name the orientation it is in now rather than the verb, so the button states a fact you can check
+    // against the board instead of an instruction you have to imagine the result of.
+    $('rotate').textContent = state.horizontal ? '↔ Lying across' : '↕ Lying down';
+    $('rotate').title = 'Turn the ship (R). You can also tap a ship on the board to turn it.';
     $('confirm').disabled = !fleetComplete(board);
     $('confirm').textContent = state.mode === 'ai' ? 'Start battle' : 'Confirm fleet';
   }

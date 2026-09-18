@@ -12,7 +12,7 @@ Two 10x10 grids: **Your Fleet** on the left, **Enemy Waters** on the right (they
 Options and the sound setting are remembered in the browser.
 
 ## Controls
-- **Placement**: click a cell to put the selected ship there; it extends right (horizontal) or down (vertical) from that cell. The hover preview is green where the ship fits and red where it overlaps or leaves the grid. **R** or the *Rotate* button flips the orientation. Click a placed ship to pick it up again. *Random* places the whole fleet, *Clear* empties the grid, *Start battle* / *Confirm fleet* locks it in.
+- **Placement**: click a cell to put the selected ship there; it extends right (horizontal) or down (vertical) from that cell. The hover preview is green where the ship fits and red where it overlaps or leaves the grid. Turn a ship three ways: **R**, the orientation button, or by tapping the chip of the ship you are holding. Tap a ship already on the board to turn it where it lies; if there is no room to turn it there it is picked up instead, and the message says which happened. To move a placed ship rather than turn it, tap its chip in the fleet list. *Random* places the whole fleet, *Clear* empties the grid, *Start battle* / *Confirm fleet* locks it in.
 - **Battle**: click a cell in Enemy Waters to fire. A targeting reticle follows the pointer and a sonar pulse marks the start of your turn.
 - **Sound** is off by default; the HUD button turns it on. All sounds are synthesized with WebAudio, there are no audio files.
 - Animations respect `prefers-reduced-motion` (no screen shake, far fewer particles, slower water).
