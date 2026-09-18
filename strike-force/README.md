@@ -54,7 +54,9 @@ Three are placed in the level; four more drop from specific troops.
 Troop 100, turret 250, boss 2000, power-up 50. Finishing adds 5000 plus 1000 per remaining life.
 
 ## High scores
-A top-ten table of final scores with three-letter initials, one table for the whole game (Classic and default share it). When a run ends, by game over or by killing the boss, and the score makes the table, a prompt asks for your initials (type three letters, Enter saves, Esc skips); the entry records how far you got: `reached checkpoint n`, `reached boss` or `won`. A score of zero is never recorded. The table sits on the results screen and behind the HIGH SCORES (H) button on the title screen; T on the results screen returns to the title. Everything is stored in the browser (localStorage), so it is per device and per browser.
+A top-ten table of final scores under your saved player name, one table for the whole game (Classic and default share it). When a run ends, by game over or by killing the boss, and the score makes the table, a prompt asks for your name; the entry records how far you got: `reached checkpoint n`, `reached boss` or `won`.
+
+Finishing pays for *how* you finished, not just that you did. Kills, the level and the win bonus are all fixed, so every finisher who kept three lives used to score exactly the same 13100 — a table on which everyone ties. On top of the win and life bonuses you now earn for beating par (45 s) and for your accuracy over the whole run, which are the two things a good player can actually push. A score of zero is never recorded. The table sits on the results screen and behind the HIGH SCORES (H) button on the title screen; T on the results screen returns to the title. Everything is stored in the browser (localStorage), so it is per device and per browser.
 
 ## Checkpoints
 Five flags at roughly 1000, 2900, 3900, 5800 and 6800 px into the 7680 px level. A flag turns green when passed.
@@ -67,7 +69,7 @@ Five flags at roughly 1000, 2900, 3900, 5800 and 6800 px into the 7680 px level.
 - physics: standing on ground, held vs tapped jump height (at least one 100 px platform step), passing up through a one-way platform, being stopped by a wall, crouch hitbox, pit death;
 - the full aim table above: all 16 key combinations x 2 facings x ground/air (64 cases);
 - bullets despawn off-screen, spread fires three, a troop dies after exactly its hit points, enemy bullets cost one hp and start invincibility frames, Classic one-hit;
-- checkpoint respawn keeps score, decrements lives, restores hp;
+- checkpoint respawn keeps score, decrements lives, restores hp, and does not pay out a second time for enemies on a stretch already cleared;
 - a scripted bot (run right, jump at gaps and walls, fire forward) reaches the boss arena within a bounded number of frames and then kills the boss, proving the level is traversable; the same bot without god mode is reported for information;
 - game over after losing all lives.
 

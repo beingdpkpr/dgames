@@ -150,6 +150,15 @@ function bot(g) {
   const frames = run(g, () => bot(g), MAXF, () => !g.bossActive);
   assert(g.bossActive, 'god-mode bot reaches the boss arena (frames ' + frames + ', x ' + g.player.x.toFixed(0) + ', state ' + g.state + ')');
   console.log('bot (god): reached boss arena in', frames, 'frames, checkpoints', g.checkpoint + 1, 'score', g.score);
+  // Reaching the arena was the only thing asserted, so a change that made the boss unkillable -- or that
+  // threw on the way through the win bonus -- would have passed the suite. Play it out to the end.
+  const winFrames = frames + run(g, () => bot(g), MAXF, () => g.state !== 'won');
+  assert(g.state === 'won', 'god-mode bot actually beats the boss (state ' + g.state + ' after ' + winFrames + ' frames)');
+  // The win bonus reads g.frame, g.shots and g.hits; if any of them were missing the score would come
+  // back NaN and still be "a number that changed", so check it is finite and beats the kills alone.
+  assert(Number.isFinite(g.score) && g.score > C.SCORE.win, 'win score is a real number (' + g.score + ')');
+  assert(g.shots > 0 && g.hits > 0 && g.hits <= g.shots, 'shots and hits are counted (' + g.hits + '/' + g.shots + ')');
+  console.log('bot (god): won in', winFrames, 'frames, score', g.score, 'accuracy', (100 * g.hits / g.shots).toFixed(0) + '%');
   // same bot without god mode, 5 runs: reported, not asserted
   let reached = 0; const outcomes = [];
   for (let r = 0; r < 5; r++) {

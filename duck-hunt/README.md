@@ -7,7 +7,7 @@ Single-file click-to-shoot duck hunt with a painterly, atmospheric look. Open `i
 - Each round gives you a fixed number of shells and a quota of hits. Make the quota to advance; miss it and the same dog surfaces to laugh at you, then it is game over.
 - Consecutive hits build a combo (up to ×3). Every duck that reaches the far edge is a miss. A shot that misses close to a duck spooks it into a burst away from the blast.
 - Downed ducks land in the reeds and the dog surfaces to hold each one up, two at a time if they fell close together.
-- Rounds scale: more ducks, faster flight, up to three in the air at once, and from round 4 some double back mid-flight. The sky slides from dawn to dusk over the first nine rounds.
+- Rounds scale: more ducks, faster flight, up to five in the air at once, and from round 4 some double back mid-flight. The sky slides from dawn to dusk over the first nine rounds. The accuracy a round demands climbs from about a third to nearly three in five, and speed and duck count keep rising past round 20, so a good shooter is eventually walked into a wall rather than left to grind forever.
 - Best score and the mute setting are remembered in the browser. **M** toggles sound; **Enter** or **Space** starts from the overlays.
 
 ## High scores

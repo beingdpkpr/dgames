@@ -257,12 +257,21 @@ const COLORS = {
 const DUCK_BASE_SPEED = 240;   // px/s at 1280x720 in round 1, before round scaling
 const DUCK_SIZE = 27;          // body half-length in px at 1280x720
 const GRAVITY = 1500;
+// The accuracy a round demands is required/ammo, and it used to top out at 12/32 = 37.5%. A decent
+// player shoots 70-80%, so there was no failure state: a bot at 80% survived 40 games out of 40 and
+// never died once. Two things were wrong. Ammo was two shells per duck, which is generous enough to
+// miss more than you hit; and hitRatioMax was reached at round 10 while maxDucks was not reached until
+// round 11, so for that one round "required" stalled while "ducks" and "ammo" both kept climbing --
+// making round 11 strictly EASIER than round 10 (37.5% demanded against 40%, and four ducks you could
+// ignore instead of three). Capping the ratio no earlier than the duck count removes that inversion by
+// construction. Demanded accuracy now runs 33% -> 58%, and speed and concurrency keep climbing to
+// round 21 rather than every axis flatlining at 13.
 const ROUND_SCALING = {
   startDucks: 6, ducksPerRound: 1, maxDucks: 16,
-  speedPerRound: 0.11, maxSpeed: 2.3,
-  concurrentEvery: 3, maxConcurrent: 3,
-  hitRatioStart: 0.5, hitRatioStep: 0.035, hitRatioMax: 0.75,
-  ammoPerDuck: 2, zigzagFrom: 4, paletteRounds: 9
+  speedPerRound: 0.11, maxSpeed: 3.2,
+  concurrentEvery: 3, maxConcurrent: 5,
+  hitRatioStart: 0.5, hitRatioStep: 0.035, hitRatioMax: 0.85,
+  ammoPerDuck: 1.5, zigzagFrom: 4, paletteRounds: 9
 };
 const TAU = Math.PI * 2;
 
@@ -288,7 +297,8 @@ function roundConfig(round) {
   const ducks = Math.min(R.startDucks + n * R.ducksPerRound, R.maxDucks);
   const ratio = Math.min(R.hitRatioStart + n * R.hitRatioStep, R.hitRatioMax);
   return {
-    ducks, required: Math.ceil(ducks * ratio), ammo: ducks * R.ammoPerDuck,
+    // ceil, because ammoPerDuck is now fractional and a half shell is not a thing.
+    ducks, required: Math.ceil(ducks * ratio), ammo: Math.ceil(ducks * R.ammoPerDuck),
     speed: Math.min(1 + n * R.speedPerRound, R.maxSpeed),
     concurrent: Math.min(1 + Math.floor(n / R.concurrentEvery), R.maxConcurrent),
     zigzag: round >= R.zigzagFrom

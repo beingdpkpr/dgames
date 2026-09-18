@@ -33,9 +33,21 @@ for (let r = 1; r <= 25; r++) {
   if (prev) {
     assert(c.ducks >= prev.ducks && c.speed >= prev.speed && c.concurrent >= prev.concurrent, `round ${r}: difficulty never drops`);
     assert(c.required >= prev.required, `round ${r}: required hits never drop`);
+    // The four assertions above were all TRUE while round 11 was strictly easier than round 10, because
+    // none of them look at the two numbers a player actually feels. Demanded accuracy is required/ammo,
+    // and slack is the ducks you may ignore entirely; if ducks and ammo climb while required stalls,
+    // every counter above still rises and the round gets easier anyway. That is exactly what happened:
+    // 12/30 (40%, 3 to spare) became 12/32 (37.5%, 4 to spare).
+    assert(c.required / c.ammo >= prev.required / prev.ammo - 1e-9,
+      `round ${r}: demanded accuracy never drops (${prev.required}/${prev.ammo} -> ${c.required}/${c.ammo})`);
+    assert(c.ducks - c.required <= prev.ducks - prev.required,
+      `round ${r}: ducks you may ignore never rises (${prev.ducks - prev.required} -> ${c.ducks - c.required})`);
   }
   prev = c;
 }
+// The curve must not flatline: every axis used to hit its cap by round 13, so roundConfig(13) and
+// roundConfig(200) were byte-identical and the README's "rounds scale" stopped being true there.
+assert(JSON.stringify(g.roundConfig(13)) !== JSON.stringify(g.roundConfig(200)), 'the curve still climbs past round 13');
 assert(g.roundConfig(25).ducks === g.ROUND_SCALING.maxDucks, 'duck count caps');
 assert(g.roundConfig(25).speed === g.ROUND_SCALING.maxSpeed, 'speed caps');
 console.log('round 1', JSON.stringify(g.roundConfig(1)), '| round 10', JSON.stringify(g.roundConfig(10)));

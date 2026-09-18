@@ -41,7 +41,8 @@
   #hud .pips span.off { background: #555; }
   #hud .weapon { text-align: center; }
   #hud .weapon .val { color: #fff; }
-  #hud .bar { width: 16.7cqw; height: 0.85cqw; border: 0.2cqw solid #000; background: #222; margin: 0.4cqw auto 0; }
+  /* Floored like .lbl and .val were: bare cqw put this bar at ~3px tall in portrait. */
+  #hud .bar { width: max(110px, 16.7cqw); height: max(7px, 0.85cqw); border: 0.2cqw solid #000; background: #222; margin: 0.4cqw auto 0; }
   #hud .bar i { display: block; height: 100%; background: var(--olive); }
   #hud .score { text-align: right; }
   .overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(4, 10, 6, .78); text-align: center; }
@@ -146,7 +147,11 @@ const C = {
   GROUND_Y: 470, LEVEL_W: 7680, DEATH_Y: 640, CAM_LEAD: 140, CAM_EASE: 0.08,
   FIRE_CD: 9, RAPID_CD: 4, SPREAD_ANGLE: 0.22, POWER_TIME: 600, SHIELD_TIME: 480,
   HIT_INV: 90, RESPAWN_INV: 120, MAX_HP: 3, LIVES: 3, DEATH_FRAMES: 70, BOSS_DEATH_FRAMES: 100,
-  SCORE: { troop: 100, turret: 250, boss: 2000, powerup: 50, win: 5000, lifeBonus: 1000 },
+  // PAR_SECONDS is the pace a competent run finishes at; a bot holding right and firing takes 39.3 s,
+  // so beating par means actually pushing. perSecond and aim are the two bonuses that let one finished
+  // run outscore another -- see the win bonus in step().
+  PAR_SECONDS: 45,
+  SCORE: { troop: 100, turret: 250, boss: 2000, powerup: 50, win: 5000, lifeBonus: 1000, perSecond: 60, aim: 3000 },
 };
 const ENEMY = {
   troop:  { w: 20, h: 40, hp: 2,  speed: 1.2, sight: 520, range: 190, shootCd: 80, gravity: true,  contact: true },
@@ -205,6 +210,9 @@ function createGame(opts = {}) {
     level, frame: 0, nextId: 1, state: 'title', score: 0, lives: C.LIVES, checkpoint: -1,
     player: null, bullets: [], enemies: [], powerUps: [], particles: [], camera: { x: 0 },
     shake: 0, deadTimer: 0, bossActive: false, bossDeadTimer: 0, prevJump: false, events: [],
+    // Shots and hits are counted so a finished run can be scored on how it was played, not just on
+    // having been finished. See the win bonus in step().
+    shots: 0, hits: 0,
   };
   g.player = makePlayer(g, level.start.x);
   g.powerUps = level.powerUps.map((p) => ({ x: p.x, y: p.y, w: 18, h: 18, kind: p.kind, vx: 0, vy: 0, bob: 0 }));
@@ -259,7 +267,19 @@ function step(g, input) {
   } else if (g.state === 'bossdead') {
     g.bossDeadTimer--;
     if (g.bossDeadTimer % 8 === 0) { const e = g.enemies.find((x) => x.type === 'boss'); if (e) spawnParticles(g, e.x + Math.random() * e.w, e.y + Math.random() * e.h, 18, '#ffb347', 5); }
-    if (g.bossDeadTimer <= 0) { g.score += C.SCORE.win + g.lives * C.SCORE.lifeBonus; endGame(g, 'won'); }
+    // Kills, the level and the win bonus are all fixed, so every finisher who kept three lives used to
+    // score exactly 13100 -- twenty bot runs produced twenty identical scores, and a top-ten table on
+    // which every qualifying player ties is not a table. Speed and accuracy are the two things a good
+    // player can actually push, so they are what the finish now pays for. A par run of about 40 s at
+    // ~45% accuracy earns roughly what it used to; faster and straighter earns more.
+    if (g.bossDeadTimer <= 0) {
+      const seconds = g.frame / 60;
+      const speedBonus = Math.max(0, Math.round((C.PAR_SECONDS - seconds) * C.SCORE.perSecond));
+      const accuracy = g.shots ? g.hits / g.shots : 0;
+      const aimBonus = Math.round(accuracy * C.SCORE.aim);
+      g.score += C.SCORE.win + g.lives * C.SCORE.lifeBonus + speedBonus + aimBonus;
+      endGame(g, 'won');
+    }
   }
   updateBullets(g);
   updateParticles(g);
@@ -301,7 +321,7 @@ function updatePlayer(g, input) {
   if (input.fire && p.fireCd <= 0) {
     fireWeapon(g);
     p.fireCd = p.weapon === 'rapid' ? C.RAPID_CD : C.FIRE_CD;
-    p.muzzle = 5; g.events.push('shot');
+    p.muzzle = 5; g.shots++; g.events.push('shot');
   }
   // checkpoints and boss trigger
   L.checkpoints.forEach((cp, i) => { if (i > g.checkpoint && p.x >= cp.x) { g.checkpoint = i; g.events.push('checkpoint'); } });
@@ -345,7 +365,8 @@ function spawnEnemy(g, sp) {
   const d = ENEMY[sp.type];
   const surface = sp.y != null ? sp.y : findGroundY(g.level, sp.x, d.w);
   const e = { id: g.nextId++, type: sp.type, x: sp.x, y: surface - d.h, w: d.w, h: d.h, vx: 0, vy: 0, hp: d.hp, maxHp: d.hp,
-    state: 'idle', facing: -1, timer: 0, cd: 45, burst: 0, drop: sp.drop || null, onGround: false, aim: { dx: -1, dy: 0 }, anim: 0, flash: 0, blocked: false };
+    // 'claimed' marks an enemy respawned after a death on a stretch that has already paid out once.
+    state: 'idle', facing: -1, timer: 0, cd: 45, burst: 0, drop: sp.drop || null, claimed: !!sp.claimed, onGround: false, aim: { dx: -1, dy: 0 }, anim: 0, flash: 0, blocked: false };
   g.enemies.push(e); sp.spawned = true; return e;
 }
 function updateEnemies(g) {
@@ -408,13 +429,13 @@ function updatePowerUps(g) {
 function killEnemy(g, e) {
   if (e.state === 'dead') return;
   e.state = 'dead';
-  g.score += C.SCORE[e.type];
+  if (!e.claimed) g.score += C.SCORE[e.type];
   const big = e.type !== 'troop';
   spawnParticles(g, e.x + e.w / 2, e.y + e.h / 2, big ? 40 : 18, big ? '#ffb347' : '#ff6b4a', big ? 5 : 3);
   spawnParticles(g, e.x + e.w / 2, e.y + e.h / 2, big ? 20 : 6, '#fff3c4', 2);
   if (big) addShake(g, e.type === 'boss' ? 18 : 8);
   g.events.push(big ? 'explode' : 'kill');
-  if (e.drop) g.powerUps.push({ x: e.x + e.w / 2 - 9, y: e.y, w: 18, h: 18, kind: e.drop, vx: 0, vy: -3, bob: 0 });
+  if (e.drop && !e.claimed) g.powerUps.push({ x: e.x + e.w / 2 - 9, y: e.y, w: 18, h: 18, kind: e.drop, vx: 0, vy: -3, bob: 0 });
   if (e.type === 'boss') { g.state = 'bossdead'; g.bossDeadTimer = C.BOSS_DEATH_FRAMES; g.bullets = g.bullets.filter((b) => b.owner === 'player'); }
 }
 function damagePlayer(g) {
@@ -438,7 +459,11 @@ function respawnAtCheckpoint(g) {
   g.player = makePlayer(g, x);
   g.bullets = []; g.enemies = []; g.particles = [];
   g.bossActive = false;
-  for (const sp of L.spawnPoints) if (sp.x >= x - 40) sp.spawned = false;
+  // Re-arm the spawn points you are about to walk back through, but remember that they have already
+  // paid out: killEnemy awards C.SCORE[type] and re-drops the power-up every time, so with three lives
+  // a segment could be farmed for triple score by dying on purpose. The enemies come back; the money
+  // does not.
+  for (const sp of L.spawnPoints) if (sp.x >= x - 40) { sp.spawned = false; sp.claimed = true; }
   g.camera.x = clamp(x - C.W / 2 + C.CAM_LEAD, 0, L.width - C.W);
   g.state = 'playing'; g.prevJump = true;
   g.events.push('respawn');
@@ -466,7 +491,7 @@ function checkCollisions(g) {
     const bb = { x: b.x - b.w / 2, y: b.y - b.h / 2, w: b.w, h: b.h };
     if (b.owner === 'player') {
       for (const e of g.enemies) if (e.state !== 'dead' && overlaps(bb, e)) {
-        b.dead = true; e.hp--; e.flash = e.type === 'boss' ? 2 : 6; spawnParticles(g, b.x, b.y, 3, '#fff', 2);
+        b.dead = true; e.hp--; g.hits++; e.flash = e.type === 'boss' ? 2 : 6; spawnParticles(g, b.x, b.y, 3, '#fff', 2);
         if (e.hp <= 0) killEnemy(g, e);
         break;
       }
