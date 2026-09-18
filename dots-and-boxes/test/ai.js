@@ -7,7 +7,7 @@
 const vm = require('vm'), fs = require('fs'), path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const src = html.slice(html.indexOf("'use strict';"), html.indexOf('// ---------- UI ----------'))
-  + '\nglobalThis.__dab = { newState, legalMoves, sides, boxesOf, applyMove, winner, classify, giveaway, aiMove, cloneState };';
+  + '\nglobalThis.__dab = { newState, legalMoves, sides, boxesOf, applyMove, winner, classify, giveaway, aiMove, cloneState, distToSegment };';
 const ctx = { Math, console, Array, Infinity, Map, JSON, Object }; ctx.globalThis = ctx;
 vm.createContext(ctx); vm.runInContext(src, ctx);
 const g = ctx.__dab;
@@ -100,6 +100,59 @@ for (const [a, b, n] of [['normal', 'easy', 5], ['hard', 'normal', 5], ['hard', 
 assert(T[0].r.win > 340, 'normal should beat easy at least 85% of the time');
 assert(T[1].r.win > T[1].r.loss * 1.5, 'hard should clearly beat normal on 5x5');
 assert(T[2].r.win > T[2].r.loss * 1.5, 'hard should clearly beat normal on 7x7');
+
+// 5. The double-cross. Hard must be willing to DECLINE a box: taking every box you can reach is the
+// beginner mistake, because whoever finishes a chain has to open the next one. This is a real position
+// reached in play (4x4 dots, 9 boxes) where one scoring edge is available, v1,1, and taking it loses.
+// Played out, declining ends +5 and taking ends -3 - an eight-box swing on a nine-box board.
+// A win-rate check alone would not catch a regression to greedy here, so this pins the behaviour.
+{
+  const seq = ["v1,0","v1,2","h1,1","v0,1","h0,2","v0,0","v2,0","h3,2","v2,3","h2,0","v1,3","v0,3","h3,1","h0,0","h1,0"];
+  const parse = (k) => ({ t: k[0], r: +k[1], c: +k.slice(3) });
+  const s2 = g.newState(4, 2);
+  for (const k of seq) g.applyMove(s2, parse(k));
+  const moves = g.legalMoves(s2);
+  const scoring = moves.filter((e) => g.classify(s2, e).scores);
+  assert(scoring.length === 1, "the test position offers exactly one scoring edge (" + scoring.length + ")");
+
+  // Deterministic: every candidate is compared by rollout, so the pick does not depend on the rng.
+  const chosen = g.aiMove(s2, "hard", () => 0);
+  assert(!g.classify(s2, chosen).scores, "hard declines the box rather than taking it (chose " + chosen.t + chosen.r + "," + chosen.c + ")");
+
+  // And prove declining is the right call, so the assertion above is not just pinning a quirk.
+  const playout = (st) => { const t = g.cloneState(st); let guard = 200;
+    while (!t.over && guard-- > 0) {
+      const mv = g.legalMoves(t).find((x) => g.classify(t, x).scores)
+        || g.legalMoves(t).find((x) => !g.classify(t, x).gives) || g.legalMoves(t)[0];
+      if (!mv) break; g.applyMove(t, mv);
+    } return t.scores[1] - t.scores[2]; };
+  const take = g.cloneState(s2); g.applyMove(take, scoring[0]);
+  const decline = g.cloneState(s2); g.applyMove(decline, chosen);
+  const a = playout(take), b = playout(decline);
+  assert(b > a, "declining really does finish ahead of taking (" + b + " vs " + a + ")");
+  console.log("double-cross position: declining ends " + b + ", taking ends " + a);
+
+  // Normal must NOT decline - the levels have to stay distinct.
+  const nChosen = g.aiMove(s2, "normal", () => 0);
+  assert(g.classify(s2, nChosen).scores, "normal still takes the box, keeping the levels apart");
+}
+
+// 6. distToSegment: half of the pointer tolerance that decides whether a tap lands on an edge.
+{
+  const d = g.distToSegment;
+  assert(Math.abs(d(5, 0, [0, 0], [10, 0])) < 1e-9, "a point on the segment is distance 0");
+  assert(Math.abs(d(5, 3, [0, 0], [10, 0]) - 3) < 1e-9, "perpendicular distance from above the middle");
+  assert(Math.abs(d(-4, 0, [0, 0], [10, 0]) - 4) < 1e-9, "past the start clamps to the start point");
+  assert(Math.abs(d(14, 0, [0, 0], [10, 0]) - 4) < 1e-9, "past the end clamps to the end point");
+  assert(Math.abs(d(3, 4, [0, 0], [0, 10]) - 3) < 1e-9, "works on a vertical segment too");
+  assert(Math.abs(d(3, 4, [0, 0], [6, 8])) < 1e-9, "a point on a diagonal segment is distance 0");
+  // (0,5) projects onto the 3-4-5 segment at (2.4, 1.8), which is 4 away.
+  assert(Math.abs(d(0, 5, [0, 0], [4, 3]) - 4) < 1e-9, "perpendicular distance to a diagonal");
+  // A zero-length segment gives l2 = 0, so the projection divides 0 by 0 and this returns NaN. Left
+  // unguarded deliberately: the only caller builds each segment between two distinct dots, so the
+  // degenerate case cannot arise, and a guard here would be dead code wearing the costume of safety.
+  assert(Number.isNaN(d(0, 0, [3, 4], [3, 4])), "a zero-length segment is NaN, and cannot occur in play");
+}
 
 console.log(failures ? failures + ' FAILURE(S)' : 'all checks passed');
 process.exit(failures ? 1 : 0);

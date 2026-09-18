@@ -6,12 +6,12 @@ Single-file dots and boxes on a canvas. Open `index.html` in any browser; no net
 Click the gap between two adjacent dots to draw a line. The fourth side of a box claims it for you and you go again; one line can claim two boxes. Otherwise the turn passes to the next seat in order (1 → 2 → … → last → 1). When every line is drawn, the most boxes wins. If the top score is shared the game is a tie; the end screen ranks every player, with equal scores sharing a rank.
 
 ## Options
-- **Grid** 3×3 to 8×8 dots (4 to 49 boxes). Default 5×5. With four or five players a 6×6 or larger board gives everyone more to play for.
+- **Grid** 3×3 to 8×8 dots (4 to 49 boxes). Default 6×6. An odd box count cannot end level, and 6×6 gives 25: measured over 600 games it tied none, where the old 5×5 default (16 boxes, even) tied 2.7%. With four or five players a 6×6 or larger board also gives everyone more to play for.
 - **Players** 2 to 5 (default 2). Each seat has its own colour for its lines and boxes: cyan, pink, lime, amber, violet.
 - **Seats** seat 1 is always you. Every other seat is either *Human* (hot-seat on the same screen) or the computer at one of three levels:
   - *Easy* plays a random line.
   - *Normal* takes a box when it can, otherwise draws a line that does not give a box away, otherwise anything.
-  - *Hard* is Normal until no safe line is left, then opens the chain that hands over the fewest boxes.
+  - *Hard* can also **decline** a box. Taking every box you can reach is the beginner mistake, because whoever finishes a chain has to open the next one; Hard weighs taking against the double-cross — leaving the last two boxes of a chain so the opponent is forced to open the next — by playing each option out. When no safe line is left it opens the chain that hands over the fewest boxes. Against the old greedy Hard it wins 83% on 5×5 and 93% on 6×6 (n=600 each, seats swapped halfway).
 
   Human seats are named *Player n* (or *You* when you are the only human); computer seats are *Computer* (or *Computer n* when there is more than one).
 
