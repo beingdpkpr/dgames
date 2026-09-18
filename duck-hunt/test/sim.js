@@ -137,7 +137,7 @@ console.log('random shooter: reached round', roundsSeen, '| hits', events.hit, '
   assert(l[0].value === 1200 && l[9].value === 300 && l.every((e, i) => i === 0 || l[i - 1].value >= e.value), 'desc order keeps the best ten, best first');
   assert(hs.rank(5000) === 0 && hs.rank(650) === 6 && hs.rank(300) === -1 && hs.rank(250) === -1, 'rank: top, middle, equal-to-last and below-last');
   const e = hs.add(999, 'deepak', 'round 3');
-  assert(e.initials === 'DEE', `initials upper-cased and cut to 3 (${e.initials})`);
+  assert(e.initials === 'deepak', `player name kept as typed (${e.initials})`);
   assert(JSON.parse(store['dgames.hiscores.duck-hunt']).length === 10, 'stored under dgames.hiscores.duck-hunt, still capped');
   // Hook: clear round 1 perfectly, then stand idle so the dog ends the game in round 2 with a score on the board.
   g.setView(1280, 720); g.startGame(); resetEvents();

@@ -1,5 +1,5 @@
 // Headless high-score check (no browser). Loads makeHiScores and the pure sim out of index.html with an
-// in-memory localStorage and asserts: rank ordering (desc), the top-10 cap, initials upper-cased and cut to
+// in-memory localStorage and asserts: rank ordering (desc), the top-10 cap, the player name kept as typed and cut to
 // three, and that hsDetail reports "won" / "reached boss" / "reached checkpoint n" for finished games.
 // Run: node test/hiscore.js
 const vm = require('vm'), fs = require('fs'), path = require('path');
@@ -21,8 +21,11 @@ assert(hs.rank(100) === 0, 'empty table: any score ranks first');
 for (const v of [300, 900, 600]) hs.add(v, 'abc', 'reached checkpoint 1');
 assert(hs.list().map((e) => e.value).join(',') === '900,600,300', 'list sorted descending');
 assert(hs.rank(1000) === 0 && hs.rank(700) === 1 && hs.rank(600) === 2 && hs.rank(1) === 3, 'rank: 1000 -> #1, 700 -> #2, 600 ties below the 600, 1 -> #4');
-assert(hs.list()[0].initials === 'ABC', 'initials upper-cased');
-assert(hs.add(1, 'deepak', '').initials === 'DEE', 'initials cut to three letters');
+assert(hs.list()[0].initials === 'abc', 'name kept exactly as typed');
+assert(hs.add(1, 'deepak', '').initials === 'deepak', 'a name under 12 characters is kept whole');
+// 12 is the cap the input enforces; add() must enforce it too, because saved data outlives any input.
+assert(hs.add(2, 'Bartholomew Cubbins', '').initials === 'Bartholomew', 'a long name is cut to 12');
+assert(hs.add(3, '   ', '').initials === 'Player', 'whitespace-only falls back to Player');
 for (let i = 0; i < 12; i++) hs.add(1000 + i, 'x', '');
 assert(hs.list().length === 10 && hs.list()[9].value === 1002, 'table capped at the ten best');
 assert(hs.rank(1001) === -1 && hs.rank(1003) === 9, 'rank -1 below the tenth, 1003 takes #10');

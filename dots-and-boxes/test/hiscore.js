@@ -1,6 +1,6 @@
 // Headless high-score check (no browser). Loads the game logic and the pasted high-score module out of
 // index.html with a stubbed localStorage and checks:
-//  1. the module: rank ordering for 'desc', the top-10 cap, initials upper-cased and cut to three, storage key;
+//  1. the module: rank ordering for 'desc', the top-10 cap, the player name kept as typed, storage key;
 //  2. hiScoreOf(): records only a finished game with exactly one human seat that the human wins outright,
 //     keyed by the hardest computer at the table, with the human's margin over the best computer as the value;
 //  3. over random AI-driven games with random seat kinds, hiScoreOf() agrees with winner() and the scores.
@@ -30,8 +30,8 @@ const H = (r, c) => ({ t: 'h', r, c }), V = (r, c) => ({ t: 'v', r, c });
   assert(l.every((e, i) => i === 0 || l[i - 1].value >= e.value), 'list sorted best first');
   assert(hs.rank(13) === 0 && hs.rank(7) === 6 && hs.rank(3) === -1 && hs.rank(2) === -1, 'rank: top, middle, equal-to-last and worse');
   const e = hs.add(5, 'deepak', '5x5, 2 players, 11-6');
-  assert(e.initials === 'DEE' && e.detail === '5x5, 2 players, 11-6', 'initials upper-cased and cut to 3, detail kept');
-  assert(hs.add(4, 'ab', '').initials === 'AB', 'short initials are kept as typed');
+  assert(e.initials === 'deepak' && e.detail === '5x5, 2 players, 11-6', 'name kept as typed, detail kept');
+  assert(hs.add(4, 'ab', '').initials === 'ab', 'short names are kept as typed');
   assert(JSON.parse(store['dgames.hiscores.dots-and-boxes.test']).length === 10, 'stored under dgames.hiscores.<key>, still capped');
   hs.clear(); assert(hs.list().length === 0, 'clear empties the table');
 }

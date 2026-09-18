@@ -102,14 +102,14 @@ test('top-10 cap and rank -1 when it misses the table', () => {
   assert.strictEqual(hs.rank(9.9), 9, 'just better than the tenth takes the last row');
 });
 
-test('initials upper-cased and cut to three, blank becomes ???', () => {
+test('player name kept as typed, blank becomes Player', () => {
   const hs = table('easy');
   hs.clear();
   const e = hs.add(1.2, 'deepak', '3 flicks, 2 pens, Classic desk');
-  assert.strictEqual(e.initials, 'DEE');
+  assert.strictEqual(e.initials, 'deepak');
   assert.strictEqual(e.detail, '3 flicks, 2 pens, Classic desk');
-  assert.strictEqual(hs.add(1.4, '', '').initials, '???');
-  assert.strictEqual(hs.add(1.6, 'ab', '').initials, 'AB');
+  assert.strictEqual(hs.add(1.4, '', '').initials, 'Player');
+  assert.strictEqual(hs.add(1.6, 'ab', '').initials, 'ab');
 });
 
 test('survives corrupt storage', () => {

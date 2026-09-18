@@ -1,6 +1,6 @@
 // Headless high-score check (no browser). Loads the makeHiScores module and the pure streak rule
 // out of index.html with an in-memory localStorage and asserts: rank ordering (desc), the top-10
-// cap, initials upper-cased and cut to three, and that applyStreak counts wins and draws, submits
+// cap, the player name kept as typed, and that applyStreak counts wins and draws, submits
 // "<n> unbeaten" / "<w>W <d>D" on the loss that ends a streak, and submits nothing for a bare loss.
 // Run: node test/hiscore.js
 const vm = require('vm'), fs = require('fs'), path = require('path');
@@ -22,8 +22,8 @@ assert(hs.rank(1) === 0, 'empty table: any streak ranks first');
 for (const v of [3, 9, 6]) hs.add(v, 'abc', `${v}W 0D`);
 assert(hs.list().map(e => e.value).join(',') === '9,6,3', 'list sorted descending');
 assert(hs.rank(10) === 0 && hs.rank(7) === 1 && hs.rank(6) === 2 && hs.rank(1) === 3, 'rank: 10 -> #1, 7 -> #2, 6 ties below the 6, 1 -> #4');
-assert(hs.list()[0].initials === 'ABC', 'initials upper-cased');
-assert(hs.add(1, 'deepak', '').initials === 'DEE', 'initials cut to three letters');
+assert(hs.list()[0].initials === 'abc', 'name kept exactly as typed');
+assert(hs.add(1, 'deepak', '').initials === 'deepak', 'a name under 12 characters is kept whole');
 for (let i = 0; i < 12; i++) hs.add(100 + i, 'x', '');
 assert(hs.list().length === 10 && hs.list()[9].value === 102, 'table capped at the ten best');
 assert(hs.rank(101) === -1 && hs.rank(103) === 9, 'rank -1 below the tenth, 103 takes #10');

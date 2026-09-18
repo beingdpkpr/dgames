@@ -18,7 +18,9 @@ Play them at **<https://beingdpkpr.github.io/dgames/>**, or open any `index.html
 
 Conventions: one folder per game with its own `README.md`, `package.json` (only if it needs tooling) and `test/`. Keep games self-contained so any one can be opened or published on its own.
 
-Two shared snippets are pasted verbatim into each game that needs them rather than imported, so that self-containment holds: the high-score table (`dgames.hiscores.<game>` in localStorage) and the touch pad, which turns thumbs into the key events a game already listens for so keyboard-only games play on a phone. Edit a snippet in one game and paste it across the rest; the per-game touch tests check the codes each pad emits against that game’s own key map.
+Three shared snippets are pasted verbatim into each game that needs them rather than imported, so that self-containment holds: the high-score table (`dgames.hiscores.<game>` in localStorage), the touch pad, which turns thumbs into the key events a game already listens for so keyboard-only games play on a phone, and the back control in the top-left corner, which is the same in all nine. Edit a snippet in one game and paste it across the rest, byte for byte; the per-game touch tests check the codes each pad emits against that game’s own key map.
+
+Your name is asked for once and kept at `dgames.player`, so every game's table shows it without you retyping anything. It used to be three letters read straight off `keydown` into three `<span>`s — which meant a phone, with no keyboard to summon and nothing focusable to summon it, could not enter a name at all and saved `AAA` every time.
 
 ## Install it like an app
 

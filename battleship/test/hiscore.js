@@ -1,5 +1,5 @@
 // Headless check of the high-score module and the game's hook (no browser). Loads the logic section out of
-// index.html with a stubbed localStorage and asserts: 'asc' ranking, top-10 cap, initials upper-cased and cut
+// index.html with a stubbed localStorage and asserts: 'asc' ranking, top-10 cap, the player name kept as typed and cut to 12
 // to three, and that hiscoreFor() turns a finished game's stats into the right value / detail.
 // Run: node test/hiscore.js
 const vm = require('vm'), fs = require('fs'), path = require('path');
@@ -19,8 +19,8 @@ assert(hs.list().length === 0 && hs.rank(99) === 0, 'empty table: anything ranks
 hs.add(40, 'abc', '43% accuracy'); hs.add(25, 'xyz', '68% accuracy'); hs.add(60, 'q', '28% accuracy');
 const l = hs.list();
 assert(l.map(e => e.value).join(',') === '25,40,60', 'asc order: fewest shots first, got ' + l.map(e => e.value));
-assert(l[0].initials === 'XYZ' && l[2].initials === 'Q', 'initials upper-cased');
-assert(hs.add(30, 'toolong', '').initials === 'TOO', 'initials cut to three letters');
+assert(l[0].initials === 'xyz' && l[2].initials === 'q', 'name kept exactly as typed');
+assert(hs.add(30, 'toolong', '').initials === 'toolong', 'a name under 12 characters is kept whole');
 assert(hs.rank(20) === 0 && hs.rank(35) === 2 && hs.rank(25) === 1, 'rank: strictly fewer shots beats an entry, a tie ranks after it');
 assert(mem.has('dgames.hiscores.battleship'), 'stored under dgames.hiscores.battleship');
 for (let i = 0; i < 20; i++) hs.add(70 + i, 'fil', '');

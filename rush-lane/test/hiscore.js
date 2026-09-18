@@ -10,15 +10,21 @@ const assert = require('assert');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
-/** Source of a top-level (2-space indented) function in the bundle, from its header to its closing brace. */
+/** Source of a function in the bundle, from its header to its closing brace. The shared dgames snippets
+ *  sit at column 0 so they stay byte-identical with every other game's copy; this file's own helpers are
+ *  two spaces in, inside the bundle's IIFE. Try both depths rather than assuming one. */
 function extractFunction(name) {
-  const header = `  function ${name}(`;
-  const start = html.indexOf(header);
-  assert.ok(start >= 0, `${name} not found in index.html`);
-  assert.strictEqual(html.indexOf(header, start + 1), -1, `${name} appears more than once`);
-  const end = html.indexOf('\n  }\n', start);
-  assert.ok(end > start, `${name} closing brace not found`);
-  return html.slice(start, end + 4);
+  for (const indent of ['', '  ']) {
+    const header = `\n${indent}function ${name}(`;
+    const start = html.indexOf(header);
+    if (start < 0) continue;
+    assert.strictEqual(html.indexOf(header, start + 1), -1, `${name} appears more than once`);
+    const close = `\n${indent}}\n`;
+    const end = html.indexOf(close, start);
+    assert.ok(end > start, `${name} closing brace not found`);
+    return html.slice(start + 1, end + close.length);
+  }
+  assert.fail(`${name} not found in index.html`);
 }
 
 const store = new Map();
@@ -56,9 +62,9 @@ hs.add(90, 'zzzz', 'P1 of 4');
 hs.add(110, '', 'P2 of 4');
 let list = hs.list();
 ok(list.map((e) => e.value).join(',') === '90,100,110', 'ascending order, fastest first: ' + list.map((e) => e.value));
-ok(list[0].initials === 'ZZZ', 'initials cut to three: ' + list[0].initials);
-ok(list[1].initials === 'ABC', 'initials upper-cased: ' + list[1].initials);
-ok(list[2].initials === '???', 'blank initials become ???');
+ok(list[0].initials === 'zzzz', 'name kept as typed: ' + list[0].initials);
+ok(list[1].initials === 'abc', 'case preserved: ' + list[1].initials);
+ok(list[2].initials === 'Player', 'a blank name falls back to Player');
 ok(hs.rank(80) === 0, 'faster than everything ranks first');
 ok(hs.rank(95) === 1, 'in between ranks second');
 ok(hs.rank(200) === 3, 'slowest still qualifies while the table has room');

@@ -77,6 +77,18 @@
 </style>
 </head>
 <body>
+<style>
+  /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
+     ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
+     A dark disc with a light ring reads on a bright pastel scene and on a black one without being
+     re-themed per game. z-index 15 clears the HUDs but stays under the high-score prompt at 9999. */
+  .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+    z-index: 15; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
+    font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
+</style>
+<a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
 <canvas id="game"></canvas>
 <div id="hud">
   <div class="sign wood">
@@ -104,13 +116,21 @@
 'use strict';
 // ---------- dgames high scores ----------
 // Shared snippet, pasted verbatim into every game (games stay self-contained). Keeps a top-N table per
-// key in localStorage with three-letter initials. Usage:
+// key in localStorage against the player's name, which is shared by every game. Usage:
 //   const hs = makeHiScores({ key: 'duck-hunt', order: 'desc', max: 10, label: v => v + ' pts' });
 //   if (hs.rank(score) >= 0) hs.prompt(score, 'round 7').then(() => hs.render(document.getElementById('scores')));
 //   hs.render(el)                       // table of the current list
 // `order` is 'desc' (bigger is better) or 'asc' (smaller is better, e.g. shots or seconds).
-// The overlay swallows key events while open so game controls do not fire. Styling comes from the
-// hs-* classes below; override the --hs-* custom properties to match a game's palette.
+// The overlay keeps key events away from the game while it is open. Styling comes from the hs-* classes
+// below; override the --hs-* custom properties to match a game's palette.
+// The name lives at `dgames.player` and is asked for once, then reused everywhere. It used to be three
+// letters read by a window keydown listener into three spans, with nothing focusable on the card -- so a
+// phone had no keyboard to summon and no way to enter a name at all, and every mobile score saved "AAA".
+// One name for the whole collection rather than one per game.
+const HS_PLAYER_KEY = 'dgames.player';
+const hsPlayer = () => { try { return (localStorage.getItem(HS_PLAYER_KEY) || '').trim().slice(0, 12); } catch (e) { return ''; } };
+const hsSetPlayer = (n) => { try { localStorage.setItem(HS_PLAYER_KEY, n); } catch (e) {} };
+
 function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), title = 'High scores' }) {
   const KEY = 'dgames.hiscores.' + key;
   const load = () => { try { const l = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
@@ -120,8 +140,10 @@ function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), t
   const better = (v, e) => order === 'desc' ? v > e.value : v < e.value;
   // 0-based position a value would take, or -1 if it misses the table
   function rank(value) { const l = sorted(load()); let i = 0; while (i < l.length && !better(value, l[i])) i++; return i < max ? i : -1; }
+  // The field is still called `initials`: entries saved before this held three letters under that key,
+  // and renaming it would orphan every score already on someone's device.
   function add(value, initials, detail) {
-    const e = { value, initials: (initials || '???').toUpperCase().slice(0, 3), detail: detail || '', time: Date.now() };
+    const e = { value, initials: String(initials || 'Player').trim().slice(0, 12).trim() || 'Player', detail: detail || '', time: Date.now() };
     const l = sorted(load().concat([e])).slice(0, max); save(l); return e;
   }
   const list = () => sorted(load());
@@ -137,9 +159,9 @@ function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), t
       .hs-card .hs-val{font-size:30px;font-weight:700;margin:6px 0 2px}
       .hs-card .hs-detail,.hs-card .hs-hint{opacity:.7;font-size:13px}
       .hs-card .hs-rank{margin:4px 0 14px;font-size:14px}
-      .hs-boxes{display:flex;gap:10px;justify-content:center;margin:8px 0 16px}
-      .hs-boxes span{width:48px;height:58px;border:2px solid var(--hs-line,#2c4a6e);border-radius:10px;display:grid;place-items:center;font-size:30px;font-weight:700;background:rgba(0,0,0,.25)}
-      .hs-boxes span.on{border-color:var(--hs-accent,#ffd54a)}
+      .hs-name{display:block;width:100%;margin:8px 0 16px;padding:12px 14px;min-height:48px;box-sizing:border-box;text-align:center;
+        border:2px solid var(--hs-line,#2c4a6e);border-radius:10px;background:rgba(0,0,0,.25);color:inherit;font:inherit;font-size:22px;font-weight:700}
+      .hs-name:focus{outline:none;border-color:var(--hs-accent,#ffd54a)}
       .hs-btns{display:flex;gap:8px;justify-content:center}
       .hs-btns button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:9px 18px;cursor:pointer;background:var(--hs-accent,#ffd54a);color:#0b1a2b}
       .hs-btns button.hs-ghost{background:transparent;color:var(--hs-fg,#fff);border:1px solid var(--hs-line,#2c4a6e);font-weight:400}
@@ -148,42 +170,58 @@ function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), t
       .hs-table caption{text-align:left;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7;padding:0 0 6px}
       .hs-table td{padding:4px 6px;border-top:1px solid var(--hs-line,#2c4a6e);font-size:14px}
       .hs-table td:first-child{opacity:.6;width:2em;text-align:right}
-      .hs-table td.hs-ini{font-weight:700;letter-spacing:1px}
+      .hs-table td.hs-ini{font-weight:700;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .hs-table td.hs-score{text-align:right;color:var(--hs-accent,#ffd54a);font-weight:600}
       .hs-table td.hs-d{opacity:.65;font-size:12px}
       .hs-table tr.hs-new td{background:rgba(255,213,74,.12)}
       .hs-table td.hs-empty{opacity:.55;text-align:center;padding:10px}`;
     document.head.appendChild(st);
   }
-  // Modal asking for initials. Resolves with the saved entry, or null if skipped. Only call when rank(value) >= 0.
+  // Modal asking for the player's name, prefilled from `dgames.player` so it is typed once, ever.
+  // Resolves with the saved entry, or null if skipped. Only call when rank(value) >= 0.
   function prompt(value, detail) {
     ensureStyle();
     return new Promise((resolve) => {
       const r = rank(value);
+      const known = hsPlayer();
       const ov = document.createElement('div'); ov.className = 'hs-overlay';
       ov.innerHTML = `<div class="hs-card" role="dialog" aria-label="New high score"><h2>NEW HIGH SCORE</h2>
         <div class="hs-val">${esc(label(value))}</div><div class="hs-detail">${esc(detail || '')}</div>
         <div class="hs-rank">#${r + 1} on this device</div>
-        <div class="hs-hint">Type your initials</div>
-        <div class="hs-boxes"><span class="on">_</span><span>_</span><span>_</span></div>
+        <label class="hs-hint" for="hs-name-input">Your name</label>
+        <input class="hs-name" id="hs-name-input" type="text" maxlength="12" autocomplete="nickname" autocapitalize="words" spellcheck="false" placeholder="Player" value="${esc(known)}">
         <div class="hs-btns"><button class="hs-ok" type="button">Save</button><button class="hs-ghost hs-skip" type="button">Skip</button></div></div>`;
       document.body.appendChild(ov);
-      const boxes = ov.querySelectorAll('.hs-boxes span'); let s = '';
-      const draw = () => boxes.forEach((b, i) => { b.textContent = s[i] || '_'; b.classList.toggle('on', i === Math.min(s.length, 2)); });
-      const done = (ok) => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('keyup', swallow, true); window.removeEventListener('keypress', swallow, true); ov.remove(); resolve(ok ? add(value, s || 'AAA', detail) : null); };
-      const swallow = (e) => { e.stopPropagation(); };
-      const onKey = (e) => {
-        e.stopPropagation();
-        if (e.key === 'Enter') { e.preventDefault(); done(true); }
-        else if (e.key === ' ' || e.key === 'Tab') { e.preventDefault(); }
-        else if (e.key === 'Escape') { e.preventDefault(); done(false); }
-        else if (e.key === 'Backspace') { e.preventDefault(); s = s.slice(0, -1); draw(); }
-        else if (/^[a-zA-Z0-9]$/.test(e.key) && s.length < 3) { e.preventDefault(); s += e.key.toUpperCase(); draw(); }
+      const input = ov.querySelector('.hs-name');
+      const done = (ok) => {
+        window.removeEventListener('keydown', outside, true); window.removeEventListener('keyup', outside, true); window.removeEventListener('keypress', outside, true);
+        const name = (input.value || '').trim().slice(0, 12);
+        ov.remove();
+        if (ok && name) hsSetPlayer(name);
+        resolve(ok ? add(value, name || known || 'Player', detail) : null);
       };
-      window.addEventListener('keydown', onKey, true); window.addEventListener('keyup', swallow, true); window.addEventListener('keypress', swallow, true);
+      // Game key handlers sit on window in the bubble phase, so stopping the event at the field lets the
+      // character land while keeping the player from also jumping or firing as they type their name.
+      const field = (e) => {
+        e.stopPropagation();
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Enter') { e.preventDefault(); done(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+      };
+      input.addEventListener('keydown', field); input.addEventListener('keyup', field); input.addEventListener('keypress', field);
+      // Anything typed while the field is not focused still must not reach the game underneath.
+      const outside = (e) => {
+        if (e.target === input) return;
+        e.stopPropagation(); e.preventDefault();
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false);
+      };
+      window.addEventListener('keydown', outside, true); window.addEventListener('keyup', outside, true); window.addEventListener('keypress', outside, true);
       ov.querySelector('.hs-ok').addEventListener('click', () => done(true));
       ov.querySelector('.hs-skip').addEventListener('click', () => done(false));
-      ov.querySelector('.hs-ok').focus();
+      // A name already known means there is nothing to type, so focus Save and leave the on-screen
+      // keyboard shut; a first-time player gets the field focused and selected instead.
+      if (known) ov.querySelector('.hs-ok').focus(); else { input.focus(); input.select(); }
     });
   }
   // Renders the table into el; the entry whose time equals `newTime` is highlighted.
