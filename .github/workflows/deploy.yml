@@ -1,10 +1,15 @@
 # Publishes the site to GitHub Pages, but only over a green test run. The `needs: test` on the deploy
 # job is the whole point of this file: a broken game should never reach the live URL.
 #
-# ONE-TIME SETUP: this only publishes once the repository's Pages source is set to "GitHub Actions"
-# (Settings -> Pages -> Build and deployment -> Source). Until then the site keeps being served from the
-# main branch and this workflow's deploy step will fail. configure-pages below deliberately does not
-# set `enablement`, so it never flips that setting on its own.
+# The Pages source is set to "GitHub Actions" (Settings -> Pages -> Build and deployment -> Source).
+# Leave it there. Switched back to "Deploy from a branch", GitHub's own branch build runs alongside this
+# workflow and publishes whatever is on main whether the tests passed or not — the two then race, and a
+# red suite stops this file while the branch build ships the broken game regardless. That is not a
+# theory: both deployed 18 seconds apart on the push that set this up. The gate is only real while this
+# workflow is the single way anything reaches the site.
+#
+# configure-pages below deliberately does not set `enablement`, so this workflow never flips that
+# setting on its own in either direction.
 #
 # Note that with the Actions source there is no Jekyll build at all — the artifact is served exactly as
 # uploaded — so the root .nojekyll file becomes belt-and-braces rather than load-bearing. It is kept in
