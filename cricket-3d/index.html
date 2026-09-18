@@ -336,7 +336,10 @@ const CREASE_Z = -1.22, FAR_CREASE_Z = BOWL_STUMPS_Z + 1.22;
 const FIELDER_SPEED = 7.0;
 const CATCH_REACH = 1.5;
 const FIELD_REACH = 1.3;
-const MAX_WICKETS = 5;
+// Ten, as in real cricket: an innings ends when the tenth wicket falls and the eleventh batter is left
+// stranded not out. The batting order is eleven, so the wicket limit is what ends a completed innings and
+// match.batIdx >= match.order.length only takes over when injuries have cut the order shorter than that.
+const MAX_WICKETS = 10;
 const DEG = Math.PI / 180;
 
 const DIFF = {
@@ -726,7 +729,7 @@ function makeFielder(name, x, z, i, kind) {
   rig.group.rotation.y = Math.PI / 2; mesh.add(rig.group); scene.add(mesh);
   mesh.position.set(x, 0, z); faceToward(mesh, 0, -1);
   poseRig(rig, kind === 'keeper' ? fKeeper() : fStand());
-  return { name, mesh, rig, home: V3(x, 0, z), pos: mesh.position, target: V3(x, 0, z), catching: false, attempted: false, runPhase: Math.random() * 6, spd: 0, role: 'hold', dived: false, fumbled: false, prevD: 1e9, errX: 0, errZ: 0, who: '' };
+  return { name, mesh, rig, home: V3(x, 0, z), pos: mesh.position, target: V3(x, 0, z), catching: false, attempted: false, runPhase: Math.random() * 6, spd: 0, role: 'hold', dived: false, fumbled: false, prevD: 1e9, errX: 0, errZ: 0, who: '', settle: 1 };
 }
 const fielders = FIELD_POS.map(([name, x, z], i) => makeFielder(name, x, z, i, i === 0 ? 'keeper' : 'fielder'));
 const keeper = fielders[0];
@@ -1043,7 +1046,7 @@ function resetBallScene() {
   // (matching the just-picked field and keeper stance for this bowler) and stands still, facing the
   // batter, so nobody is still walking back from the previous delivery while the bowler runs up.
   for (const f of allFielders) {
-    f.catching = false; f.attempted = false; f.dived = false; f.fumbled = false; f.prevD = 1e9; f.role = 'hold'; f.spd = 0; f.diveUntil = 0; f.mesh.rotation.x = 0; f.mesh.position.y = 0;
+    f.catching = false; f.attempted = false; f.dived = false; f.fumbled = false; f.prevD = 1e9; f.role = 'hold'; f.spd = 0; f.settle = 1; f.diveUntil = 0; f.mesh.rotation.x = 0; f.mesh.position.y = 0;
     if (!f.isBowler) { f.target.copy(f.home); f.pos.copy(f.home); faceToward(f.mesh, 0, -1); }
   }
   trailReset();
@@ -1373,7 +1376,10 @@ function planFielding() {
     if (plans[1]) { plans[1].f.role = 'backup'; aimAt(plans[1].f, plans[1].smp); }
   } else {
     const end = path[path.length - 1];
-    allFielders.filter(f => !(f.isBowler && simTime - ball.hitTime < 0.5))
+    // The keeper is excluded from the long chase: this branch runs when nobody can cut the ball off, so
+    // the target is the far end of its path, and sending the keeper there leaves the stumps unattended
+    // for the throw that is about to come back. The keeper stays eligible for intercepts above.
+    allFielders.filter(f => f !== keeper && !(f.isBowler && simTime - ball.hitTime < 0.5))
       .map(f => ({ f, d: Math.hypot(f.pos.x - end.x, f.pos.z - end.z) })).sort((a, b) => a.d - b.d).slice(0, 2)
       .forEach(o => { o.f.role = 'chase'; o.f.target.set(end.x, 0, end.z); });
   }
@@ -1513,11 +1519,14 @@ function nextBall() {
   }
   startRunup();
 }
-const QUICK_TAGLINE = 'Batting only. Score as many as you can before the overs run out or you lose 5 wickets.';
+const QUICK_TAGLINE = 'Batting only. Score as many as you can before the overs run out or you lose 10 wickets.';
 // Quick-play high scores: one table per overs setting (tournament chases are not recorded).
 const hiTables = {};
 function hiScores(overs) {
-  return hiTables[overs] || (hiTables[overs] = makeHiScores({ key: `cricket-3d.quick.${overs}`, order: 'desc', max: 10, label: v => `${v} runs`, title: `High scores · ${overs} overs` }));
+  return hiTables[overs] || (hiTables[overs] = makeHiScores({ // The key carries the wicket rule. Every score in the old tables was set with five wickets in hand, and
+  // ten makes a bigger score easier, so mixing them would rank two different games against each other.
+  // The w10 era starts clean; the old tables are still in localStorage, just no longer read.
+  key: `cricket-3d.quick.${overs}.w10`, order: 'desc', max: 10, label: v => `${v} runs`, title: `High scores · ${overs} overs` }));
 }
 // What a finished quick-play innings submits: runs, with the wickets and balls from the batting card. Null when nothing is recorded.
 function quickHiScore() {
@@ -1698,7 +1707,14 @@ function updateFielders(dt) {
       const step = Math.min(d, f.spd * dt);
       f.pos.x += dx / d * step; f.pos.z += dz / d * step;
       faceToward(f.mesh, f.target.x, f.target.z);
-      f.runPhase += dt * (9 + f.spd * 0.5);
+      // Drive the leg cycle from the ground actually covered. fRun swings each foot +/-0.35 m along the
+      // rig's forward axis, so a planted foot travels 0.70 m backward over the half-cycle it is down,
+      // and the body must advance exactly that far in the same pi radians for the foot not to slide:
+      // pi / 0.70 = 4.49 rad per metre. The old fixed rate of (9 + spd*0.5) rad/s was right at exactly
+      // one speed, 2.26 m/s, and wrong either side of it -- legs spinning at 9 rad/s while standing
+      // still, and at full sprint cycling at 40% of the rate the stride needed, so the fielder glided.
+      f.runPhase += step * 4.49;
+      f.settle = 0;
       const near = live && f.catching && !ball.bounced && Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z) < 4;
       poseRig(r, near ? lerpPose(fRun(f.runPhase, 0.2), fCatch(ball.pos.y), 0.6) : fRun(f.runPhase, 0.1 + 0.2 * Math.min(1, f.spd / 5)));
       if (f.isBowler) f.mesh.rotation.x = 0;
@@ -1712,7 +1728,11 @@ function updateFielders(dt) {
       else if (live) pose = fReady(Math.hypot(ball.pos.x - f.pos.x, ball.pos.z - f.pos.z) < 25 ? 1 : 0.4);
       else if (state === 'runup' || state === 'flight') pose = f.isBowler ? fStand() : fReady(0.7);
       else pose = fStand();
-      poseRig(r, pose);
+      // Blend out of the run rather than cutting to a stand on the frame the target is reached: the legs
+      // used to jump from mid-stride to planted in one frame. This also covers the case where planFielding
+      // (which re-runs every 0.3 s) takes a role away mid-chase and the fielder stops where it is.
+      f.settle = Math.min(1, (f.settle || 0) + dt / 0.22);
+      poseRig(r, f.settle < 1 ? lerpPose(fRun(f.runPhase, 0.12), pose, smooth(f.settle)) : pose);
     }
   }
 }
@@ -1828,7 +1848,13 @@ function checkEvents() {
       if (!f.isBowler && !f.subbed && Math.random() < 0.05) fielderInjured(f);
       if (Math.random() < 0.5 * clamp(18 / Math.hypot(b.vel.x, b.vel.z), 0.4, 1)) {
         showTiming(`Diving stop by ${fielderLabel(f)}!`, '#7ef29a');
-        f.pos.x = b.pos.x; f.pos.z = b.pos.z;
+        // Do not snap the fielder onto the ball. startDive has already lunged them 0.8 m, and this
+        // branch triggers from as far out as prevD 2.8, so assigning the ball's position outright
+        // teleported them up to about two metres mid-dive. Let the dive cover a little more ground and
+        // leave the rest; the throw originates from wherever the fielder actually ended up.
+        const gx = b.pos.x - f.pos.x, gz = b.pos.z - f.pos.z, gd = Math.hypot(gx, gz) || 1;
+        const reach = Math.min(gd, 0.6);
+        f.pos.x += gx / gd * reach; f.pos.z += gz / gd * reach;
         startThrow(f, 1.0);
         return;
       }
