@@ -38,11 +38,16 @@
   /* The 3D is deliberately mild. Ludo is counted, not flown through: a steep camera shrinks the far rank
      and lets tokens hide behind each other, so the board only leans back far enough to read as a table.
      The depth that sells it lives in the pieces and the die, which stand up off the surface. */
-  #stage { perspective: 1400px; perspective-origin: 50% 42%; width: min(94vw, 58vh, 520px); aspect-ratio: 1; }
+  /* Perspective has to scale with the board. At a fixed 1400px against a 379px phone board the skew was
+     about 4% — a flat board with a bevelled frame, not a tilt. Tying it to --s keeps the apparent depth
+     the same at every size. 52vh rather than 58vh because the page overflowed 1280x800, scrolling the
+     title and the top rank of the board off the screen. */
+  #stage { --s: min(94vw, 52vh, 520px); perspective: calc(var(--s) * 2.7); perspective-origin: 50% 42%;
+    width: var(--s); aspect-ratio: 1; }
   #board { width: 100%; height: 100%; position: relative; transform: rotateX(var(--tilt));
     transform-style: preserve-3d; display: grid; grid-template: repeat(15, 1fr) / repeat(15, 1fr);
     background: var(--board); border: 2px solid var(--line); border-radius: 10px;
-    box-shadow: 0 24px 40px rgba(0,0,0,.55); --s: min(94vw, 58vh, 520px); }
+    box-shadow: 0 24px 40px rgba(0,0,0,.55); --s: min(94vw, 52vh, 520px); }
   /* preserve-3d and overflow:hidden cannot coexist — clipping forces a flat plane — so the four corner
      cells round themselves instead of letting the board clip them. */
   .cell:nth-child(1) { border-radius: 8px 0 0 0; }
@@ -78,6 +83,10 @@
     box-shadow: 0 calc(var(--s) / 15 * .12) calc(var(--s) / 15 * .2) rgba(0,0,0,.55);
     transition: left .18s ease, top .18s ease; z-index: 2;
     display: grid; place-items: center; font-size: calc(var(--s) / 40); font-weight: 700; color: #08131f; }
+  /* .tok sets display:grid, and an author rule beats the UA stylesheet's [hidden]{display:none} — so a
+     2-player game still painted all sixteen tokens even though render() had hidden twelve of them. A DOM
+     check reported them hidden, which is why this survived a check. .over[hidden] already does this. */
+  .tok[hidden] { display: none; }
   /* The shadow the piece casts on the square below it, which is what actually reads as height. */
   .tok::after { content: ""; position: absolute; left: 50%; top: 50%; width: 96%; height: 96%;
     border-radius: 50%; background: rgba(0,0,0,.42); z-index: -1;
@@ -96,13 +105,19 @@
 
   /* A real tumbling cube. Six faces at half the cube's width on Z, the whole thing spun to bring the
      rolled face to the front — the one place a board game genuinely wants 3D. */
-  #die { width: 72px; height: 72px; border: 0; background: none; padding: 0; perspective: 420px;
+  /* Margin, because a cube under perspective draws well outside its own 72px box -- the rotated corners
+     reached about 94px and landed on the "Tap to roll" line below it. */
+  #die { width: 72px; height: 72px; margin: 8px 0 20px; border: 0; background: none; padding: 0; perspective: 420px;
     cursor: pointer; -webkit-tap-highlight-color: transparent; }
   #die:disabled { opacity: .5; cursor: default; }
   #cube { position: relative; width: 100%; height: 100%; transform-style: preserve-3d;
     transition: transform .6s cubic-bezier(.2,.8,.3,1); transform: rotateX(-18deg) rotateY(22deg); }
-  #cube .f { position: absolute; inset: 0; display: grid; place-items: center; font-size: 42px; line-height: 1;
-    background: #f3f6fa; color: #12263d; border-radius: 12px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.18); }
+  /* Faces are CSS pips on a 3x3 grid. They used to be the Unicode die characters U+2680..2685, each of
+     which draws its OWN square outline — so every face of the cube was a die rendered inside a die.
+     Nothing measurable was wrong with it; it just looked absurd, which is why it took a screenshot. */
+  #cube .f { position: absolute; inset: 0; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+    gap: 7%; padding: 15%; background: #f3f6fa; border-radius: 12px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.18); }
+  #cube .f i { background: #12263d; border-radius: 50%; width: 100%; height: 100%; align-self: center; justify-self: center; }
   #cube .f1 { transform: translateZ(36px); }
   #cube .f6 { transform: rotateY(180deg) translateZ(36px); }
   #cube .f2 { transform: rotateY(90deg) translateZ(36px); }
@@ -122,6 +137,9 @@
   /* Each seat is its own bordered pill. Before, the colour labels and the dropdowns ran together in one
      wrapping row, so "Red You Green [Computer]" read as though the dropdown might belong to Red. */
   .seats { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  /* The pills wrapped raggedly on a phone -- Red and Green, then Yellow, then Blue -- because each is a
+     different width and flex-wrap packs by whatever fits. One per row reads as a list of seats. */
+  @media (max-width: 560px) { .seats { flex-direction: column; align-items: stretch; } .seat select { margin-left: auto; } }
   .seat { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted);
     background: var(--panel); border: 1px solid var(--line); border-left: 4px solid currentColor;
     border-radius: 10px; padding: 4px 8px 4px 7px; min-height: 44px; }
@@ -154,9 +172,11 @@
   /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
      ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
      A dark disc with a light ring reads on a bright pastel scene and on a black one without being
-     re-themed per game. z-index 15 clears the HUDs but stays under the high-score prompt at 9999. */
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
   .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
-    z-index: 15; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
     background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
     font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
   .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
@@ -524,11 +544,26 @@ function render() {
 // Each face sits on one side of the cube, so bringing a value to the front means applying that side's
 // inverse rotation. The extra whole turns are what make it tumble rather than snap to the answer.
 const DIE_FACE = { 1: [0, 0], 2: [0, -90], 3: [-90, 0], 4: [90, 0], 5: [0, 90], 6: [0, -180] };
+// Every resting pose carries this offset so a face is always presented at an angle. Square-on, the cube
+// renders as a flat white rounded square — the one genuinely 3D element on the page stopped looking 3D
+// the instant it did its job.
+const DIE_REST_X = -14, DIE_REST_Y = 18;
+// Pip layout per face, as indices into the 3x3 grid reading left-to-right, top-to-bottom.
+const DIE_PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+for (let n = 1; n <= 6; n++) {
+  const face = $('cube').querySelector('.f' + n);
+  face.textContent = '';
+  for (const slot of DIE_PIPS[n]) {
+    const pip = document.createElement('i');
+    pip.style.gridArea = (Math.floor(slot / 3) + 1) + ' / ' + (slot % 3 + 1);
+    face.appendChild(pip);
+  }
+}
 let dieSpins = 0;
 function showDie(n, tumble) {
   if (tumble) dieSpins += 2;
   const [rx, ry] = DIE_FACE[n] || [-18, 22];   // never rolled yet: rest on a corner so it reads as a cube
-  $('cube').style.transform = `rotateX(${rx + dieSpins * 360}deg) rotateY(${ry + dieSpins * 360}deg)`;
+  $('cube').style.transform = `rotateX(${rx + DIE_REST_X + dieSpins * 360}deg) rotateY(${ry + DIE_REST_Y + dieSpins * 360}deg)`;
 }
 
 function renderMoves() {
@@ -572,7 +607,13 @@ function renderSeats() {
 
 // ---- turn flow ----
 const note = (t) => { $('note').textContent = t; };
-const wait = (ms, fn) => { clearTimeout(timer); timer = setTimeout(fn, ms); };
+// Halved throughout, and a tap now runs the pending step immediately. Measured over 12 turns against
+// three Hard computers: median wait 3,059 ms and a full cycle near 4,900 ms, of which the human acts for
+// about 1.5 s. One stretch ran seven computer turns with nothing to do and no way past them.
+let pendingStep = null;
+const wait = (ms, fn) => { clearTimeout(timer); pendingStep = fn; timer = setTimeout(() => { pendingStep = null; fn(); }, ms); };
+function skipWait() { if (!pendingStep || !isAiTurn()) return; clearTimeout(timer); const f = pendingStep; pendingStep = null; f(); }
+addEventListener('pointerdown', skipWait);
 
 function doRoll() {
   if (S.over || pending.length) return;
@@ -580,13 +621,13 @@ function doRoll() {
   showDie(lastRoll, true);
   const who = NAMES[S.player];
   const r = beginRoll(S, lastRoll);
-  if (r.forfeit) { note(`${who} rolled a third six — turn forfeited`); pending = []; render(); wait(700, afterTurn); return; }
+  if (r.forfeit) { note(`${who} rolled a third six — turn forfeited`); pending = []; render(); wait(380, afterTurn); return; }
   pending = r.moves;
-  if (!pending.length) { note(`${who} rolled ${lastRoll} — no legal move`); render(); wait(700, afterTurn); return; }
+  if (!pending.length) { note(`${who} rolled ${lastRoll} — no legal move`); render(); wait(380, afterTurn); return; }
   note('');
   render();
-  if (isAiTurn()) wait(500, () => choose(aiMove(S, lastRoll, seatKind(S.player + 1), rnd)));
-  else if (pending.length === 1) wait(420, () => choose(pending[0]));   // nothing to decide, so get on with it
+  if (isAiTurn()) wait(250, () => choose(aiMove(S, lastRoll, seatKind(S.player + 1), rnd)));
+  else if (pending.length === 1) wait(220, () => choose(pending[0]));   // nothing to decide, so get on with it
 }
 
 function choose(m) {
@@ -598,13 +639,13 @@ function choose(m) {
   else if (res && res.extra) note(`${mover} rolled a six — another turn`);
   render();
   if (S.over) return finish();
-  wait(res && res.extra ? 450 : 350, afterTurn);
+  wait(res && res.extra ? 240 : 180, afterTurn);
 }
 
 function afterTurn() {
   lastRoll = 0;
   render();
-  if (isAiTurn()) wait(450, doRoll);
+  if (isAiTurn()) wait(240, doRoll);
 }
 
 function onTokenTap(p, t) {
@@ -642,7 +683,7 @@ function newGame() {
   $('over').hidden = true;
   note('Roll a six to bring a token out.');
   renderSeats(); render();
-  if (isAiTurn()) wait(600, doRoll);
+  if (isAiTurn()) wait(300, doRoll);
 }
 
 buildBoard();

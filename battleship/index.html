@@ -105,6 +105,10 @@
   .card th { color: var(--teal); font-weight: 600; letter-spacing: 1px; }
   .card td:first-child { text-align: left; opacity: .8; }
   @media (prefers-reduced-motion: reduce) { #turn.swap, #overlay { animation: none; } }
+  /* The back button is a fixed 44px circle at top-left. Below 700px the title starts at the screen edge,
+     so the button sat squarely on the "BA" of BATTLESHIP. Desktop already clears it; only narrow needs
+     the gap. Found by looking at a screenshot -- every measurement said this layout was fine. */
+  @media (max-width: 700px) { h1 { padding-left: 56px; } }
 </style>
 </head>
 <body>
@@ -112,9 +116,11 @@
   /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
      ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
      A dark disc with a light ring reads on a bright pastel scene and on a black one without being
-     re-themed per game. z-index 15 clears the HUDs but stays under the high-score prompt at 9999. */
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
   .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
-    z-index: 15; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
     background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
     font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
   .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
@@ -163,7 +169,7 @@
         <button class="btn" id="confirm" disabled>Start battle</button>
       </div>
     </div>
-    <div class="row" style="margin-top:8px"><span class="hint" id="placeHint">Click a cell to place the selected ship (it extends right or down). Click a placed ship to pick it up.</span></div>
+    <div class="row" style="margin-top:8px"><span class="hint" id="placeHint">Click a cell to place the selected ship (it extends right or down). Tap a ship on the board to turn it, or its chip in the fleet list to pick it up and move it.</span></div>
   </section>
 
   <div id="msg"></div>

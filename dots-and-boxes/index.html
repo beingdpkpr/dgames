@@ -77,6 +77,10 @@
   @media (prefers-reduced-motion: reduce) {
     .thinking, .box, .score, .turn { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
   }
+  /* The back button is a fixed 44px circle at top-left. Below 700px the heading starts at the screen edge, so the button landed on
+     top of it. Reserve the space rather than moving the button — it is the same control in all nine
+     games and that is worth more than any one layout. */
+  @media (max-width: 700px) { .top h1 { padding-left: 56px; } }
 </style>
 </head>
 <body>
@@ -84,9 +88,11 @@
   /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
      ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
      A dark disc with a light ring reads on a bright pastel scene and on a black one without being
-     re-themed per game. z-index 15 clears the HUDs but stays under the high-score prompt at 9999. */
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
   .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
-    z-index: 15; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
     background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
     font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
   .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
@@ -472,7 +478,10 @@ function loadOpts() {
 }
 function saveOpts() { try { localStorage.setItem('dgames.dots.opts', JSON.stringify(opts)); } catch (e) { /* ignore */ } }
 
-const seatKind = (p) => (p === 1 ? 'human' : (opts.seats[p] || 'human'));
+// Seats 2..N default to a computer, not to another human. Defaulting to 'human' meant a solo player
+// opening the game got pass-and-play against nobody and had to find the dropdown before anything would
+// move. Ludo already defaults its spare seats to a computer for the same reason.
+const seatKind = (p) => (p === 1 ? 'human' : (opts.seats[p] || 'normal'));
 const isAiSeat = (p) => seatKind(p) !== 'human';
 const isAiTurn = () => !S.over && isAiSeat(S.player);
 const seatKinds = () => { const k = []; for (let p = 1; p <= opts.players; p++) k.push(seatKind(p)); return k; };

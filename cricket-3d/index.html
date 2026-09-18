@@ -35,11 +35,17 @@
   #over .balls span.w { background: #d6322f; } #over .balls span.ex { background: #7a5c1e; font-size: 11px; }
   #bowler.free::after { content: ' · FREE HIT'; color: var(--accent); font-weight: 700; } #over .balls span.b4 { background: #2e8b57; } #over .balls span.b6 { background: #9b59b6; } #over .balls span.empty { background: transparent; border: 1px dashed #5d7390; }
   #bowler { font-size: 13px; opacity: .9; }
-  #msg { position: absolute; left: 50%; top: 20%; transform: translateX(-50%); font-family: var(--display); font-size: 84px; font-weight: 900; text-shadow: 0 4px 18px rgba(0,0,0,.6); opacity: 0; letter-spacing: 2px; white-space: nowrap; }
+  /* The callouts sit on the 3D scene with nothing behind them, so they have no fixed backdrop to be
+     measured against: gold read 1.26:1 on the sky and the greens are no better on the outfield. These
+     are the moments the game exists for and you squinted at them. A hard stroke outlines every glyph
+     whatever is behind it; the old 18px blur had no edge at all. */
+  #msg { position: absolute; left: 50%; top: 20%; transform: translateX(-50%); font-family: var(--display); font-size: 84px; font-weight: 900; -webkit-text-stroke: 2px rgba(6,14,26,.92); paint-order: stroke fill;
+    text-shadow: 0 2px 0 rgba(6,14,26,.9), 0 4px 18px rgba(0,0,0,.6); opacity: 0; letter-spacing: 2px; white-space: nowrap; }
   #msg.show { animation: pop 2.2s ease-out forwards; }
   #msg.six { color: #ffd54a; } #msg.four { color: #7ef29a; } #msg.out { color: #ff5c5c; } #msg.run { color: #fff; } #msg.info { color: #cfe6ff; font-size: 40px; }
   @keyframes pop { 0% { opacity: 0; transform: translateX(-50%) scale(.6); } 12% { opacity: 1; transform: translateX(-50%) scale(1.08); } 20% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
-  #timing { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); font-family: var(--display); font-size: 30px; letter-spacing: 1px; font-weight: 700; opacity: 0; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
+  #timing { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); font-family: var(--display); font-size: 30px; letter-spacing: 1px; font-weight: 700; opacity: 0;
+    -webkit-text-stroke: 1.5px rgba(6,14,26,.92); paint-order: stroke fill; text-shadow: 0 2px 0 rgba(6,14,26,.9); }
   #timing.show { animation: fade 1.6s ease-out forwards; }
   @keyframes fade { 0% { opacity: 0; } 10% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
   /* timing bar */
@@ -50,7 +56,10 @@
   #tbar .perf { background: #7ef29a; }
   #tbar .mark { position: absolute; top: -2px; bottom: -2px; width: 4px; margin-left: -2px; background: #fff; border-radius: 2px; box-shadow: 0 0 6px rgba(255,255,255,.8); }
   #tbar .press { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: #ff5c5c; display: none; }
-  #tbarLbl { position: absolute; left: 50%; bottom: 111px; transform: translateX(-50%); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; opacity: .75; }
+  /* Was opacity .75 at 11px over the sky — 1.56:1, so "OUTSWINGER" was a ghost behind the bar. Full
+     opacity plus its own stroke, since like the callouts it has no backdrop to contrast with. */
+  #tbarLbl { position: absolute; left: 50%; bottom: 111px; transform: translateX(-50%); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; font-weight: 700;
+    -webkit-text-stroke: 1.2px rgba(6,14,26,.9); paint-order: stroke fill; text-shadow: 0 1px 0 rgba(6,14,26,.9); }
   /* radar */
   #radar { position: absolute; left: 14px; bottom: 14px; width: 150px; height: 150px; border-radius: 50%; background: var(--hud); }
   #hint { bottom: 14px; left: 176px; font-size: 12px; line-height: 1.6; opacity: .85; white-space: nowrap; }
@@ -78,7 +87,7 @@
   .row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
   .row label { width: 90px; font-size: 13px; opacity: .8; }
   .seg { display: flex; gap: 6px; flex-wrap: wrap; }
-  .seg button { background: #1d3552; border: 1px solid #2c4a6e; color: #fff; padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .seg button { background: #1d3552; border: 1px solid #2c4a6e; color: #fff; padding: 7px 14px; min-height: 44px; border-radius: 8px; cursor: pointer; font-size: 14px; }
   .seg button.on { background: var(--accent); color: #10233a; font-weight: 700; border-color: var(--accent); }
   #play { width: 100%; margin-top: 12px; padding: 14px; font-family: var(--display); font-size: 26px; letter-spacing: 2px; font-weight: 800; border-radius: 12px; border: 0; background: #2e8b57; color: #fff; cursor: pointer; }
   #play:hover { background: #35a066; }
@@ -110,6 +119,14 @@
   @media (prefers-reduced-motion: reduce) {
     #msg, #timing { animation-duration: .01ms !important; }
   }
+  /* Portrait put the two top panels and the sound button on top of each other — the run rate was cut
+     off exactly where it should read. Landscape and desktop have the width; only this case needs help. */
+  @media (max-width: 700px) and (orientation: portrait) {
+    #score { left: 66px; right: 12px; min-width: 0; font-size: 12px; }
+    #score .big { font-size: 26px; }
+    #over { top: auto; bottom: 170px; right: 12px; font-size: 11px; }
+    #mute { transform: scale(.85); transform-origin: top right; }
+  }
 </style>
 </head>
 <body>
@@ -117,9 +134,11 @@
   /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
      ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
      A dark disc with a light ring reads on a bright pastel scene and on a black one without being
-     re-themed per game. z-index 15 clears the HUDs but stays under the high-score prompt at 9999. */
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
   .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
-    z-index: 15; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
     background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
     font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
   .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
@@ -1873,11 +1892,19 @@ function checkEvents() {
 
 // Camera: bowler cam through the run-up, a short eased move to the batting view across the gather, then
 // follow the ball.
+// How long the batting view is guaranteed to sit dead still before the ball is released, and how long the
+// move into it takes. The player times the shot off the marker reaching the green, so this window IS their
+// reaction time — 550 ms was already being called rushed, and an earlier attempt at this left only 192 ms.
+// Starting the move at dur - (SETTLE + MOVE) delivers the settle window by construction rather than by
+// tuning: 0.64 s into a pace run-up (dur 1.9) and 0.24 s into a spinner's (dur 1.5).
+const CAM_SETTLE = 0.90, CAM_MOVE = 0.36;
+const camCutAt = (B) => Math.max(0.05, B.dur - (CAM_SETTLE + CAM_MOVE));
+
 function updateCamera(dt) {
   let tp, tl, k;
   const B = BOWL[bowlerType];
   if (state !== 'runup') camCut = null;
-  if (state === 'runup' && runupT < B.dur - B.gather) {
+  if (state === 'runup' && runupT < camCutAt(B)) {
     tp = bowler.position.clone().add(V3(3.0, 2.0, -6.0)); tl = bowler.position.clone().add(V3(0, 1.2, 5));
     // A deliberate cut, and it stays one: it fires between deliveries with nothing in flight and nothing
     // to time, which is exactly where a broadcast cuts too. Easing it instead would sweep the camera all
@@ -1885,16 +1912,16 @@ function updateCamera(dt) {
     if (runupT < 0.05) { camState.pos.copy(tp); camState.look.copy(tl); }
     k = 1 - Math.exp(-dt * 6);
   } else if (state === 'runup') {
-    // This was `k = 1`, and Vector3.lerp(v, 1) assigns v outright -- so it was not a fast transition but
-    // an instantaneous one, which is why it read as rushed. Release is at runupT >= B.dur and this branch
-    // starts at B.dur - B.gather, so there is exactly B.gather (0.55 s) to play with. Ease over the first
-    // 65% of it, 358 ms, and hold dead still for the remaining 192 ms. The hold is the point: the shot is
-    // timed off the marker reaching the green, and a camera still drifting as the ball leaves the hand
-    // would cost the player more than the cut ever did. An exponential ease would be wrong for the same
-    // reason -- it approaches the target forever and never actually arrives.
+    // This was `k = 1`, and Vector3.lerp(v, 1) assigns v outright -- not a fast transition but an
+    // instantaneous one. Easing it was only half the answer, and the wrong half: "rushed" meant too
+    // little time to react, and moving the camera later in the run-up cut the steady batting view from
+    // 550 ms to 192 ms. The move duration was never the problem; the START was. CAM_SETTLE is now the
+    // motionless window the player is guaranteed, and the transition begins early enough to deliver it.
+    // Smoothstep rather than an exponential for the same reason as before: an exponential approaches the
+    // target forever and never arrives, so it would still be creeping as the ball left the hand.
     const c = camBat();                       // recomputed per frame, so a left-hander keeps the mirrored view
     if (!camCut) camCut = { pos: camState.pos.clone(), look: camState.look.clone() };
-    const e = smooth(clamp((runupT - (B.dur - B.gather)) / (B.gather * 0.65), 0, 1));
+    const e = smooth(clamp((runupT - camCutAt(B)) / CAM_MOVE, 0, 1));
     camState.pos.copy(camCut.pos).lerp(c.pos, e);
     camState.look.copy(camCut.look).lerp(c.look, e);
     camera.position.copy(camState.pos); camera.lookAt(camState.look);

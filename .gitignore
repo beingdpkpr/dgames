@@ -1,3 +1,4 @@
 node_modules/
 .o9-edits.log
 **/test/shots/
+test-shots/

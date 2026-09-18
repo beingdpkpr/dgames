@@ -7,7 +7,8 @@
     "test": "node scripts/run-tests.js",
     "test:strict": "node scripts/run-tests.js --strict",
     "test:visual": "node scripts/run-tests.js --only-browser",
-    "test:all": "node scripts/run-tests.js --all"
+    "test:all": "node scripts/run-tests.js --all",
+    "visual": "node scripts/visual-check.js"
   },
   "dgames": {
     "comment": "The only files the runner does not treat as gating tests. Everything else is discovered by walking <game>/test/*.js; nothing is listed here just to be found. `npm run test:all` runs these too.",

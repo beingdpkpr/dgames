@@ -81,6 +81,14 @@
   @media (prefers-reduced-motion: reduce) {
     #grain { animation: none; }
   }
+  /* Two faults in one row at phone width: the brass plates were wide enough to run off BOTH edges of a
+     390px screen, and the back button (fixed, 44px, top-left) covered the leftmost plate completely.
+     Shrink the plates and start the row clear of the button; the mute button holds the right end. */
+  @media (max-width: 700px) {
+    #hud { justify-content: flex-start; padding-left: 54px; padding-right: 50px; }
+    .plate { min-width: 0; padding: 4px 7px 5px; }
+    .plate span { font-size: 9px; letter-spacing: 1.2px; }
+  }
 </style>
 </head>
 <body>
@@ -88,9 +96,11 @@
   /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
      ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
      A dark disc with a light ring reads on a bright pastel scene and on a black one without being
-     re-themed per game. z-index 15 clears the HUDs but stays under the high-score prompt at 9999. */
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
   .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
-    z-index: 15; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
     background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
     font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
   .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
@@ -953,7 +963,20 @@ if (typeof document !== 'undefined') (function () {
     const entry = hiScoreEntry();
     if (entry && hs.rank(entry.value) >= 0) hs.prompt(entry.value, entry.detail).then((e) => hs.render(scoresEl, e && e.time));
   }
-  startBtn.addEventListener('click', () => { audio(); overlay.hidden = true; startGame(); });
+  startBtn.addEventListener('click', () => { audio(); if (paused) { setPaused(false); return; } overlay.hidden = true; startGame(); });
+  // Pausing reuses the title card rather than building a second overlay: same board, different words.
+  let paused = false;
+  function setPaused(on) {
+    paused = on;
+    if (on) {
+      overlayBody.innerHTML = '<p>Paused.<br>Press Escape or Resume to carry on.</p>';
+      startBtn.textContent = 'Resume';
+      scoresEl.hidden = true; overlay.hidden = false;   // the back button is the way out; no second control needed
+    } else {
+      startBtn.textContent = 'Play again';
+      scoresEl.hidden = false; overlay.hidden = true;
+    }
+  }
   on('phase', () => { if (S.phase === 'over') showOver(); });
   on('round', () => { pal = paletteFor(S.round); hills = buildHills(); treeFar = buildTrees(0); treeNear = buildTrees(1); });
   on('hud', drawHUD);
@@ -1018,8 +1041,12 @@ if (typeof document !== 'undefined') (function () {
   canvas.addEventListener('pointerdown', (e) => { pos(e); audio(); shoot(mouse.x, mouse.y); });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   window.addEventListener('keydown', (e) => {
-    if (document.querySelector('.hs-overlay')) return;   // the initials prompt owns the keyboard while open
+    // The name prompt binds Escape to "skip", so it has to own the keyboard entirely while it is open.
+    if (document.querySelector('.hs-overlay')) return;
     if (e.key === 'm' || e.key === 'M') toggleMute();
+    // Escape had no handler at all and the game had no pause. Cricket's README already documents
+    // "Esc pauses (resume or quit to menu)", so this follows the convention the collection already has.
+    if (e.key === 'Escape' && (S.phase === 'play' || paused)) { e.preventDefault(); setPaused(!paused); }
     if ((e.key === 'Enter' || e.key === ' ') && !overlay.hidden) { e.preventDefault(); startBtn.click(); }
   });
   let resizeT = 0;
@@ -1031,7 +1058,8 @@ if (typeof document !== 'undefined') (function () {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     para.x += ((mouse.x / view.w - 0.5) - para.x) * Math.min(1, dt * 3);
     para.y += ((mouse.y / view.h - 0.5) - para.y) * Math.min(1, dt * 3);
-    update(dt); render();
+    if (!paused) update(dt);
+    render();
     requestAnimationFrame(gameLoop);
   }
   resize(); init(); drawHUD();
