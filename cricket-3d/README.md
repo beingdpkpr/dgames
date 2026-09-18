@@ -5,7 +5,7 @@ Single-file 3D cricket batting game built on Three.js. Open `index.html` in any 
 Three.js used to load from a CDN, which made the game silently unplayable with no network: the menu is static HTML so it rendered as normal, but `new THREE.Scene()` threw before the PLAY button was ever wired up, leaving a button that did nothing and said nothing.
 
 ## Play types
-- **Quick play** — 2, 5 or 10 overs, five wickets, score as many as you can. Best score is remembered.
+- **Quick play** — 2, 5, 10 or 20 overs, ten wickets, score as many as you can. Best score is remembered. Only at 20 overs does the wicket limit really bite: 120 balls against 10 wickets is the real T20 ratio of 12 balls a wicket, where a poor innings is genuinely bowled out. At 5 overs it is 3 balls a wicket, so the overs run out long first and the wickets are effectively unlimited. The short formats are quick blasts on purpose.
 - **Tournament** — three knockout chases (Round 1, Semi-final, Final) against random opponents. Each round sets a target over 5 overs and the bowlers get quicker. Progress is saved in the browser.
 
 ## Teams
@@ -38,12 +38,12 @@ Once a ball is fielded it is thrown at the end the striker is running to. Batter
 Winning a chase brings fireworks over the stands, a bouncing crowd and bat-raised batters; the tournament final gets the long version. Quick play celebrates a new best score.
 
 ## High scores
-Quick play keeps a top-ten table of runs scored, one table per overs setting (2, 5 and 10), with three-letter initials like an arcade cabinet. When a finished innings makes the table you are asked for your initials; the table for the selected overs sits on the menu. Tournament chases and abandoned innings are not recorded. Everything is stored in the browser (localStorage), so it is per device and per browser.
+Quick play keeps a top-ten table of runs scored, one table per overs setting (2, 5, 10 and 20), under your saved player name. When a finished innings makes the table you are asked for your name; the table for the selected overs sits on the menu. The tables are keyed `cricket-3d.quick.<overs>.w10`: the innings used to be five wickets, and ten makes a big score easier, so the old five-wicket tables were left behind rather than have two different games ranked against each other. They are still in localStorage, just no longer read. Tournament chases and abandoned innings are not recorded. Everything is stored in the browser (localStorage), so it is per device and per browser.
 
 ## Injuries
 A missed ball can strike the batter. A blow to the body or helmet leaves them bruised (less power, tighter timing) or forces them to retire hurt, bringing in the next batter without costing a wicket. Fielders can get hurt diving and are replaced by the twelfth man; a bowler can pull up before an over and a part-timer takes it. In a tournament your injured players miss the next round.
 
 ## Tests
 - `npm run balance` auto-bats 20 innings headlessly (no browser) and prints the outcome mix by shot type and timing error.
-- `npm run hiscore` checks the high-score module headlessly (ranking, top-ten cap, initials) and that a finished 2-over innings submits its runs, wickets and balls to the right table.
+- `npm run hiscore` checks the high-score module headlessly (ranking, top-ten cap, player name) and that a finished 2-over innings submits its runs, wickets and balls to the right table.
 - `node test/visual.js` drives the game in headless Chromium with Playwright (`npx playwright install chromium` once) and saves screenshots of the menu, bowling action, shots and fielding to `test/shots/`.

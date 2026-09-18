@@ -157,12 +157,12 @@
 <div id="overlay">
   <div class="card">
     <h1>CRICKET <span>3D</span></h1>
-    <p id="tagline">Batting only. Score as many as you can before the overs run out or you lose 5 wickets.</p>
+    <p id="tagline">Batting only. Score as many as you can before the overs run out or you lose 10 wickets. In the short formats the overs run out long before the wickets do.</p>
     <div id="summary"></div>
     <div class="row"><label>Play type</label><div class="seg" id="segMode"><button data-v="quick" class="on">Quick play</button><button data-v="tournament">Tournament</button></div></div>
     <div class="row"><label>Your team</label><div class="seg" id="segTeam"></div></div>
     <div id="tourBox" class="tour hidden"></div>
-    <div class="row" id="rowOvers"><label>Overs</label><div class="seg" id="segOvers"><button data-v="2">2</button><button data-v="5" class="on">5</button><button data-v="10">10</button></div></div>
+    <div class="row" id="rowOvers"><label>Overs</label><div class="seg" id="segOvers"><button data-v="2">2</button><button data-v="5" class="on">5</button><button data-v="10">10</button><button data-v="20">20</button></div></div>
     <div id="hiscores"></div>
     <div class="row"><label>Difficulty</label><div class="seg" id="segDiff"><button data-v="easy">Easy</button><button data-v="medium" class="on">Medium</button><button data-v="hard">Hard</button><button data-v="veryhard">Very hard</button></div></div>
     <div class="controls">
@@ -1519,14 +1519,17 @@ function nextBall() {
   }
   startRunup();
 }
-const QUICK_TAGLINE = 'Batting only. Score as many as you can before the overs run out or you lose 10 wickets.';
+// 120 balls against 10 wickets is the real T20 ratio, 12 balls a wicket, and 20 overs is the only one of
+// the four formats where being bowled out is a realistic way for the innings to end. At 5 overs it is 3
+// balls a wicket, so the overs always run out first and the wicket count is scoreboard decoration.
+const QUICK_TAGLINE = 'Batting only. Score as many as you can before the overs run out or you lose 10 wickets. In the short formats the overs run out long before the wickets do.';
 // Quick-play high scores: one table per overs setting (tournament chases are not recorded).
 const hiTables = {};
+// The key carries the wicket rule. Every score in the old tables was set with five wickets in hand, and
+// ten makes a bigger score easier, so mixing them would rank two different games against each other. The
+// w10 era starts on a clean table; the old five-wicket ones are still in localStorage, just no longer read.
 function hiScores(overs) {
-  return hiTables[overs] || (hiTables[overs] = makeHiScores({ // The key carries the wicket rule. Every score in the old tables was set with five wickets in hand, and
-  // ten makes a bigger score easier, so mixing them would rank two different games against each other.
-  // The w10 era starts clean; the old tables are still in localStorage, just no longer read.
-  key: `cricket-3d.quick.${overs}.w10`, order: 'desc', max: 10, label: v => `${v} runs`, title: `High scores · ${overs} overs` }));
+  return hiTables[overs] || (hiTables[overs] = makeHiScores({ key: `cricket-3d.quick.${overs}.w10`, order: 'desc', max: 10, label: v => `${v} runs`, title: `High scores · ${overs} overs` }));
 }
 // What a finished quick-play innings submits: runs, with the wickets and balls from the batting card. Null when nothing is recorded.
 function quickHiScore() {

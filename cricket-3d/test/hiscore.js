@@ -2,7 +2,9 @@
 // in-memory localStorage and asserts rank ordering (desc), the top-10 cap and initials handling; then
 // loads the whole game the way test/balance.js does, auto-bats a 2-over quick innings to its end and
 // asserts the game's own hook (quickHiScore) submits runs / "<wkts> wkts, <balls> balls" to the
-// cricket-3d.quick.2 table, and nothing for tournament mode or a duck. Run: node test/hiscore.js
+// cricket-3d.quick.2.w10 table, and nothing for tournament mode or a duck. The .w10 suffix marks the
+// ten-wicket era: the innings used to be five wickets, and the old tables are deliberately not read.
+// Run: node test/hiscore.js
 const vm = require('vm'), fs = require('fs'), path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 let failures = 0;
@@ -64,7 +66,7 @@ assert(g.state === 'end', 'innings reached the end state');
 assert(g.match.runs > 0, `innings scored runs (${g.match.runs}/${g.match.wkts} off ${g.match.balls})`);
 assert(q && q.value === g.match.runs, 'hook value = runs scored');
 assert(q && q.detail === `${g.match.wkts} wkts, ${g.match.balls} balls`, `hook detail = "${q && q.detail}"`);
-assert(q && q.hs.key === 'cricket-3d.quick.2', 'hook table key = cricket-3d.quick.2');
+assert(q && q.hs.key === 'cricket-3d.quick.2.w10', 'hook table key = cricket-3d.quick.2.w10 (ten-wicket era)');
 assert(q && q.hs === g.hiScores(2) && g.hiScores(5) !== g.hiScores(2), 'one table instance per overs setting');
 assert(q && q.hs.rank(q.value) === 0 && q.hs.list().length === 0, 'headless run did not prompt or record (no DOM body)');
 assert(ctx.localStorage.map.get('cricket3d_best') === String(g.match.runs), 'old single best score still written');
