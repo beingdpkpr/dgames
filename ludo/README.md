@@ -18,6 +18,7 @@ Controls: tap the die to roll, then tap a highlighted token or one of the move b
 - Home needs the exact count. An overshoot is not a legal move, so a token can be stuck one square short.
 - A roll with no legal move passes the turn.
 - The first player to get all four tokens home wins.
+- Who moves first rotates from game to game. Moving first is a disadvantage here rather than an advantage: with the same level on both seats, whoever starts wins only about 39.5%% of the time (n=800, ±1.7), because getting ahead is exactly what exposes a token to being captured from behind. You are always seat 1, so a fixed start handed you that penalty in every game. Your first ever game still starts with you.
 
 ## Board
 
@@ -27,7 +28,9 @@ A token's position is one number, its progress along its own path: `-1` in the y
 
 Easy plays any legal move. Normal plays the value up: capture, then reach home, then bring a token out, then reach safety, then advance the leader. Hard adds the one thing Normal ignores — it will not park on a square an opponent can reach on their next roll.
 
-The difference is small on purpose, because Ludo is a dice game. Measured over 1200 seeded games with the seats swapped half way, Hard beats Normal 55.7% of the time (±1.4), and both beat Easy about nine times in ten.
+The difference is small on purpose, because Ludo is a dice game. Measured over 1200 seeded games with the seats swapped half way, Hard beats Normal about 55% of the time (±1.4), and both beat Easy about nine times in ten.
+
+That combined figure is a fair average but it hides which seat the edge comes from, so the test also measures each seat against a same-level control. Hard beats Normal 44.5% to 39.3% from the seat that moves first, and 65.5% to 60.8% from the seat that moves second (n=400 each, ±2.5) — better from both ends by about five points. Read against 50% instead of against Normal in the *same* seat, Hard looks like it loses whenever it starts. It does not: the seat is simply worth more than the skill, which is why who starts now rotates.
 
 ## Record
 

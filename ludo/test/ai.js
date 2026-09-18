@@ -110,5 +110,33 @@ assert(he.r.rate > 0.85, `hard beats easy decisively (${(he.r.rate * 100).toFixe
 assert(hn.r.rate > 0.52, `hard's edge over normal is bigger than the noise (${(hn.r.rate * 100).toFixed(1)}%)`);
 assert(he.r.rate > ne.r.rate, `hard beats easy more often than normal does (${(he.r.rate * 100).toFixed(1)}% vs ${(ne.r.rate * 100).toFixed(1)}%)`);
 
+// Per-seat, against the same-level control. The combined figure above is a fair symmetric average, but
+// averaging is exactly what hid this: seat 0 moves first, and moving first is a DISADVANTAGE here, because
+// getting ahead is what exposes a token to capture from behind. With the SAME level on both seats, seat 0
+// wins only about 39.5% (n=800, +/-1.7). So hard sitting on seat 0 can lose outright to normal while still
+// being the better player, and reading hard's 44% against 50% makes it look like hard is worse when it
+// starts. It is not: the control is normal in that same seat, and hard beats it from both ends.
+// Without these two assertions a real regression in hard could hide behind a healthy-looking average.
+function fixedSeat(a, b, aSeat, n) {
+  let aWins = 0, played = 0;
+  for (let i = 0; i < n; i++) {
+    const w = playGame(aSeat === 0 ? [a, b] : [b, a], 500000 + i * 7919);
+    if (w < 0) continue;
+    played++; if (w === aSeat) aWins++;
+  }
+  return aWins / (played || 1);
+}
+{
+  const N = 400, se = Math.sqrt(0.25 / N) * 100;
+  console.log('');
+  for (const seat of [0, 1]) {
+    const base = fixedSeat('normal', 'normal', seat, N);
+    const hard = fixedSeat('hard', 'normal', seat, N);
+    const where = seat === 0 ? 'moving first ' : 'moving second';
+    console.log(`seat ${seat} (${where}): normal ${(base * 100).toFixed(1)}%, hard ${(hard * 100).toFixed(1)}%  (+/- ${se.toFixed(1)})`);
+    assert(hard > base, `hard beats normal from seat ${seat} against the same-seat control (${(hard * 100).toFixed(1)}% vs ${(base * 100).toFixed(1)}%)`);
+  }
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed');
 process.exit(failures ? 1 : 0);
