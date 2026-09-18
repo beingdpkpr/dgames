@@ -19,7 +19,9 @@
 <title>Duck Hunt Reimagined</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1c1b42; font-family: Georgia, "Times New Roman", serif; }
-  #game { display: block; width: 100vw; height: 100vh; cursor: none; touch-action: none; }
+  /* dvh, not vh: on a mobile browser 100vh is the toolbar-hidden height, so the canvas was drawn taller
+     than the world JS had sized from innerHeight. See toWorld() for the tap error that caused. */
+  #game { display: block; width: 100vw; height: 100vh; height: 100dvh; cursor: none; touch-action: none; }
 
   /* ---- atmosphere overlays ---- */
   #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 3;
@@ -51,7 +53,9 @@
   .plate::before, .plate::after { content: ""; position: absolute; top: 3px; width: 5px; height: 5px; border-radius: 50%;
     background: radial-gradient(circle at 35% 35%, #fff2c2, #8a6a20 70%); box-shadow: 0 1px 1px rgba(0,0,0,.4); }
   .plate::before { left: 3px; } .plate::after { right: 3px; }
-  .plate span { display: block; font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase; opacity: .8; }
+  /* Was 10px at opacity .8, which is 3.98:1 on the brass and under the 4.5:1 a label needs. Full
+     opacity takes it to 5.68:1 and the extra pixel buys back what the letter-spacing costs. */
+  .plate span { display: block; font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; }
   .plate b { display: block; font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; }
   #ammo { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 190px; margin: 5px auto 0; min-height: 16px; }
   .shell { width: 7px; height: 16px; border-radius: 2px 2px 3px 3px; background: linear-gradient(180deg, #d9b55a 0 34%, #b3261e 34%);
@@ -67,13 +71,16 @@
   .board p { margin: 14px 0; line-height: 1.55; font-size: 15px; }
   .board .big { font-size: 42px; color: #f7d98a; margin: 2px 0 6px; text-shadow: 0 2px 0 #3b2311; }
   .badge { display: inline-block; margin-bottom: 8px; padding: 2px 12px; border-radius: 12px; background: #b3261e; color: #fff; font-size: 12px; letter-spacing: 2px; }
-  .btn { pointer-events: auto; cursor: pointer; font: bold 15px Georgia, serif; letter-spacing: 3px; text-transform: uppercase; padding: 10px 26px; }
+  .btn { pointer-events: auto; cursor: pointer; font: bold 15px Georgia, serif; letter-spacing: 3px; text-transform: uppercase; padding: 13px 26px; min-height: 44px; }
   .btn:hover { filter: brightness(1.08); } .btn:active { transform: translateY(1px); }
-  #mute { position: fixed; right: 14px; top: 14px; z-index: 7; width: 40px; height: 34px; padding: 0; letter-spacing: 0; font-size: 16px; opacity: .85; }
+  #mute { position: fixed; right: 14px; top: 14px; z-index: 7; width: 44px; height: 44px; padding: 0; letter-spacing: 0; font-size: 16px; opacity: .85; }
 
   /* ---- high scores (table on the overlay board; --hs-* skin the shared module to the wood palette) ---- */
   :root { --hs-bg: #52301a; --hs-line: #8a6a45; --hs-accent: #f7d98a; --hs-fg: #efd9b0; --hs-font: Georgia, "Times New Roman", serif; }
   #hiscores { margin: 0 0 16px; max-height: 34vh; overflow: auto; text-align: left; }
+  @media (prefers-reduced-motion: reduce) {
+    #grain { animation: none; }
+  }
 </style>
 </head>
 <body>
@@ -431,11 +438,22 @@ function dogRetrieve(first) {
   emit('retrieve', S.dog);
 }
 
+// True on a touch screen. Guarded with typeof so test/sim.js can load this section in a bare vm, where
+// there is no matchMedia and every pointer is therefore treated as fine.
+const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+// Screen shake and the film grain are the two things here worth turning down for someone who asked the
+// OS to stop moving things. The grain is the worse offender: it ran at 2 Hz over the whole screen,
+// permanently, including on the title card.
+const REDUCED = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 function checkHit(mouseX, mouseY) {
   let best = null, bestD = 1;
   for (const d of S.ducks) {
     if (d.state !== 'flying') continue;
-    const rx = d.size * 1.7, ry = d.size * 1.2;
+    // A fingertip covers more than a mouse point, and the duck is moving. At phone scale the old
+    // ellipse was 50x36 CSS px, under the 44px a thumb needs on the short axis; coarse pointers get a
+    // more forgiving one (about 62x52) while a mouse keeps the tighter, fairer target.
+    const rx = d.size * (COARSE ? 2.1 : 1.7), ry = d.size * (COARSE ? 1.75 : 1.2);
     const nx = (mouseX - d.x - d.dir * d.size * 0.3) / rx, ny = (mouseY - d.y + d.size * 0.15) / ry;
     const dd = nx * nx + ny * ny;
     if (dd <= bestD) { bestD = dd; best = d; }
@@ -460,7 +478,7 @@ function killDuck(d, x, y) {
 function shoot(mouseX, mouseY) {
   if (S.phase !== 'play') return false;
   if (S.ammo <= 0) { emit('empty'); return false; }
-  S.ammo--; S.shake = 9 * view.scale; S.flash = { x: mouseX, y: mouseY, t: 0 };
+  S.ammo--; S.shake = (REDUCED ? 1.35 : 9) * view.scale; S.flash = { x: mouseX, y: mouseY, t: 0 };
   spawnDust(mouseX, mouseY, 3, 'smoke');
   emit('shot');
   const d = checkHit(mouseX, mouseY);
@@ -975,9 +993,19 @@ if (typeof document !== 'undefined') (function () {
   on('clear', () => { const a = audio(); if (!a) return; const t = a.currentTime; [523, 659, 784].forEach((f, i) => tone(a, t + i * 0.12, 0.25, 'triangle', f, f, 0.2)); });
 
   // ---- input ----
-  const pos = (e) => { mouse.x = e.clientX; mouse.y = e.clientY; };
+  // The canvas is sized by CSS (100dvh) but the world is sized in JS from window.innerHeight, and on a
+  // mobile browser those disagree by the height of the toolbar: `100vh` is the LARGE viewport, innerHeight
+  // is the current one. The picture was therefore drawn stretched by that ratio while taps were read 1:1,
+  // so the error grew down the screen -- around 57px at the bottom of a 844px phone, against a duck only
+  // 36px tall. Low ducks simply could not be hit. Mapping through the canvas rect makes the two agree
+  // whatever the CSS is doing, which also covers browser zoom and any future sizing change.
+  const toWorld = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (view.w / (r.width || 1)), y: (e.clientY - r.top) * (view.h / (r.height || 1)) };
+  };
+  const pos = (e) => { const p = toWorld(e); mouse.x = p.x; mouse.y = p.y; };
   canvas.addEventListener('pointermove', pos);
-  canvas.addEventListener('pointerdown', (e) => { pos(e); audio(); shoot(e.clientX, e.clientY); });
+  canvas.addEventListener('pointerdown', (e) => { pos(e); audio(); shoot(mouse.x, mouse.y); });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   window.addEventListener('keydown', (e) => {
     if (document.querySelector('.hs-overlay')) return;   // the initials prompt owns the keyboard while open

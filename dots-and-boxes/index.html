@@ -18,7 +18,7 @@
 </script>
 <title>Dots &amp; Boxes</title>
 <style>
-  :root { --bg: #111318; --p1: #4fd1ff; --p2: #ff6b9d; --p3: #a3e635; --p4: #fbbf24; --p5: #c084fc; --text: #e8ebf2; --muted: #8b93a7; --panel: #1a1e27; --line: #2b3140; }
+  :root { --bg: #111318; --p1: #4fd1ff; --p2: #ff6b9d; --p3: #a3e635; --p4: #fbbf24; --p5: #c084fc; --text: #e8ebf2; --muted: #8b93a7; --panel: #1a1e27; --line: #697488; }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; overflow-x: hidden; }
@@ -45,9 +45,13 @@
   .seats { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
   .seat { --pc: var(--p1); display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
   .seat .sw { width: 8px; height: 8px; border-radius: 2px; background: var(--pc); box-shadow: 0 0 6px var(--pc); }
-  .seat select { padding: 4px 6px; font-size: 12px; }
-  select, button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
-  button:hover, select:hover { border-color: #4a5266; }
+  /* Was 24.4px tall: the smallest control in the collection, and it is the per-player human/computer
+     picker, so it is also one of the most used. */
+  .seat select { padding: 8px 10px; font-size: 14px; min-height: 44px; }
+  select, button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; min-height: 44px; font: inherit; font-size: 13px; cursor: pointer; }
+  /* The resting border was 1.28:1 and the hover 2.14:1, so there was no visible sign a control was
+     interactive at all, before or during a hover. Now 3.54:1 resting and 5.6:1 on hover. */
+  button:hover, select:hover { border-color: #98a3b8; }
   button.primary { border-color: var(--p1); }
   #wrap { position: relative; margin-bottom: 20px; }
   canvas { display: block; touch-action: none; border-radius: 16px; cursor: pointer; }
@@ -484,7 +488,9 @@ function distToSegment(px, py, [ax, ay], [bx, by]) {
 }
 // Snap to the closest unfilled edge, or null if the pointer is not near any.
 function getNearestEdge(mx, my) {
-  let best = null, bestD = cell * 0.36;
+  // 0.36 of a cell is generous on a small grid and useless on a large one: at 8x8 the cell is 41.9px,
+  // so the capsule you had to hit was 30.2px wide. Floor it at 22px either side of the line.
+  let best = null, bestD = Math.max(22, cell * 0.36);
   for (const e of legalMoves(S)) {
     const d = distToSegment(mx, my, ...edgeEnds(e));
     if (d < bestD) { bestD = d; best = e; }

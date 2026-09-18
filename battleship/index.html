@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --bg0: #04101c; --bg1: #082539; --bg2: #0a3a48; --panel: rgba(11, 30, 48, .85); --line: #22496a; --gold: #ffd54a; --teal: #2ee6c5; --hit: #ff4b3a; --miss: #9fd3ff; --text: #e6f1f7;
+  :root { --bg0: #04101c; --bg1: #082539; --bg2: #0a3a48; --panel: rgba(11, 30, 48, .85); --line: #4675a6; --gold: #ffd54a; --teal: #2ee6c5; --hit: #ff4b3a; --miss: #9fd3ff; --text: #e6f1f7;
     --hs-bg: #0b1e30; --hs-line: #22496a; --hs-accent: #ffd54a; --hs-fg: #e6f1f7; --hs-font: "Rajdhani", "Segoe UI", system-ui, sans-serif; }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -62,6 +62,18 @@
   #msg.miss { color: var(--miss); }
 
   .grids { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+  /* Two 10x10 boards plus their headers and ship strips need about 1113px of height; a phone has 844,
+     so they stacked and you scrolled between your fleet and the enemy every single turn. Below 700px
+     only one is shown and these tabs pick it. The canvas is a fixed 372px internally scaled by CSS and
+     cellFromEvent maps taps through its rect, so the remaining board simply grows -- nothing to resize. */
+  .boardTabs { display: none; gap: 8px; justify-content: center; margin: 0 0 4px; }
+  .boardTabs button { flex: 1 1 0; max-width: 220px; min-height: 44px; background: transparent; color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 14px; cursor: pointer; }
+  .boardTabs button.on { background: var(--gold); color: #0b1a2b; border-color: var(--gold); font-weight: 700; }
+  @media (max-width: 700px) {
+    .boardTabs { display: flex; }
+    body.show-fleet #boardEnemy, body.show-enemy #boardFleet { display: none; }
+  }
   .board { flex: 1 1 300px; max-width: 420px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
   .board h2 { margin: 0; font-size: 15px; letter-spacing: 3px; text-transform: uppercase; opacity: .85; font-weight: 600; }
   .board canvas { width: 100%; height: auto; aspect-ratio: 1; border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 14px 34px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(255, 255, 255, .04); touch-action: manipulation; display: block; user-select: none; }
@@ -152,6 +164,10 @@
 
   <div id="msg"></div>
 
+  <div class="boardTabs" id="boardTabs">
+    <button type="button" data-view="fleet" class="on">Your fleet</button>
+    <button type="button" data-view="enemy">Enemy waters</button>
+  </div>
   <div class="grids" id="grids">
     <div class="board" id="boardFleet"><h2 id="fleetTitle">Your Fleet</h2><canvas id="cvFleet"></canvas><div class="strip" id="stripFleet"></div></div>
     <div class="board" id="boardEnemy"><h2 id="enemyTitle">Enemy Waters</h2><canvas id="cvEnemy"></canvas><div class="strip" id="stripEnemy"></div></div>
@@ -790,7 +806,7 @@ function resetGame() {
   hideOverlay(); message('');
 }
 function showSetup() { resetGame(); state.phase = 'setup'; render(); }
-function startPlacement(player) { state.phase = 'placement'; state.placing = player; state.viewer = player; state.curShip = 0; state.horizontal = true; message(''); render(); }
+function startPlacement(player) { setBoardView('fleet'); state.phase = 'placement'; state.placing = player; state.viewer = player; state.curShip = 0; state.horizontal = true; message(''); render(); }
 function selectNextShip() { const b = state.boards[state.placing]; state.curShip = b.ships.findIndex(s => !s.placed); }
 function rotate() { state.horizontal = !state.horizontal; render(); }
 function confirmFleet() {
@@ -799,7 +815,20 @@ function confirmFleet() {
   else if (state.placing === 0) handover('Pass to Player 2', 'Player 2 places their fleet next. Player 1, look away.', () => startPlacement(1));
   else handover('Pass to Player 1', 'Both fleets are at sea. Player 1 fires first.', startBattle);
 }
-function startBattle() { state.phase = 'battle'; state.current = 0; state.viewer = 0; state.busy = false; ping(); message('Fire at the enemy waters.'); render(); }
+// Which board a narrow screen is showing. Wide screens ignore it entirely -- the class is on <body>
+// either way, but the media query only acts on it below 700px.
+function setBoardView(which) {
+  document.body.classList.toggle('show-fleet', which === 'fleet');
+  document.body.classList.toggle('show-enemy', which === 'enemy');
+  for (const b of document.getElementById('boardTabs').children) b.classList.toggle('on', b.dataset.view === which);
+}
+for (const b of document.getElementById('boardTabs').children) b.addEventListener('click', () => setBoardView(b.dataset.view));
+// Without one of these classes on <body> the media query matches neither board and both show again, which
+// is the very stacking this replaces. Start on your own fleet, since placement comes first.
+setBoardView('fleet');
+// Follow the phase rather than the turn: jumping the view mid-turn, while someone is watching shots land
+// on their own fleet, is more disorienting than one tap to switch back.
+function startBattle() { state.phase = 'battle'; state.current = 0; state.viewer = 0; state.busy = false; setBoardView('enemy'); ping(); message('Fire at the enemy waters.'); render(); }
 function ping() { enemyView.ping = performance.now(); sound.play('ping'); }
 function fire(r, c) {
   const shooter = state.current, target = state.boards[1 - shooter], res = resolveShot(target, r, c);

@@ -30,10 +30,15 @@
   #game { width: 100%; height: 100%; display: block; background: #000; }
   #hud { position: absolute; inset: 0 0 auto 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 1cqw 1.7cqw 1cqw max(52px, 1.7cqw); pointer-events: none;   /* left gap for the back button */ font-family: var(--stencil); text-shadow: 0.2cqw 0.2cqw 0 #000, 0 0 0.8cqw rgba(0,0,0,.6); letter-spacing: 0.1cqw; }
   #hud[hidden] { display: none; }
-  #hud .lbl { font-size: 1.15cqw; opacity: .75; letter-spacing: 0.3cqw; }
-  #hud .val { font-size: 2.5cqw; line-height: 1; color: var(--gold); }
-  #hud .pips span { display: inline-block; width: 1.45cqw; height: 1.45cqw; margin-right: 0.4cqw; background: var(--red); border: 0.2cqw solid #000; box-shadow: 0.1cqw 0.1cqw 0 #000; }
-  #hud .pips span.off { background: #333; }
+  /* cqw with no floor: the container is the play area, which is 390px wide in portrait, so 1.15cqw
+     resolved to 4.5px and 2.5cqw to 9.8px. LIVES, WEAPON and SCORE were illegible on a phone in both
+     orientations. The floors keep the HUD readable; cqw still scales it up on a big screen. */
+  #hud .lbl { font-size: max(11px, 1.15cqw); opacity: .75; letter-spacing: 0.3cqw; }
+  #hud .val { font-size: max(20px, 2.5cqw); line-height: 1; color: var(--gold); }
+  #hud .pips span { display: inline-block; width: max(10px, 1.45cqw); height: max(10px, 1.45cqw); margin-right: 0.4cqw; background: var(--red); border: 0.2cqw solid #000; box-shadow: 0.1cqw 0.1cqw 0 #000; }
+  /* #333 on the black canvas is 1.66:1, so you could see which pips were lit but not how many slots
+     existed -- and Classic mode changes the maximum. #555 is 3.4:1. */
+  #hud .pips span.off { background: #555; }
   #hud .weapon { text-align: center; }
   #hud .weapon .val { color: #fff; }
   #hud .bar { width: 16.7cqw; height: 0.85cqw; border: 0.2cqw solid #000; background: #222; margin: 0.4cqw auto 0; }
@@ -44,7 +49,8 @@
   .overlay > div { max-height: 100%; overflow-y: auto; padding: 6px 0; }
   .hs-panel { width: min(400px, 92vw); margin: 10px auto 0; background: rgba(0,0,0,.35); border: 1px solid var(--hs-line); border-radius: 10px; padding: 8px 12px; text-align: left; }
   .hs-panel[hidden] { display: none; }
-  .btn.ghost { background: transparent; color: #fff; border: 1px solid var(--hs-line); box-shadow: none; font-size: 14px; padding: 8px 16px; }
+  /* Was 34.8px tall with a 2.53:1 border -- a near-invisible edge on a control you have to find. */
+  .btn.ghost { background: transparent; color: #fff; border: 1px solid #6f9a72; box-shadow: none; font-size: 14px; padding: 13px 20px; min-height: 44px; }
   .overlay h1 { font-family: var(--stencil); font-size: clamp(36px, 8vw, 72px); margin: 0; color: var(--gold); letter-spacing: 4px; text-shadow: 4px 4px 0 #000; line-height: 1; }
   .overlay h1 small { display: block; font-size: 16px; letter-spacing: 8px; color: var(--olive); }
   .overlay h2 { font-family: var(--stencil); font-size: clamp(28px, 6vw, 56px); margin: 0 0 6px; letter-spacing: 3px; text-shadow: 3px 3px 0 #000; }
@@ -52,11 +58,21 @@
   .controls { display: grid; grid-template-columns: auto auto; gap: 3px 16px; text-align: left; font-size: 13px; margin: 14px auto; width: max-content; max-width: 90%; }
   .controls[hidden] { display: none; }
   .controls b { color: var(--gold); font-family: var(--stencil); letter-spacing: 1px; font-weight: 400; }
-  .btn { font-family: var(--stencil); background: var(--gold); color: #1a1a1a; border: 0; padding: 10px 26px; font-size: 18px; letter-spacing: 2px; cursor: pointer; box-shadow: 3px 3px 0 #000; margin-top: 8px; }
+  .btn { font-family: var(--stencil); background: var(--gold); color: #1a1a1a; border: 0; padding: 12px 26px; min-height: 44px; font-size: 18px; letter-spacing: 2px; cursor: pointer; box-shadow: 3px 3px 0 #000; margin-top: 8px; }
   .btn:hover { filter: brightness(1.08); }
   .toggles { display: flex; gap: 18px; justify-content: center; margin: 8px 0 0; font-size: 14px; }
-  .toggles label { cursor: pointer; }
+  .toggles label { cursor: pointer; min-height: 44px; display: inline-flex; align-items: center; gap: 8px; }
   .hint { font-size: 12px; opacity: .55; margin-top: 12px; }
+  /* Portrait squeezes the 16:9 play area into a 390x219 strip -- 26% of the screen, the world drawn at
+     0.406 scale, the player about 9x18 CSS px. Nothing told anyone to turn the phone, so this does.
+     pointer-events:none so it can never swallow a tap meant for the game or the menu. */
+  #rotateHint { display: none; }
+  @media (orientation: portrait) and (pointer: coarse) {
+    #rotateHint { display: block; position: fixed; left: 16px; right: 16px; top: 50%; transform: translateY(-50%);
+      z-index: 12; pointer-events: none; text-align: center; padding: 18px 20px; border-radius: 14px;
+      background: rgba(6, 14, 10, .93); border: 2px solid var(--gold); color: #fff;
+      font-family: var(--stencil); font-size: 20px; letter-spacing: 2px; line-height: 1.35; }
+  }
 </style>
 </head>
 <body>
@@ -1070,5 +1086,6 @@ function render() {
 }
 init();
 </script>
+<div id="rotateHint">Turn your phone sideways to play</div>
 </body>
 </html>
