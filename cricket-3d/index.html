@@ -927,6 +927,9 @@ function newTour() {
 // batting camera sits over the off-side shoulder so the batter never covers the ball's line
 const camState = { pos: V3(1.5, 3.3, 7.0), look: V3(0.3, 0.9, -8), lastDir: V3(0, 0, -1) };
 const CAM_BAT = { pos: V3(1.5, 3.3, 7.0), look: V3(0.3, 0.9, -8) };
+// Where the camera was when the move to the batting view began, captured once per delivery so the
+// interpolation has a fixed start to travel from. Cleared whenever the run-up is not running.
+let camCut = null;
 
 // ---------- HUD ----------
 const $ = id => document.getElementById(id);
@@ -1868,16 +1871,34 @@ function checkEvents() {
   if (simTime - b.hitTime > 15) endBall({ runs: 3 });
 }
 
-// Camera: bowler cam through the run-up, hard cut to the batting view at the gather, then follow the ball.
+// Camera: bowler cam through the run-up, a short eased move to the batting view across the gather, then
+// follow the ball.
 function updateCamera(dt) {
   let tp, tl, k;
   const B = BOWL[bowlerType];
+  if (state !== 'runup') camCut = null;
   if (state === 'runup' && runupT < B.dur - B.gather) {
     tp = bowler.position.clone().add(V3(3.0, 2.0, -6.0)); tl = bowler.position.clone().add(V3(0, 1.2, 5));
+    // A deliberate cut, and it stays one: it fires between deliveries with nothing in flight and nothing
+    // to time, which is exactly where a broadcast cuts too. Easing it instead would sweep the camera all
+    // the way back from wherever the last ball finished, which is slower and worse.
     if (runupT < 0.05) { camState.pos.copy(tp); camState.look.copy(tl); }
     k = 1 - Math.exp(-dt * 6);
   } else if (state === 'runup') {
-    tp = camBat().pos; tl = camBat().look; k = 1;                          // the cut
+    // This was `k = 1`, and Vector3.lerp(v, 1) assigns v outright -- so it was not a fast transition but
+    // an instantaneous one, which is why it read as rushed. Release is at runupT >= B.dur and this branch
+    // starts at B.dur - B.gather, so there is exactly B.gather (0.55 s) to play with. Ease over the first
+    // 65% of it, 358 ms, and hold dead still for the remaining 192 ms. The hold is the point: the shot is
+    // timed off the marker reaching the green, and a camera still drifting as the ball leaves the hand
+    // would cost the player more than the cut ever did. An exponential ease would be wrong for the same
+    // reason -- it approaches the target forever and never actually arrives.
+    const c = camBat();                       // recomputed per frame, so a left-hander keeps the mirrored view
+    if (!camCut) camCut = { pos: camState.pos.clone(), look: camState.look.clone() };
+    const e = smooth(clamp((runupT - (B.dur - B.gather)) / (B.gather * 0.65), 0, 1));
+    camState.pos.copy(camCut.pos).lerp(c.pos, e);
+    camState.look.copy(camCut.look).lerp(c.look, e);
+    camera.position.copy(camState.pos); camera.lookAt(camState.look);
+    return;
   } else if (celebration && state === 'dead' && simTime - celebration.t0 > 1.0) {
     tp = V3(2.5, 2.2, 3.5); tl = V3(0, 1.3, -1.5); k = 1 - Math.exp(-dt * 2.0);
   } else if (state === 'live' || (state === 'dead' && lastHit && simTime - deadTime < 1.3)) {
