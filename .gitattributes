@@ -1,0 +1,9 @@
+# The games are single HTML files, and their tests parse them by string offsets with `\n` markers --
+# `extractFunction('makeHiScores', 'return { ... };\n}')` and the vm slices in every game's test folder.
+# Git's autocrlf writes CRLF into the working tree on Windows, so those markers stop matching and the
+# tests fail locally while passing in CI on Linux. It also silently broke byte-identity between the
+# shared snippets: Ludo's copy of the back-button block diverged from the other eight by line endings
+# alone, which no grep could see.
+#
+# Pinning LF everywhere makes the working tree match what git stores, on every platform.
+* text=auto eol=lf
