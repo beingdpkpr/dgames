@@ -72,6 +72,9 @@
   .boardTabs button.on { background: var(--gold); color: #0b1a2b; border-color: var(--gold); font-weight: 700; }
   @media (max-width: 700px) {
     .boardTabs { display: flex; }
+    /* An author display rule outranks the browser [hidden]; Ludo painted tokens it believed hidden for
+       exactly this reason. */
+    .boardTabs[hidden] { display: none; }
     body.show-fleet #boardEnemy, body.show-enemy #boardFleet { display: none; }
   }
   .board { flex: 1 1 300px; max-width: 420px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
@@ -993,6 +996,10 @@ function updateHUD() {
 function render() {
   const p = state.phase;
   $('setup').hidden = p !== 'setup'; $('hud').hidden = p === 'setup'; $('placeBar').hidden = p !== 'placement';
+  // The board switcher only earns its space once there are two boards to switch between. Showing it while
+  // you place ships cost ~85px of a phone screen -- the tabs plus their caption -- and pushed rows 8 to 10
+  // of your own fleet below the fold, which is the board you are actually using at the time.
+  $('boardTabs').hidden = p !== 'battle';
   $('soundBtn').textContent = 'Sound: ' + (sound.on ? 'on' : 'off');
   if (p === 'setup') hs.render($('setupScores'));
   if (p === 'placement') {

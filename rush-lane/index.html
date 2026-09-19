@@ -967,6 +967,18 @@ kbd {
   min-width: 260px;
 }
 
+/* The menu is taller than a landscape phone, so the one button that starts a race sat below the fold at
+   844x390 -- the primary action of the screen, invisible until you thought to scroll for it. Sticking it
+   to the bottom keeps it reachable at any height without changing the two-step select-then-race flow. */
+@media (max-height: 560px) {
+  .btn--start {
+    position: sticky;
+    bottom: 10px;
+    z-index: 5;
+    box-shadow: 0 10px 26px rgba(40, 36, 60, .4);
+  }
+}
+
 /* --- results -------------------------------------------------------------- */
 
 .results__title {
