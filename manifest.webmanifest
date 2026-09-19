@@ -39,6 +39,16 @@
   ],
   "shortcuts": [
     {
+      "name": "Tetris",
+      "url": "tetris/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
       "name": "Ludo",
       "url": "ludo/index.html",
       "icons": [
@@ -61,16 +71,6 @@
     {
       "name": "Rush Lane",
       "url": "rush-lane/index.html",
-      "icons": [
-        {
-          "src": "icons/icon-192.png",
-          "sizes": "192x192"
-        }
-      ]
-    },
-    {
-      "name": "Strike Force",
-      "url": "strike-force/index.html",
       "icons": [
         {
           "src": "icons/icon-192.png",

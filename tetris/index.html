@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#0b1a2b">
+<link rel="icon" href="../icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="dgames">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+  /* Installable, and playable with no network once a game has been opened. Registered from every page so
+     a deep link into one game works offline too, not only a visit that started at the launcher. Over
+     file:// there is no service worker and register() rejects; the catch keeps that silent. */
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('../sw.js').catch(() => {}));
+</script>
+<meta name="description" content="Tetris with modern guideline rules: SRS rotation and wall kicks, 7-bag, hold, ghost and lock delay.">
+<title>Tetris</title>
+<style>
+  :root {
+    --bg: #0b1a2b; --panel: #10233a; --line: #456f9e; --muted: #8fa9c6; --gold: #ffd54a; --fg: #eaf2fb;
+    --well: #08131f;
+    /* The board must reserve room for the touch pad on a phone, or the pad -- which is fixed to the
+       bottom of the viewport -- covers the rows where every decision actually happens. Two games
+       shipped this year with controls sitting on top of their own playfield; this is that lesson. */
+    --reserve: 200px;
+    --hs-bg: #10233a; --hs-line: #456f9e; --hs-accent: #ffd54a; --hs-fg: #eaf2fb;
+    --tp-bg: rgba(8, 18, 30, .55); --tp-line: rgba(233, 242, 251, .6); --tp-accent: #ffd54a; --tp-fg: #eaf2fb;
+  }
+  /* 330px budgeted for the touch pad alone and forgot everything stacked ABOVE the well: the title,
+     the rails and the message line. Measured at 390x844 the well ran to y=867 on an 844px screen and the
+     pad covered 202px of it. 420px is h1 + rails + msg + pad + gaps, checked by measuring, not guessed. */
+  @media (pointer: coarse) { :root { --reserve: 420px; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; min-height: 100dvh; background: var(--bg); color: var(--fg);
+    font-family: "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; align-items: center;
+    gap: 10px; padding: 8px 10px max(10px, env(safe-area-inset-bottom)); }
+
+  /* 56px of left padding keeps the title clear of the 44px back button in the corner. Six of the nine
+     existing games have that collision because the button was added and then checked with grep. */
+  h1 { font-size: 22px; letter-spacing: 6px; margin: 4px 0 0; padding: 0 56px; text-align: center; }
+  h1 span { color: var(--gold); }
+
+  #wrap { display: flex; align-items: flex-start; justify-content: center; gap: 12px;
+    /* dvh, not vh: on a mobile browser 100vh is the toolbar-hidden height, so the cell comes out too
+       big and the board runs off the bottom the moment the toolbar is showing. duck-hunt had the same
+       bug today and it cost taps by up to 57px. */
+    --cell: min(8.5vw, calc((100dvh - var(--reserve)) / 20), 34px); }
+  #well { position: relative; background: var(--well); border: 2px solid var(--line); border-radius: 8px;
+    width: calc(var(--cell) * 10 + 4px); height: calc(var(--cell) * 20 + 4px); overflow: hidden; }
+  #board { display: block; width: 100%; height: 100%; }
+
+  .rail { display: flex; flex-direction: column; gap: 10px; width: calc(var(--cell) * 4.6); min-width: 76px; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+  .box h2 { margin: 0 0 4px; font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; font-weight: 600; }
+  .box canvas { display: block; width: 100%; height: auto; }
+  .stat { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); }
+  .stat b { font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; font-weight: 700; }
+  .stat.big b { font-size: 24px; color: var(--gold); }
+
+  /* On a phone the two rails would squeeze the well to nothing, so they become one row above it. */
+  @media (max-width: 560px) {
+    #wrap { flex-direction: column; align-items: center; }
+    .rails { display: flex; gap: 8px; width: calc(var(--cell) * 10 + 4px); }
+    .rail { flex: 1 1 0; width: auto; flex-direction: row; gap: 8px; }
+    .rail .box { flex: 1 1 0; min-width: 0; }
+    .stats { flex: 1 1 0; }
+    /* The Next preview is a 96x216 canvas. Given a 113px flex slot it kept its aspect and grew to 253px
+       tall, which is what pushed the well off the screen. Size it by height so the rails stay one
+       compact strip and the board keeps the room it needs. */
+    .rail .box canvas { width: auto; height: 84px; margin: 0 auto; }
+    /* "Score 2140" at 24px could not share a 90px box with its label, so the number ran out past the
+       panel border. The element never reports overflow -- it is the panel it escapes, not its own box --
+       so only looking catches it. */
+    /* Label above value, not beside it. Side by side, "Score" and a four-digit number could not share
+       a ~90px flex slot and the number escaped the panel; stacked, it always has the full width. */
+    .stat { flex-direction: column; align-items: flex-start; gap: 0; font-size: 11px; }
+    .stat b { font-size: 15px; }
+    .stat.big b { font-size: 18px; }
+  }
+  @media (min-width: 561px) { .rails { display: contents; } }
+
+  #msg { min-height: 20px; font-size: 14px; color: var(--gold); text-align: center; font-weight: 600; letter-spacing: 1px; }
+
+  .overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center;
+    background: rgba(4, 10, 20, .82); padding: 16px; }
+  /* Pair every `hidden` with an explicit rule. A `display` declaration on the element beats the browser's
+     own [hidden] { display: none }, which is how Ludo ended up painting tokens it believed were hidden
+     while every DOM check reported a clean bill of health. */
+  .overlay[hidden] { display: none; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px;
+    width: min(360px, 92vw); text-align: center; }
+  .card h2 { margin: 0 0 6px; font-size: 24px; letter-spacing: 3px; }
+  .card p { margin: 6px 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  .btn { background: var(--gold); color: #0b1a2b; border: 0; border-radius: 10px; padding: 12px 26px;
+    min-height: 44px; font: inherit; font-weight: 700; letter-spacing: 1px; cursor: pointer; margin-top: 10px; }
+  .btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  .keys { display: grid; grid-template-columns: auto auto; gap: 4px 14px; text-align: left;
+    font-size: 13px; margin: 12px auto 0; width: max-content; max-width: 100%; }
+  .keys b { color: var(--gold); font-weight: 600; }
+  :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<style>
+  /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
+     ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
+     A dark disc with a light ring reads on a bright pastel scene and on a black one without being
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
+  .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
+    font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
+</style>
+<a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
+<h1>TET<span>RIS</span></h1>
+
+<div id="wrap">
+  <div class="rails">
+    <div class="rail">
+      <div class="box"><h2>Hold</h2><canvas id="holdC" width="96" height="72"></canvas></div>
+      <div class="box stats">
+        <div class="stat big"><span>Score</span><b id="score">0</b></div>
+        <div class="stat"><span>Lines</span><b id="lines">0</b></div>
+        <div class="stat"><span>Level</span><b id="level">1</b></div>
+      </div>
+    </div>
+    <div class="rail">
+      <div class="box"><h2>Next</h2><canvas id="nextC" width="96" height="216"></canvas></div>
+    </div>
+  </div>
+  <div id="well"><canvas id="board"></canvas></div>
+</div>
+<div id="msg"></div>
+
+<div class="overlay" id="startOv">
+  <div class="card">
+    <h2>TETRIS</h2>
+    <p>Guideline rules: SRS rotation with wall kicks, a 7-bag randomiser, hold, ghost piece and lock delay.</p>
+    <div class="keys" id="keyHelp">
+      <b>Move</b><span>&larr; &rarr;</span>
+      <b>Rotate</b><span>&uarr; or X clockwise, Z anticlockwise</span>
+      <b>Soft drop</b><span>&darr;</span>
+      <b>Hard drop</b><span>Space</span>
+      <b>Hold</b><span>C or Shift</span>
+      <b>Pause</b><span>Esc or P</span>
+    </div>
+    <button class="btn" id="startBtn">Play</button>
+  </div>
+</div>
+
+<div class="overlay" id="pauseOv" hidden>
+  <div class="card">
+    <h2>PAUSED</h2>
+    <button class="btn" id="resumeBtn">Resume</button>
+    <button class="btn ghost" id="quitBtn">Quit to menu</button>
+  </div>
+</div>
+
+<div class="overlay" id="overOv" hidden>
+  <div class="card">
+    <h2 id="overTitle">GAME OVER</h2>
+    <p id="overText"></p>
+    <div id="hiscores"></div>
+    <button class="btn" id="againBtn">Play again</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ---------- ENGINE (pure: no DOM, no wall clock, no bare randomness anywhere in this section) ----------
+// Tetris is the one game here where everyone already knows how it should feel, so this follows the
+// modern guideline rather than inventing anything: SRS rotation with the full five-offset kick tables,
+// a 7-bag randomiser, hold, ghost, lock delay with a move-reset cap, and guideline scoring.
+//
+// Two decisions make the whole thing testable, and they are the same decision Ludo made with its dice:
+//   1. Gravity advances on an explicit `dt` handed in by the caller. Nothing in here reads a clock.
+//   2. The bag draws from an injected `rng`. Seed it and a game replays exactly.
+// Between them, a test can build any board, hand the engine a precise dt, and assert on the result --
+// rather than waiting for a piece to fall and hoping.
+
+const COLS = 10, VISIBLE = 20, BUFFER = 2, ROWS = VISIBLE + BUFFER;
+const TYPES = ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
+
+// Rotation 0 of each piece inside its own square bounding box, in box-local (x, y) with y DOWN.
+// The box size is what makes SRS work: I rotates inside 4x4, O inside 2x2, the rest inside 3x3.
+const SHAPES = {
+  I: { box: 4, cells: [[0, 1], [1, 1], [2, 1], [3, 1]] },
+  J: { box: 3, cells: [[0, 0], [0, 1], [1, 1], [2, 1]] },
+  L: { box: 3, cells: [[2, 0], [0, 1], [1, 1], [2, 1]] },
+  O: { box: 2, cells: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+  S: { box: 3, cells: [[1, 0], [2, 0], [0, 1], [1, 1]] },
+  T: { box: 3, cells: [[1, 0], [0, 1], [1, 1], [2, 1]] },
+  Z: { box: 3, cells: [[0, 0], [1, 0], [1, 1], [2, 1]] },
+};
+// Spawn column. The guideline puts the 3-wide pieces at column 3 and O at 4 so it straddles the middle.
+const SPAWN_X = { I: 3, J: 3, L: 3, O: 4, S: 3, T: 3, Z: 3 };
+
+// All four rotations, precomputed. Rotating clockwise inside an N-box is (x, y) -> (N-1-y, x).
+const ROT = {};
+for (const t of TYPES) {
+  const s = SHAPES[t];
+  ROT[t] = [s.cells];
+  for (let r = 1; r < 4; r++) ROT[t].push(ROT[t][r - 1].map(([x, y]) => [s.box - 1 - y, x]));
+}
+
+// SRS kick offsets, written in THIS file's coordinates (y increases downward). Published tables use
+// y-up, so every vertical component here is the negation of the one you will find quoted elsewhere --
+// worth knowing before "correcting" them. Index is [from][to]; five offsets tried in order, first fit wins.
+const KICK_JLSTZ = {
+  '0>1': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+  '1>0': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
+  '1>2': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
+  '2>1': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+  '2>3': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
+  '3>2': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+  '3>0': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+  '0>3': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
+};
+const KICK_I = {
+  '0>1': [[0, 0], [-2, 0], [1, 0], [-2, 1], [1, -2]],
+  '1>0': [[0, 0], [2, 0], [-1, 0], [2, -1], [-1, 2]],
+  '1>2': [[0, 0], [-1, 0], [2, 0], [-1, -2], [2, 1]],
+  '2>1': [[0, 0], [1, 0], [-2, 0], [1, 2], [-2, -1]],
+  '2>3': [[0, 0], [2, 0], [-1, 0], [2, -1], [-1, 2]],
+  '3>2': [[0, 0], [-2, 0], [1, 0], [-2, 1], [1, -2]],
+  '3>0': [[0, 0], [1, 0], [-2, 0], [1, 2], [-2, -1]],
+  '0>3': [[0, 0], [-1, 0], [2, 0], [-1, -2], [2, 1]],
+};
+
+const LOCK_DELAY = 0.5;          // seconds a piece may rest on the stack before it locks
+const LOCK_RESET_CAP = 15;       // moves that may refresh that delay, so a piece cannot be stalled forever
+const SCORE = { 1: 100, 2: 300, 3: 500, 4: 800 };
+const TSPIN_SCORE = { 1: 800, 2: 1200, 3: 1600 };
+const TSPIN_MINI_SCORE = { 0: 100, 1: 200, 2: 400 };
+
+// Guideline gravity: seconds per cell at a given level. Level 1 is one cell a second; by level 13 a
+// piece crosses the board faster than the lock delay, which is where it stops being about placement.
+function gravityFor(level) {
+  return Math.max(0.0167, Math.pow(0.8 - (level - 1) * 0.007, level - 1));
+}
+
+const emptyRow = () => new Array(COLS).fill(0);
+const makeBoard = () => Array.from({ length: ROWS }, emptyRow);
+
+// A 7-bag: every seven pieces contain each shape exactly once. Plain per-piece randomness produces
+// droughts that players correctly read as the game cheating, which is why nobody ships it any more.
+function refill(s) {
+  const bag = TYPES.slice();
+  for (let i = bag.length - 1; i > 0; i--) {
+    const j = Math.floor(s.rng() * (i + 1));
+    [bag[i], bag[j]] = [bag[j], bag[i]];
+  }
+  s.queue.push(...bag);
+}
+
+function cellsOf(type, rot, x, y) {
+  return ROT[type][rot].map(([cx, cy]) => [x + cx, y + cy]);
+}
+
+function collides(board, type, rot, x, y) {
+  for (const [cx, cy] of cellsOf(type, rot, x, y)) {
+    if (cx < 0 || cx >= COLS || cy >= ROWS) return true;
+    if (cy >= 0 && board[cy][cx]) return true;
+  }
+  return false;
+}
+
+function spawn(s) {
+  while (s.queue.length < 7) refill(s);
+  const type = s.queue.shift();
+  s.piece = { type, rot: 0, x: SPAWN_X[type], y: 0 };
+  s.holdUsed = false;
+  s.lockTimer = 0; s.lockResets = 0; s.grounded = false;
+  s.lastKick = 0; s.lastWasRotate = false;
+  // Block-out: the new piece has nowhere to be. That is the game ending, not a failed move.
+  if (collides(s.board, type, 0, s.piece.x, s.piece.y)) { s.over = true; s.piece = null; }
+}
+
+function newGame(opts = {}) {
+  const s = {
+    board: makeBoard(), piece: null, hold: null, holdUsed: false, queue: [],
+    rng: opts.rng || Math.random,
+    score: 0, lines: 0, level: opts.level || 1, combo: -1, b2b: false,
+    lockTimer: 0, lockResets: 0, grounded: false, gravityAcc: 0,
+    over: false, lastKick: 0, lastWasRotate: false,
+    lastClear: null, pieces: 0,
+  };
+  spawn(s);
+  return s;
+}
+
+function tryMove(s, dx, dy) {
+  if (!s.piece || s.over) return false;
+  const p = s.piece;
+  if (collides(s.board, p.type, p.rot, p.x + dx, p.y + dy)) return false;
+  p.x += dx; p.y += dy;
+  s.lastWasRotate = false;
+  touchLock(s);
+  return true;
+}
+
+// Rotate with kicks. dir is +1 clockwise, -1 anticlockwise. Returns false only when all five offsets
+// fail -- which is a real outcome, not a bug: a piece wedged in a well genuinely cannot turn.
+function tryRotate(s, dir) {
+  if (!s.piece || s.over) return false;
+  const p = s.piece;
+  if (p.type === 'O') return false;                     // O has rotational symmetry; turning it is a no-op
+  const to = (p.rot + (dir > 0 ? 1 : 3)) % 4;
+  const table = p.type === 'I' ? KICK_I : KICK_JLSTZ;
+  const kicks = table[p.rot + '>' + to];
+  for (let i = 0; i < kicks.length; i++) {
+    const [kx, ky] = kicks[i];
+    if (!collides(s.board, p.type, to, p.x + kx, p.y + ky)) {
+      p.rot = to; p.x += kx; p.y += ky;
+      s.lastKick = i; s.lastWasRotate = true;
+      touchLock(s);
+      return true;
+    }
+  }
+  return false;
+}
+
+// Any successful action refreshes the lock delay, but only LOCK_RESET_CAP times -- otherwise a player
+// can shuffle a piece sideways forever and the stack never rises.
+function touchLock(s) {
+  if (!s.grounded) return;
+  if (s.lockResets < LOCK_RESET_CAP) { s.lockResets++; s.lockTimer = 0; }
+}
+
+function ghostY(s) {
+  if (!s.piece) return 0;
+  const p = s.piece;
+  let y = p.y;
+  while (!collides(s.board, p.type, p.rot, p.x, y + 1)) y++;
+  return y;
+}
+
+// The 3-corner rule. A T that rotated into place with three of its bounding box's four corners filled
+// was spun in, not dropped in. "Mini" is the weaker case where the two corners the nub faces are not
+// both filled -- unless the last kick offset was used, which is always a full T-spin by convention.
+function tspinKind(s) {
+  const p = s.piece;
+  if (!p || p.type !== 'T' || !s.lastWasRotate) return null;
+  const corners = [[0, 0], [2, 0], [0, 2], [2, 2]];
+  const filled = corners.map(([cx, cy]) => {
+    const x = p.x + cx, y = p.y + cy;
+    return x < 0 || x >= COLS || y >= ROWS || (y >= 0 && !!s.board[y][x]);
+  });
+  const n = filled.filter(Boolean).length;
+  if (n < 3) return null;
+  // Which two corners the nub points at, per rotation: 0 up, 1 right, 2 down, 3 left.
+  const front = [[0, 1], [1, 3], [3, 2], [2, 0]][p.rot];
+  const bothFront = filled[front[0]] && filled[front[1]];
+  return (bothFront || s.lastKick === 4) ? 'tspin' : 'mini';
+}
+
+function clearLines(s) {
+  const kept = s.board.filter(row => row.some(c => !c));
+  const cleared = ROWS - kept.length;
+  while (kept.length < ROWS) kept.unshift(emptyRow());
+  s.board = kept;
+  return cleared;
+}
+
+// Settle the piece into the stack, score whatever it cleared, and bring the next one in.
+function lockPiece(s) {
+  const p = s.piece;
+  const kind = tspinKind(s);
+  let aboveBoard = true;
+  for (const [cx, cy] of cellsOf(p.type, p.rot, p.x, p.y)) {
+    if (cy >= 0) { s.board[cy][cx] = TYPES.indexOf(p.type) + 1; }
+    if (cy >= BUFFER) aboveBoard = false;
+  }
+  // Lock-out: the whole piece came to rest in the hidden rows above the well.
+  if (aboveBoard) { s.over = true; s.piece = null; return; }
+
+  const n = clearLines(s);
+  let gained = 0;
+  const hard = kind === 'tspin', mini = kind === 'mini';
+  if (n > 0 || hard || mini) {
+    if (hard) gained = (TSPIN_SCORE[n] || 400) * s.level;
+    else if (mini) gained = (TSPIN_MINI_SCORE[n] || 0) * s.level;
+    else gained = SCORE[n] * s.level;
+    // Back-to-back: a tetris or any t-spin that follows another one is worth half again.
+    const difficult = n === 4 || hard || mini;
+    if (difficult && s.b2b && n > 0) gained = Math.floor(gained * 1.5);
+    if (n > 0) s.b2b = difficult;
+  }
+  if (n > 0) {
+    s.combo++;
+    if (s.combo > 0) gained += 50 * s.combo * s.level;
+    s.lines += n;
+    s.level = Math.floor(s.lines / 10) + 1;
+  } else {
+    s.combo = -1;
+  }
+  s.score += gained;
+  s.lastClear = { lines: n, tspin: kind, gained, combo: s.combo };
+  s.pieces++;
+  spawn(s);
+}
+
+function hardDrop(s) {
+  if (!s.piece || s.over) return 0;
+  const from = s.piece.y, to = ghostY(s);
+  s.piece.y = to;
+  s.score += 2 * (to - from);
+  s.grounded = true;
+  lockPiece(s);
+  return to - from;
+}
+
+function softDrop(s) {
+  if (!tryMove(s, 0, 1)) return false;
+  s.score += 1;
+  return true;
+}
+
+// Hold swaps the falling piece for the held one, once per piece. Taking a piece out of hold spawns it
+// fresh at the top rather than dropping it in where the old one was.
+function holdPiece(s) {
+  if (!s.piece || s.over || s.holdUsed) return false;
+  const cur = s.piece.type;
+  if (s.hold === null) { s.hold = cur; spawn(s); }
+  else { const swap = s.hold; s.hold = cur; s.queue.unshift(swap); spawn(s); }
+  s.holdUsed = true;
+  return true;
+}
+
+// Advance time. `dt` is seconds and comes from the caller -- nothing here reads a clock, which is what
+// lets a test drop a piece exactly one cell, or sit on the stack for exactly 0.49s and assert it has
+// not locked yet.
+function tick(s, dt, softDropping) {
+  if (s.over || !s.piece) return;
+  const g = gravityFor(s.level) / (softDropping ? 20 : 1);
+  s.gravityAcc += dt;
+  while (s.gravityAcc >= g && !s.over) {
+    s.gravityAcc -= g;
+    if (collides(s.board, s.piece.type, s.piece.rot, s.piece.x, s.piece.y + 1)) break;
+    s.piece.y++;
+    s.lastWasRotate = false;
+    if (softDropping) s.score += 1;
+  }
+  if (s.over || !s.piece) return;
+  const resting = collides(s.board, s.piece.type, s.piece.rot, s.piece.x, s.piece.y + 1);
+  if (resting) {
+    if (!s.grounded) { s.grounded = true; s.lockTimer = 0; s.lockResets = 0; }
+    s.lockTimer += dt;
+    if (s.lockTimer >= LOCK_DELAY) lockPiece(s);
+  } else if (s.grounded) {
+    s.grounded = false; s.lockTimer = 0;
+  }
+}
+
+// Held-key repeat, kept pure so it can be asserted on. Without DAS a piece either crawls or teleports,
+// and no amount of correct rotation makes up for movement that feels wrong.
+const DAS = 0.150, ARR = 0.030;
+function stepDas(st, dt, held) {
+  if (!held) { st.t = 0; st.charged = false; return 0; }
+  st.t += dt;
+  let fires = 0;
+  if (!st.charged) {
+    if (st.t >= DAS) { st.charged = true; st.t -= DAS; fires = 1; }
+    else return 0;
+  }
+  while (st.t >= ARR) { st.t -= ARR; fires++; }
+  return fires;
+}
+
+globalThis.__tetris = { COLS, ROWS, VISIBLE, BUFFER, TYPES, SHAPES, ROT, SPAWN_X, KICK_JLSTZ, KICK_I,
+  LOCK_DELAY, LOCK_RESET_CAP, SCORE, TSPIN_SCORE, DAS, ARR, gravityFor, makeBoard, cellsOf, collides,
+  newGame, spawn, tryMove, tryRotate, ghostY, tspinKind, clearLines, lockPiece, hardDrop, softDrop,
+  holdPiece, tick, stepDas };
+
+// ---------- dgames high scores ----------
+// Shared snippet, pasted verbatim into every game (games stay self-contained). Keeps a top-N table per
+// key in localStorage against the player's name, which is shared by every game. Usage:
+//   const hs = makeHiScores({ key: 'duck-hunt', order: 'desc', max: 10, label: v => v + ' pts' });
+//   if (hs.rank(score) >= 0) hs.prompt(score, 'round 7').then(() => hs.render(document.getElementById('scores')));
+//   hs.render(el)                       // table of the current list
+// `order` is 'desc' (bigger is better) or 'asc' (smaller is better, e.g. shots or seconds).
+// The overlay keeps key events away from the game while it is open. Styling comes from the hs-* classes
+// below; override the --hs-* custom properties to match a game's palette.
+// The name lives at `dgames.player` and is asked for once, then reused everywhere. It used to be three
+// letters read by a window keydown listener into three spans, with nothing focusable on the card -- so a
+// phone had no keyboard to summon and no way to enter a name at all, and every mobile score saved "AAA".
+// One name for the whole collection rather than one per game.
+const HS_PLAYER_KEY = 'dgames.player';
+const hsPlayer = () => { try { return (localStorage.getItem(HS_PLAYER_KEY) || '').trim().slice(0, 12); } catch (e) { return ''; } };
+const hsSetPlayer = (n) => { try { localStorage.setItem(HS_PLAYER_KEY, n); } catch (e) {} };
+
+function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), title = 'High scores' }) {
+  const KEY = 'dgames.hiscores.' + key;
+  const load = () => { try { const l = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
+  const save = (l) => { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch (e) {} };
+  const cmp = (a, b) => (order === 'desc' ? b.value - a.value : a.value - b.value) || a.time - b.time;
+  const sorted = (l) => l.slice().sort(cmp);
+  const better = (v, e) => order === 'desc' ? v > e.value : v < e.value;
+  // 0-based position a value would take, or -1 if it misses the table
+  function rank(value) { const l = sorted(load()); let i = 0; while (i < l.length && !better(value, l[i])) i++; return i < max ? i : -1; }
+  // The field is still called `initials`: entries saved before this held three letters under that key,
+  // and renaming it would orphan every score already on someone's device.
+  function add(value, initials, detail) {
+    const e = { value, initials: String(initials || 'Player').trim().slice(0, 12).trim() || 'Player', detail: detail || '', time: Date.now() };
+    const l = sorted(load().concat([e])).slice(0, max); save(l); return e;
+  }
+  const list = () => sorted(load());
+  const clear = () => save([]);
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function ensureStyle() {
+    if (document.getElementById('hs-style')) return;
+    const st = document.createElement('style'); st.id = 'hs-style';
+    st.textContent = `
+      .hs-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(3,10,20,.72);font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff)}
+      .hs-card{background:var(--hs-bg,#10233a);border:1px solid var(--hs-line,#2c4a6e);border-radius:16px;padding:22px 26px;width:min(360px,92vw);text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.45)}
+      .hs-card h2{margin:0 0 4px;font-size:22px;letter-spacing:2px;color:var(--hs-accent,#ffd54a)}
+      .hs-card .hs-val{font-size:30px;font-weight:700;margin:6px 0 2px}
+      .hs-card .hs-detail,.hs-card .hs-hint{opacity:.7;font-size:13px}
+      .hs-card .hs-rank{margin:4px 0 14px;font-size:14px}
+      .hs-name{display:block;width:100%;margin:8px 0 16px;padding:12px 14px;min-height:48px;box-sizing:border-box;text-align:center;
+        border:2px solid var(--hs-line,#2c4a6e);border-radius:10px;background:rgba(0,0,0,.25);color:inherit;font:inherit;font-size:22px;font-weight:700}
+      .hs-name:focus{outline:none;border-color:var(--hs-accent,#ffd54a)}
+      .hs-btns{display:flex;gap:8px;justify-content:center}
+      .hs-btns button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:9px 18px;cursor:pointer;background:var(--hs-accent,#ffd54a);color:#0b1a2b}
+      .hs-btns button.hs-ghost{background:transparent;color:var(--hs-fg,#fff);border:1px solid var(--hs-line,#2c4a6e);font-weight:400}
+      .hs-btns button:focus-visible{outline:2px solid var(--hs-fg,#fff);outline-offset:2px}
+      .hs-table{width:100%;border-collapse:collapse;font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff);font-variant-numeric:tabular-nums}
+      .hs-table caption{text-align:left;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7;padding:0 0 6px}
+      .hs-table td{padding:4px 6px;border-top:1px solid var(--hs-line,#2c4a6e);font-size:14px}
+      .hs-table td:first-child{opacity:.6;width:2em;text-align:right}
+      .hs-table td.hs-ini{font-weight:700;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .hs-table td.hs-score{text-align:right;color:var(--hs-accent,#ffd54a);font-weight:600}
+      .hs-table td.hs-d{opacity:.65;font-size:12px}
+      .hs-table tr.hs-new td{background:rgba(255,213,74,.12)}
+      .hs-table td.hs-empty{opacity:.55;text-align:center;padding:10px}`;
+    document.head.appendChild(st);
+  }
+  // Modal asking for the player's name, prefilled from `dgames.player` so it is typed once, ever.
+  // Resolves with the saved entry, or null if skipped. Only call when rank(value) >= 0.
+  function prompt(value, detail) {
+    ensureStyle();
+    return new Promise((resolve) => {
+      const r = rank(value);
+      const known = hsPlayer();
+      const ov = document.createElement('div'); ov.className = 'hs-overlay';
+      ov.innerHTML = `<div class="hs-card" role="dialog" aria-label="New high score"><h2>NEW HIGH SCORE</h2>
+        <div class="hs-val">${esc(label(value))}</div><div class="hs-detail">${esc(detail || '')}</div>
+        <div class="hs-rank">#${r + 1} on this device</div>
+        <label class="hs-hint" for="hs-name-input">Your name</label>
+        <input class="hs-name" id="hs-name-input" type="text" maxlength="12" autocomplete="nickname" autocapitalize="words" spellcheck="false" placeholder="Player" value="${esc(known)}">
+        <div class="hs-btns"><button class="hs-ok" type="button">Save</button><button class="hs-ghost hs-skip" type="button">Skip</button></div></div>`;
+      document.body.appendChild(ov);
+      const input = ov.querySelector('.hs-name');
+      const done = (ok) => {
+        window.removeEventListener('keydown', outside, true); window.removeEventListener('keyup', outside, true); window.removeEventListener('keypress', outside, true);
+        const name = (input.value || '').trim().slice(0, 12);
+        ov.remove();
+        if (ok && name) hsSetPlayer(name);
+        resolve(ok ? add(value, name || known || 'Player', detail) : null);
+      };
+      // Game key handlers sit on window in the bubble phase, so stopping the event at the field lets the
+      // character land while keeping the player from also jumping or firing as they type their name.
+      const field = (e) => {
+        e.stopPropagation();
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Enter') { e.preventDefault(); done(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+      };
+      input.addEventListener('keydown', field); input.addEventListener('keyup', field); input.addEventListener('keypress', field);
+      // Anything typed while the field is not focused still must not reach the game underneath.
+      const outside = (e) => {
+        if (e.target === input) return;
+        e.stopPropagation(); e.preventDefault();
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false);
+      };
+      window.addEventListener('keydown', outside, true); window.addEventListener('keyup', outside, true); window.addEventListener('keypress', outside, true);
+      ov.querySelector('.hs-ok').addEventListener('click', () => done(true));
+      ov.querySelector('.hs-skip').addEventListener('click', () => done(false));
+      // A name already known means there is nothing to type, so focus Save and leave the on-screen
+      // keyboard shut; a first-time player gets the field focused and selected instead.
+      if (known) ov.querySelector('.hs-ok').focus(); else { input.focus(); input.select(); }
+    });
+  }
+  // Renders the table into el; the entry whose time equals `newTime` is highlighted.
+  function render(el, newTime) {
+    ensureStyle();
+    const l = list();
+    const rows = l.length ? l.map((e, i) => `<tr${e.time === newTime ? ' class="hs-new"' : ''}><td>${i + 1}</td><td class="hs-ini">${esc(e.initials)}</td><td class="hs-score">${esc(label(e.value))}</td><td class="hs-d">${esc(e.detail)}</td></tr>`).join('')
+      : `<tr><td class="hs-empty" colspan="4">No scores yet. Be the first.</td></tr>`;
+    el.innerHTML = `<table class="hs-table"><caption>${esc(title)}</caption><tbody>${rows}</tbody></table>`;
+  }
+  return { key, rank, add, list, clear, prompt, render };
+}
+
+// ---------- dgames touch controls ----------
+// Shared snippet, pasted verbatim into every game that wants a keyboard (games stay self-contained).
+// A phone has no keys, so the pad turns thumbs into the very same KeyboardEvents the game already
+// listens for: nothing in the game logic knows the difference. Usage:
+//   const pad = makeTouchPad({
+//     stick: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' },
+//     buttons: [{ code: 'Space', label: 'JUMP' }, { code: 'KeyX', label: 'FIRE', main: true }],
+//   });
+//   pad.show(); pad.hide();             // e.g. show on start, hide on the title and end screens
+// `stick` is an eight-way thumbstick (a diagonal holds two keys at once). Pass `dpad` instead for four
+// discrete keys that never combine, which is what a driving game wants. Either may be omitted.
+// The pad renders only on a coarse pointer, so desktop is untouched; `?touch=1` forces it on for testing.
+// Styling comes from the tp-* classes below; override the --tp-* custom properties to match a palette.
+
+// Eight-way: the circle is cut into eight 45-degree sectors, so a diagonal press holds two directions.
+const TP_SECTORS = [['right'], ['right', 'down'], ['down'], ['left', 'down'], ['left'], ['left', 'up'], ['up'], ['right', 'up']];
+// Offset from the stick centre, in units of the stick radius, to the directions it stands for.
+function tpStickDirs(dx, dy, deadzone = 0.35) {
+  if (Math.hypot(dx, dy) < deadzone) return [];
+  const s = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
+  return TP_SECTORS[((s % 8) + 8) % 8];
+}
+
+// Holds a set of key codes down, sending only the transitions so a resting thumb does not restream keydown.
+function tpKeySynth(target) {
+  const held = new Set();
+  const send = (type, code) => target.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true, cancelable: true }));
+  const set = (code, down) => {
+    if (down === held.has(code)) return;
+    if (down) held.add(code); else held.delete(code);
+    send(down ? 'keydown' : 'keyup', code);
+  };
+  return {
+    set, held,
+    // Make exactly `codes` the held set, releasing whatever else this synth was holding.
+    hold(codes) { const want = new Set(codes); for (const c of [...held]) if (!want.has(c)) set(c, false); for (const c of want) set(c, true); },
+    releaseAll() { for (const c of [...held]) set(c, false); },
+  };
+}
+
+function makeTouchPad({ stick = null, dpad = null, buttons = [], target = window } = {}) {
+  const coarse = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)
+    || /[?&]touch=1/.test(location.search);
+  if (!coarse) return { el: null, show() {}, hide() {} };   // desktop: no pad, no listeners, no cost
+
+  if (!document.getElementById('tp-style')) {
+    const st = document.createElement('style'); st.id = 'tp-style';
+    st.textContent = [
+      '.tp{position:fixed;inset:auto 0 0 0;z-index:40;display:flex;justify-content:space-between;align-items:flex-end;',
+      'padding:12px max(14px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));',
+      'pointer-events:none;touch-action:none;user-select:none;-webkit-user-select:none;font-family:var(--tp-font,"Segoe UI",system-ui,sans-serif)}',
+      '.tp[hidden]{display:none}',
+      '.tp-stick{position:relative;width:var(--tp-size,38vw);max-width:170px;aspect-ratio:1;border-radius:50%;pointer-events:auto;touch-action:none;',
+      'background:var(--tp-bg,rgba(8,18,30,.42));border:2px solid var(--tp-line,rgba(255,255,255,.28))}',
+      '.tp-knob{position:absolute;left:50%;top:50%;width:42%;height:42%;border-radius:50%;transform:translate(-50%,-50%);',
+      'background:var(--tp-accent,#ffd54a);opacity:.85;pointer-events:none}',
+      '.tp-dpad{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:6px;width:var(--tp-size,38vw);max-width:170px;aspect-ratio:1;pointer-events:none}',
+      '.tp-dpad .tp-btn{min-width:0;min-height:0;width:100%;height:100%;border-radius:12px;font-size:20px}',
+      '.tp-dpad .tp-up{grid-area:1/2}.tp-dpad .tp-left{grid-area:2/1}.tp-dpad .tp-right{grid-area:2/3}.tp-dpad .tp-down{grid-area:3/2}',
+      // Steering only: two wide paddles side by side beat two small cells marooned in a 3x3 square.
+      '.tp-dpad.tp-lr{grid-template-columns:repeat(2,1fr);grid-template-rows:1fr;gap:10px;aspect-ratio:2.1/1;width:var(--tp-lr-size,52vw);max-width:240px}',
+      '.tp-dpad.tp-lr .tp-left{grid-area:1/1}.tp-dpad.tp-lr .tp-right{grid-area:1/2}',
+      '.tp-btns{display:flex;flex-wrap:wrap-reverse;justify-content:flex-end;align-items:flex-end;gap:10px;max-width:46vw;pointer-events:none}',
+      '.tp-btn{pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;appearance:none;cursor:pointer;',
+      'min-width:74px;min-height:74px;padding:0 10px;border-radius:50%;font:inherit;font-size:13px;font-weight:700;letter-spacing:1px;',
+      'color:var(--tp-fg,#fff);background:var(--tp-bg,rgba(8,18,30,.42));border:2px solid var(--tp-line,rgba(255,255,255,.28))}',
+      '.tp-btn.tp-main{min-width:92px;min-height:92px;font-size:15px;border-color:var(--tp-accent,#ffd54a)}',
+      '.tp-btn.tp-on{background:var(--tp-accent,#ffd54a);color:var(--tp-on-fg,#1a1a1a)}',
+      '@media (orientation:portrait){.tp-stick,.tp-dpad{--tp-size:42vw}}',
+      // Landscape is the orientation an action game wants, and there the playfield fills the screen, so
+      // the pad has nowhere to sit but on top of it. At 844x390 the full-size pad was 196px of a 390px
+      // playfield — half of it. Shrunk, it is about 136px, roughly a third, and every button still
+      // clears 44px. Some overlap is inherent to on-screen controls; the translucent fill is the rest
+      // of the answer, and the player stays horizontally centred where the pad is not.
+      '@media (orientation:landscape) and (pointer:coarse){.tp{padding-top:6px}',
+      '.tp-stick{max-width:116px}.tp-dpad{max-width:150px}',
+      '.tp-btn{min-width:60px;min-height:60px}.tp-btn.tp-main{min-width:72px;min-height:72px}}',
+    ].join('');
+    document.head.appendChild(st);
+  }
+
+  const synth = tpKeySynth(target);
+
+  function tpButton(code, label, main, extra) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'tp-btn' + (main ? ' tp-main' : '') + (extra ? ' ' + extra : '');
+    b.tabIndex = -1; b.textContent = label;
+    const down = (e) => { b.setPointerCapture(e.pointerId); b.classList.add('tp-on'); synth.set(code, true); e.preventDefault(); };
+    const up = (e) => { b.classList.remove('tp-on'); synth.set(code, false); e.preventDefault(); };
+    b.addEventListener('pointerdown', down);
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
+    return b;
+  }
+
+  const el = document.createElement('div');
+  el.className = 'tp'; el.hidden = true;
+  // The pad mirrors keys the game already documents, so it is noise to a screen reader.
+  el.setAttribute('aria-hidden', 'true');
+
+  const left = document.createElement('div');
+  if (stick) {
+    left.className = 'tp-stick';
+    const knob = document.createElement('i'); knob.className = 'tp-knob';
+    left.appendChild(knob);
+    let id = null;
+    const move = (e) => {
+      const r = left.getBoundingClientRect(), rad = r.width / 2;
+      const dx = (e.clientX - (r.left + rad)) / rad, dy = (e.clientY - (r.top + rad)) / rad;
+      synth.hold(tpStickDirs(dx, dy).map((d) => stick[d]).filter(Boolean));
+      const m = Math.min(1, Math.hypot(dx, dy)), a = Math.atan2(dy, dx);
+      knob.style.transform = 'translate(calc(-50% + ' + (Math.cos(a) * m * 42) + '%), calc(-50% + ' + (Math.sin(a) * m * 42) + '%))';
+    };
+    const end = (e) => {
+      if (id !== e.pointerId) return;
+      id = null; synth.releaseAll(); knob.style.transform = 'translate(-50%,-50%)';
+    };
+    left.addEventListener('pointerdown', (e) => { id = e.pointerId; left.setPointerCapture(e.pointerId); move(e); e.preventDefault(); });
+    left.addEventListener('pointermove', (e) => { if (id === e.pointerId) { move(e); e.preventDefault(); } });
+    left.addEventListener('pointerup', end); left.addEventListener('pointercancel', end);
+  } else if (dpad) {
+    // Steering only, no throttle keys: use the wide two-paddle layout instead of a marooned 3x3 cross.
+    const lr = dpad.left && dpad.right && !dpad.up && !dpad.down;
+    left.className = 'tp-dpad' + (lr ? ' tp-lr' : '');
+    const glyph = { up: '▲', down: '▼', left: '◀', right: '▶' };
+    for (const d of ['up', 'left', 'right', 'down']) if (dpad[d]) left.appendChild(tpButton(dpad[d], glyph[d], false, 'tp-' + d));
+  }
+  el.appendChild(left);
+
+  const right = document.createElement('div');
+  right.className = 'tp-btns';
+  for (const b of buttons) right.appendChild(tpButton(b.code, b.label, b.main));
+  el.appendChild(right);
+
+  document.body.appendChild(el);
+  // Backgrounding the tab must not leave the throttle pinned open.
+  window.addEventListener('blur', () => synth.releaseAll());
+  document.addEventListener('visibilitychange', () => { if (document.hidden) synth.releaseAll(); });
+
+  return {
+    el,
+    show() { el.hidden = false; },
+    hide() { synth.releaseAll(); el.hidden = true; },
+  };
+}
+
+// ---------- UI ----------
+const $ = (id) => document.getElementById(id);
+
+// Indexed to match TYPES: I J L O S T Z. Guideline hues, nudged for luminance separation against the
+// dark well so the stack stays readable once pieces have merged into it and their shape is gone.
+const COLOURS = ['', '#2ad4e8', '#4a7cf0', '#f79433', '#f2d648', '#57c25a', '#b164e8', '#ef5350'];
+
+const boardC = $('board'), bctx = boardC.getContext('2d');
+const holdC = $('holdC'), hctx = holdC.getContext('2d');
+const nextC = $('nextC'), nctx = nextC.getContext('2d');
+
+const hs = makeHiScores({ key: 'tetris', order: 'desc', max: 10, label: (v) => v + ' pts', title: 'High scores' });
+
+let S = null, running = false, paused = false, lastT = 0, raf = 0;
+
+// ---- rendering ----
+// The canvas is sized in CSS but drawn at device resolution; without this the well is a blurry mess on
+// any phone, where devicePixelRatio is 2 or 3.
+function fitBoard() {
+  const r = boardC.getBoundingClientRect(), dpr = Math.min(3, window.devicePixelRatio || 1);
+  boardC.width = Math.round(r.width * dpr); boardC.height = Math.round(r.height * dpr);
+}
+
+function cellRect(ctx, x, y, size, colour, ghost) {
+  const p = Math.max(1, size * 0.06);
+  if (ghost) {
+    ctx.strokeStyle = colour; ctx.globalAlpha = 0.55; ctx.lineWidth = Math.max(1.5, size * 0.1);
+    ctx.strokeRect(x + p + ctx.lineWidth / 2, y + p + ctx.lineWidth / 2,
+      size - 2 * p - ctx.lineWidth, size - 2 * p - ctx.lineWidth);
+    ctx.globalAlpha = 1;
+    return;
+  }
+  ctx.fillStyle = colour;
+  ctx.fillRect(x + p, y + p, size - 2 * p, size - 2 * p);
+  // A light top-left edge and a dark bottom-right one: cheap bevel, and it keeps two adjacent blocks of
+  // the same colour from reading as one undifferentiated slab.
+  ctx.fillStyle = 'rgba(255,255,255,.28)';
+  ctx.fillRect(x + p, y + p, size - 2 * p, Math.max(1, size * 0.11));
+  ctx.fillStyle = 'rgba(0,0,0,.30)';
+  ctx.fillRect(x + p, y + size - p - Math.max(1, size * 0.11), size - 2 * p, Math.max(1, size * 0.11));
+}
+
+function draw() {
+  const w = boardC.width, h = boardC.height, size = w / COLS;
+  bctx.clearRect(0, 0, w, h);
+  // faint grid so an empty well still reads as ten columns rather than a void
+  bctx.strokeStyle = 'rgba(122,163,204,.10)'; bctx.lineWidth = 1;
+  for (let x = 1; x < COLS; x++) { bctx.beginPath(); bctx.moveTo(Math.round(x * size) + .5, 0); bctx.lineTo(Math.round(x * size) + .5, h); bctx.stroke(); }
+  for (let y = 1; y < VISIBLE; y++) { bctx.beginPath(); bctx.moveTo(0, Math.round(y * size) + .5); bctx.lineTo(w, Math.round(y * size) + .5); bctx.stroke(); }
+  if (!S) return;
+  for (let y = BUFFER; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const v = S.board[y][x];
+    if (v) cellRect(bctx, x * size, (y - BUFFER) * size, size, COLOURS[v], false);
+  }
+  if (S.piece) {
+    const col = COLOURS[TYPES.indexOf(S.piece.type) + 1];
+    const gy = ghostY(S);
+    for (const [cx, cy] of cellsOf(S.piece.type, S.piece.rot, S.piece.x, gy))
+      if (cy >= BUFFER) cellRect(bctx, cx * size, (cy - BUFFER) * size, size, col, true);
+    for (const [cx, cy] of cellsOf(S.piece.type, S.piece.rot, S.piece.x, S.piece.y))
+      if (cy >= BUFFER) cellRect(bctx, cx * size, (cy - BUFFER) * size, size, col, false);
+  }
+}
+
+// Draw one piece centred in a preview box, with its letter, so the queue is unambiguous even to someone
+// who cannot separate the green S from the cyan I by hue alone.
+function drawPreview(ctx, type, boxY, boxH) {
+  const w = ctx.canvas.width;
+  if (!type) return;
+  const cells = ROT[type][0], size = Math.min(w / 5.6, boxH / 3.4);
+  let minX = 9, maxX = -9, minY = 9, maxY = -9;
+  for (const [x, y] of cells) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+  const pw = (maxX - minX + 1) * size, ph = (maxY - minY + 1) * size;
+  const ox = (w - pw) / 2 - minX * size, oy = boxY + (boxH - ph) / 2 - minY * size;
+  const col = COLOURS[TYPES.indexOf(type) + 1];
+  for (const [x, y] of cells) cellRect(ctx, ox + x * size, oy + y * size, size, col, false);
+  ctx.fillStyle = 'rgba(234,242,251,.5)'; ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText(type, 4, boxY + 3);
+}
+
+function drawSide() {
+  hctx.clearRect(0, 0, holdC.width, holdC.height);
+  if (S) drawPreview(hctx, S.hold, 0, holdC.height);
+  if (S && S.holdUsed) { hctx.fillStyle = 'rgba(11,26,43,.55)'; hctx.fillRect(0, 0, holdC.width, holdC.height); }
+  nctx.clearRect(0, 0, nextC.width, nextC.height);
+  if (!S) return;
+  const n = 3, boxH = nextC.height / n;
+  for (let i = 0; i < n; i++) drawPreview(nctx, S.queue[i], i * boxH, boxH);
+}
+
+function hud() {
+  if (!S) return;
+  $('score').textContent = S.score;
+  $('lines').textContent = S.lines;
+  $('level').textContent = S.level;
+}
+
+// ---- input ----
+// Guideline key set, plus the aliases people reach for. ArrowUp rotates clockwise because that is what
+// three decades of Tetris has trained; Shift holds because C is awkward one-handed.
+const ACTION = {
+  ArrowLeft: 'left', ArrowRight: 'right', ArrowDown: 'soft',
+  ArrowUp: 'cw', KeyX: 'cw', KeyZ: 'ccw', ControlLeft: 'ccw', ControlRight: 'ccw',
+  Space: 'drop', KeyC: 'hold', ShiftLeft: 'hold', ShiftRight: 'hold',
+  Escape: 'pause', KeyP: 'pause',
+};
+const held = { left: false, right: false, soft: false };
+const das = { left: { t: 0, charged: false }, right: { t: 0, charged: false } };
+
+function act(a) {
+  if (!S || S.over) return;
+  if (a === 'left') { tryMove(S, -1, 0); das.left.t = 0; das.left.charged = false; }
+  else if (a === 'right') { tryMove(S, 1, 0); das.right.t = 0; das.right.charged = false; }
+  else if (a === 'cw') tryRotate(S, 1);
+  else if (a === 'ccw') tryRotate(S, -1);
+  else if (a === 'drop') { hardDrop(S); afterLock(); }
+  else if (a === 'hold') holdPiece(S);
+}
+
+function onKey(e, down) {
+  if (document.querySelector('.hs-overlay')) return;     // the name prompt owns the keyboard while open
+  const a = ACTION[e.code];
+  if (!a) return;
+  e.preventDefault();
+  if (a === 'pause') { if (down && running) togglePause(); return; }
+  if (a === 'left' || a === 'right' || a === 'soft') {
+    if (held[a] === down) return;
+    held[a] = down;
+    if (down && a !== 'soft') act(a);
+    return;
+  }
+  if (down && !paused) act(a);
+}
+addEventListener('keydown', (e) => onKey(e, true));
+addEventListener('keyup', (e) => onKey(e, false));
+addEventListener('blur', () => { held.left = held.right = held.soft = false; });
+
+// The shared pad rather than bespoke swipes. Swipe-to-move is what a native Tetris would do, but it is
+// untested code that has to disambiguate a flick from a tap, and the two games that shipped unplayable
+// on a phone this year both did so because their touch story was invented rather than reused. The pad
+// synthesises the very key events above, so everything already proven keeps working, and the per-game
+// touch test can check every code it emits against ACTION.
+const pad = makeTouchPad({
+  dpad: { left: 'ArrowLeft', right: 'ArrowRight', down: 'ArrowDown', up: 'ArrowUp' },
+  buttons: [{ code: 'KeyC', label: 'HOLD' }, { code: 'KeyZ', label: '↺' }, { code: 'Space', label: 'DROP', main: true }],
+});
+
+// ---- flow ----
+function afterLock() {
+  if (!S) return;
+  const c = S.lastClear;
+  if (c && (c.lines || c.tspin)) {
+    const names = { 1: 'Single', 2: 'Double', 3: 'Triple', 4: 'TETRIS' };
+    let t = c.tspin === 'tspin' ? 'T-SPIN ' + (names[c.lines] || '') : c.tspin === 'mini' ? 'T-spin mini ' + (names[c.lines] || '') : (names[c.lines] || '');
+    if (c.combo > 0) t += '  combo ' + c.combo;
+    $('msg').textContent = t.trim() + '  +' + c.gained;
+  }
+  if (S.over) endGame();
+}
+
+function loop(t) {
+  raf = requestAnimationFrame(loop);
+  if (!running || paused || !S) { lastT = t; return; }
+  const dt = Math.min(0.1, (t - lastT) / 1000 || 0);
+  lastT = t;
+  for (const side of ['left', 'right']) {
+    const n = stepDas(das[side], dt, held[side]);
+    for (let i = 0; i < n; i++) tryMove(S, side === 'left' ? -1 : 1, 0);
+  }
+  const before = S.pieces;
+  tick(S, dt, held.soft);
+  if (S.pieces !== before || S.over) afterLock();
+  hud(); draw(); drawSide();
+}
+
+function start() {
+  S = newGame({ rng: Math.random });
+  running = true; paused = false; lastT = performance.now();
+  held.left = held.right = held.soft = false;
+  $('msg').textContent = '';
+  $('startOv').hidden = true; $('overOv').hidden = true; $('pauseOv').hidden = true;
+  pad.show();
+  fitBoard(); hud(); draw(); drawSide();
+}
+
+function togglePause() {
+  paused = !paused;
+  $('pauseOv').hidden = !paused;
+  if (paused) pad.hide(); else { pad.show(); lastT = performance.now(); }
+}
+
+function toMenu() {
+  running = false; paused = false;
+  $('pauseOv').hidden = true; $('overOv').hidden = true; $('startOv').hidden = false;
+  pad.hide();
+}
+
+function endGame() {
+  running = false;
+  pad.hide();
+  $('overTitle').textContent = 'GAME OVER';
+  $('overText').textContent = S.score + ' points  ·  ' + S.lines + ' lines  ·  level ' + S.level;
+  $('overOv').hidden = false;
+  const detail = S.lines + ' lines, level ' + S.level;
+  if (S.score > 0 && hs.rank(S.score) >= 0) hs.prompt(S.score, detail).then((e) => hs.render($('hiscores'), e && e.time));
+  else hs.render($('hiscores'));
+}
+
+$('startBtn').addEventListener('click', start);
+$('againBtn').addEventListener('click', start);
+$('resumeBtn').addEventListener('click', togglePause);
+$('quitBtn').addEventListener('click', toMenu);
+addEventListener('resize', () => { fitBoard(); draw(); });
+
+hs.render($('hiscores'));
+fitBoard(); draw(); drawSide();
+raf = requestAnimationFrame(loop);
+</script>
+</body>
+</html>
