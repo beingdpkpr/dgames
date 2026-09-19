@@ -262,7 +262,11 @@ const COLORS = {
   duck: { body: '#4e3423', bodyLight: '#8a5a36', belly: '#c9b596', wing: '#31211a', wingLight: '#6a4a34',
           head: '#1f6b3a', headLight: '#4fb068', beak: '#e9b53a', ring: '#f4f0e6', eye: '#151515' },
   feathers: ['#f4f0e6', '#c9b8a0', '#8a5a36', '#4e3423', '#43a35c', '#e9b53a'],
-  dog: '#1a1426', bubble: '#f6ead0'
+  /* The dog was one flat #1a1426 for every part, so a carefully built shape -- chest, haunch, head,
+     snout, ear -- rendered as a single silhouette and a playtester read it as a shapeless blob. It is
+     the only character in the collection with personality. Fur, a darker ear and back, and a cream
+     muzzle and chest give the parts something to separate against. */
+  dog: '#8a5a34', dogDark: '#5c3a20', dogLight: '#ecd8b6', dogNose: '#241a16', bubble: '#f6ead0'
 };
 const DUCK_BASE_SPEED = 240;   // px/s at 1280x720 in round 1, before round scaling
 const DUCK_SIZE = 27;          // body half-length in px at 1280x720
@@ -837,13 +841,20 @@ if (typeof document !== 'undefined') (function () {
     if (!laugh) { c.beginPath(); c.ellipse(30, -140, 9, 50, 0.3, 0, TAU); c.stroke(); }
     c.fillStyle = COLORS.dog;
     c.beginPath(); c.ellipse(0, -20, 42, 46, 0, 0, TAU); c.fill();                     // chest
-    c.beginPath(); c.ellipse(-30, 10, 28, 40, 0.3, 0, TAU); c.fill();                  // haunch
+    c.fillStyle = COLORS.dogDark;
+    c.beginPath(); c.ellipse(-30, 10, 28, 40, 0.3, 0, TAU); c.fill();                  // haunch, behind the chest
+    c.fillStyle = COLORS.dogLight;
+    c.beginPath(); c.ellipse(6, -8, 22, 30, 0.1, 0, TAU); c.fill();                    // chest blaze
+    c.fillStyle = COLORS.dog;
     if (!laugh) { c.beginPath(); c.ellipse(30, -140, 9, 50, 0.3, 0, TAU); c.fill(); c.beginPath(); c.arc(44, -190, 8, 0, TAU); c.fill(); }   // raised arm and paw
     c.beginPath(); c.ellipse(20, -88, 27, 25, 0, 0, TAU); c.fill();                    // head
-    c.beginPath(); c.ellipse(46, -80, 20, 12, 0.15, 0, TAU); c.fill();                 // snout
+    c.fillStyle = COLORS.dogLight;
+    c.beginPath(); c.ellipse(46, -80, 20, 12, 0.15, 0, TAU); c.fill();                 // cream muzzle: the part that makes it read as a face
+    c.fillStyle = COLORS.dogDark;
     c.beginPath(); c.ellipse(-2, -82, 11, 22, 0.5, 0, TAU); c.fill();                  // ear
+    c.fillStyle = COLORS.dogNose;
     c.beginPath(); c.arc(62, -85, 4.5, 0, TAU); c.fill();                              // nose
-    if (laugh) { c.beginPath(); c.ellipse(40, -50, 12, 9, 0.2, 0, TAU); c.fill(); }    // paw on the ground
+    if (laugh) { c.fillStyle = COLORS.dogLight; c.beginPath(); c.ellipse(40, -50, 12, 9, 0.2, 0, TAU); c.fill(); }   // pale paw on the ground
     c.strokeStyle = '#f6ead0'; c.lineWidth = 2.4; c.lineCap = 'round';
     c.beginPath(); c.arc(14, -95, 5, Math.PI * 1.15, Math.PI * 1.85); c.stroke();     // happy eyes
     c.beginPath(); c.arc(30, -95, 5, Math.PI * 1.15, Math.PI * 1.85); c.stroke();
@@ -863,6 +874,8 @@ if (typeof document !== 'undefined') (function () {
         c.restore();
       }
     } else {
+      // Dark, not the cream used for the eyes: this arc sits ON the new cream muzzle and would vanish.
+      c.strokeStyle = COLORS.dogNose;
       c.beginPath(); c.arc(50, -76, 7, Math.PI * 0.1, Math.PI * 0.9); c.stroke();      // closed grin
     }
     c.restore();
