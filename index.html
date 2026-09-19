@@ -18,32 +18,94 @@
 </script>
 <title>dgames</title>
 <style>
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b1a2b; color: #fff; font-family: "Segoe UI", system-ui, sans-serif; }
-  main { width: min(640px, 92vw); }
-  h1 { font-size: 40px; letter-spacing: 2px; margin: 0 0 6px; }
+  body { margin: 0; min-height: 100vh; min-height: 100dvh; background: #0b1a2b; color: #fff;
+    font-family: "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; align-items: center;
+    padding: 26px 16px max(26px, env(safe-area-inset-bottom)); }
+  main { width: min(1120px, 100%); }
+  h1 { font-size: clamp(30px, 7vw, 42px); letter-spacing: 2px; margin: 0 0 6px; }
   h1 span { color: #ffd54a; }
-  p { opacity: .8; margin: 0 0 24px; }
-  a.game { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 22px; margin: 10px 0; border-radius: 14px; background: #10233a; border: 1px solid #2c4a6e; color: #fff; text-decoration: none; }
-  a.game:hover { border-color: #ffd54a; }
-  a.game b { font-size: 20px; }
-  a.game small { opacity: .75; }
+  .lede { opacity: .8; margin: 0 0 22px; }
+
+  /* Eleven games stacked in one 640px column ran 1.8 screens on a phone and left both sides of a
+     1280px desktop empty. A grid puts the whole collection on one screen on a laptop and halves the
+     scroll on a phone. */
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (min-width: 640px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; } }
+  @media (min-width: 940px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+  a.game { display: flex; flex-direction: column; gap: 6px; padding: 14px 14px 16px; border-radius: 16px;
+    background: #10233a; border: 1px solid #456f9e; color: #fff; text-decoration: none; }
+  a.game:hover, a.game:focus-visible { border-color: #ffd54a; }
+  /* The emoji was ~16px, sitting at the end of a row, and unidentifiable. It is the only picture each
+     card gets, so it leads. */
+  .ico { font-size: 30px; line-height: 1; }
+  a.game b { font-size: 16px; letter-spacing: .3px; }
+  /* #2c4a6e measured 1.75:1 against the card; #456f9e is 3.04:1, the value the other games moved to. */
+  a.game small { font-size: 12px; line-height: 1.45; opacity: .72; }
+  :focus-visible { outline: 3px solid #ffd54a; outline-offset: 2px; }
 </style>
 </head>
 <body>
 <main>
   <h1>D<span>GAMES</span></h1>
-  <p>Small browser games. Pick one.</p>
-  <a class="game" href="cricket-3d/index.html"><span><b>Cricket 3D</b><br><small>Batting only. Ten national teams, quick play or a knockout tournament.</small></span><span>🏏</span></a>
-  <a class="game" href="tic-tac-toe/index.html"><span><b>Tic-tac-toe</b><br><small>Against the computer. Easy, Normal or unbeatable Hard.</small></span><span>❌⭕</span></a>
-  <a class="game" href="dots-and-boxes/index.html"><span><b>Dots &amp; Boxes</b><br><small>Two to five players, any seat human or computer. Draw lines, close boxes, go again.</small></span><span>🔷</span></a>
-  <a class="game" href="duck-hunt/index.html"><span><b>Duck Hunt Reimagined</b><br><small>Click to shoot. Painterly dawn marsh, rounds that get meaner, a dog that laughs.</small></span><span>🦆</span></a>
-  <a class="game" href="rush-lane/index.html"><span><b>Rush Lane</b><br><small>Pastel jungle kart racing. Three circuits, four racers, three laps, items to fire and block.</small></span><span>🏎️</span></a>
-  <a class="game" href="battleship/index.html"><span><b>Battleship</b><br><small>Dark-ocean Battleship against a hunting computer or pass-and-play. Optional go-again house rule.</small></span><span>🚢</span></a>
-  <a class="game" href="strike-force/index.html"><span><b>Strike Force</b><br><small>Run-and-gun jungle side-scroller. Eight-way aim, power-ups, checkpoints, a boss at the end.</small></span><span>🔫</span></a>
-  <a class="game" href="penfight/index.html"><span><b>Penfight</b><br><small>Recess pen fight in 3D. Flick your pens, knock theirs off the desk; computer or two on one device.</small></span><span>✏️</span></a>
-  <a class="game" href="ludo/index.html"><span><b>Ludo</b><br><small>Classic Indian Ludo, two to four players, any seat human or computer. Six to come out, exact count to get home.</small></span><span>🎲</span></a>
-  <a class="game" href="tetris/index.html"><span><b>Tetris</b><br><small>Guideline rules: wall kicks, a seven-bag, hold, ghost piece and T-spins. Stack, clear, survive.</small></span><span>🟦</span></a>
-  <a class="game" href="excitebike/index.html"><span><b>Excitebike</b><br><small>Side-on motocross. Spend the turbo, watch the temperature, hit the arrows to cool, land level.</small></span><span>🏍️</span></a>
+  <p class="lede">Small browser games. Pick one.</p>
+  <div class="grid">
+    <a class="game" href="cricket-3d/index.html">
+      <span class="ico" aria-hidden="true">🏏</span>
+      <b>Cricket 3D</b>
+      <small>Batting only. Ten national teams, quick play or a knockout tournament.</small>
+    </a>
+    <a class="game" href="tic-tac-toe/index.html">
+      <span class="ico" aria-hidden="true">❌⭕</span>
+      <b>Tic-tac-toe</b>
+      <small>Against the computer. Easy, Normal or unbeatable Hard.</small>
+    </a>
+    <a class="game" href="dots-and-boxes/index.html">
+      <span class="ico" aria-hidden="true">🔷</span>
+      <b>Dots &amp; Boxes</b>
+      <small>Two to five players, any seat human or computer. Draw lines, close boxes, go again.</small>
+    </a>
+    <a class="game" href="duck-hunt/index.html">
+      <span class="ico" aria-hidden="true">🦆</span>
+      <b>Duck Hunt Reimagined</b>
+      <small>Click to shoot. Painterly dawn marsh, rounds that get meaner, a dog that laughs.</small>
+    </a>
+    <a class="game" href="rush-lane/index.html">
+      <span class="ico" aria-hidden="true">🏎️</span>
+      <b>Rush Lane</b>
+      <small>Pastel jungle kart racing. Three circuits, four racers, three laps, items to fire and block.</small>
+    </a>
+    <a class="game" href="battleship/index.html">
+      <span class="ico" aria-hidden="true">🚢</span>
+      <b>Battleship</b>
+      <small>Dark-ocean Battleship against a hunting computer or pass-and-play. Optional go-again house rule.</small>
+    </a>
+    <a class="game" href="strike-force/index.html">
+      <span class="ico" aria-hidden="true">🔫</span>
+      <b>Strike Force</b>
+      <small>Run-and-gun jungle side-scroller. Eight-way aim, power-ups, checkpoints, a boss at the end.</small>
+    </a>
+    <a class="game" href="penfight/index.html">
+      <span class="ico" aria-hidden="true">✏️</span>
+      <b>Penfight</b>
+      <small>Recess pen fight in 3D. Flick your pens, knock theirs off the desk; computer or two on one device.</small>
+    </a>
+    <a class="game" href="ludo/index.html">
+      <span class="ico" aria-hidden="true">🎲</span>
+      <b>Ludo</b>
+      <small>Classic Indian Ludo, two to four players, any seat human or computer. Six to come out, exact count to get home.</small>
+    </a>
+    <a class="game" href="tetris/index.html">
+      <span class="ico" aria-hidden="true">🟦</span>
+      <b>Tetris</b>
+      <small>Guideline rules: wall kicks, a seven-bag, hold, ghost piece and T-spins. Stack, clear, survive.</small>
+    </a>
+    <a class="game" href="excitebike/index.html">
+      <span class="ico" aria-hidden="true">🏍️</span>
+      <b>Excitebike</b>
+      <small>Side-on motocross. Spend the turbo, watch the temperature, hit the arrows to cool, land level.</small>
+    </a>
+  </div>
 </main>
 </body>
 </html>
