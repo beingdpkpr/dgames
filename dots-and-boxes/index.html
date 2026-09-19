@@ -624,7 +624,24 @@ function strokeEdge(e, color, progress, ghost) {
   ctx.lineTo(a[0] + (b[0] - a[0]) * progress, a[1] + (b[1] - a[1]) * progress); ctx.stroke();
   ctx.restore();
 }
+// Every edge nobody has taken yet, very faint. The empty board was 36 dots on near-black with nothing
+// between them and read as unfinished until a few moves were down -- a playtester called it the weakest
+// screen in the collection. The hover ghost already existed but a phone has no hover, so on touch the
+// lattice was never drawn at all. This shows the shape you are playing on from the first frame.
+function drawAvailable() {
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineWidth = LINE_WIDTH * 0.5;
+  ctx.strokeStyle = COLORS.dot; ctx.globalAlpha = 0.14;
+  const each = (t, grid) => grid.forEach((row, r) => row.forEach((p, c) => {
+    if (p) return;
+    const [pa, pb] = edgeEnds({ t, r, c });
+    ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+  }));
+  each('h', S.h); each('v', S.v);
+  ctx.restore();
+}
 function drawEdges(now) {
+  drawAvailable();
   const each = (t, grid) => grid.forEach((row, r) => row.forEach((p, c) => {
     if (!p) return;
     const e = { t, r, c };
