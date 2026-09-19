@@ -34,6 +34,23 @@ Also on the track: ramps of varying steepness, moguls that bounce you, and soft 
 
 A top-ten table of lap times per mode, ascending because lower is better, stored at `dgames.hiscores.excitebike` under the player name shared across every game.
 
+## What moves
+
+The first version drew a correct picture of a static object. `ctx.rotate` was called once in the whole
+file — the in-air pitch — there were no particles, and the wheels were concentric circles, which are
+rotationally symmetric and so could not have shown rotation even if something had turned them. At a
+displayed 103 mph nothing on the bike moved.
+
+Now: the wheels roll at `distance / 0.32 m`, so the spokes turn at the speed you are actually doing; the
+suspension is a spring that compresses on landing by how hard you hit and extends in the air; the rider
+crouches over the bars on the hot throttle, sits up coasting and shifts back over a jump; the rear wheel
+throws dirt, more of it under turbo and a burst on touchdown; a crash throws the rider clear on a
+ballistic arc to tumble and slide, with the bike left on its side; and a landing shakes the camera.
+
+Animation state lives in a separate `fx` object, never on `g.bike`, so the headless tests see exactly
+the model they saw before. `prefers-reduced-motion` cuts the particle budget and disables the shake.
+Measured cost with particles live: 16.7 ms median a frame, 18.5 ms at the 95th percentile.
+
 ## Tests
 
 `node test/sim.js` runs 43 checks against the pure engine, pulled out of `index.html` with node's `vm`. The physics step takes `dt` as an argument and the track takes a seed, so every scenario is set up directly rather than waited for: the stall timer, a level landing staying on the bike and counting clean, crossing the finish line, the same seed building the same track and a different one building another, every generated feature sitting in a real lane, and clipping a rival from behind throwing you off.
