@@ -16,7 +16,6 @@ Play them at **<https://beingdpkpr.github.io/dgames/>**, or open any `index.html
 | Penfight | `penfight/` | 3D pen-flicking on a school desk, against the computer or two players on one device. Imported as a bundled file. Tests: `node test/physics.js`, `node test/hiscore.js` inside the folder. |
 | Ludo | `ludo/` | Classic Indian Ludo, 2 to 4 players, each seat human or computer (three levels). Tests: `node test/rules.js`, `node test/ai.js`, `node test/record.js` inside the folder. |
 | Tetris | `tetris/` | Guideline-rules Tetris: SRS wall kicks, seven-bag, hold, ghost, T-spins. Test: `node test/engine.js` inside the folder. |
-| Excitebike | `excitebike/` | Side-on motocross after the 1984 original: turbo that overheats, cooling arrows, mid-air lean to land level. Test: `node test/sim.js` inside the folder. |
 
 Conventions: one folder per game with its own `README.md`, `package.json` (only if it needs tooling) and `test/`. Keep games self-contained so any one can be opened or published on its own.
 
