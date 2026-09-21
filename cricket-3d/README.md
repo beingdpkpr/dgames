@@ -28,8 +28,14 @@ About four thousand spectators fill the seven tiers and jump for boundaries and 
 ## Fielding
 The field is set before every ball: fielders are back in position and standing still by the time the bowler starts his run-up. Every fielder predicts the ball's path and runs for the earliest point they can reach, with a judgement error that shrinks as the ball nears. Hard-hit balls must come straight to hand or need a dive; misfields happen.
 
+The first overs are a **powerplay**, and the field stays up through it whatever you are doing to the bowling. That is the real rule — only two fielders may stand outside the circle — rather than a captain's preference, so scoring quickly does not push the field back. It is 30% of the innings: six overs of twenty, which is exactly the T20 figure, scaling to three of ten, two of five and one of two. The over message counts it down and says when it ends.
+
+Before this, the powerplay was only a hint — the field attacked while `match.balls < 12` — and that hint sat *after* a run-rate test in the same ternary. A boundary off the first ball put the run rate at 24, tripped the `rr > 9` branch, and spread the field immediately, in the overs where spreading it is not allowed.
+
 ## Extras and LBW
-Wides (sprayed balls, and anything over head height that you leave) and no-balls cost a run and are re-bowled; a no-ball gives a free hit on the next ball, when only a run out can get you. Balls that beat the keeper run for byes, balls off the pads run for leg byes, and a pad hit that would have gone on to hit the stumps is LBW unless it pitched outside leg. Extras count for the total and the chase but not for the batter.
+Wides (sprayed balls, and anything over head height that you leave) and no-balls cost a run and are re-bowled; a no-ball gives a free hit on the next ball, when only a run out can get you. Balls that beat the keeper run for byes, balls off the pads run for leg byes, and a pad hit that would have gone on to hit the stumps is LBW unless it pitched outside leg.
+
+That last one did not fire for a long time. The pad plane is `z = -1.25` and the stumps are `z = 0`, 1.25 m apart, but the pad zone was centred at `x = -0.3` while the stump-hitting test wants `|x| < 0.16`. A ball striking the pad therefore had to drift 0.3 m sideways in 1.25 m — roughly 6 m/s of lateral movement, which nothing in the game bowls. The dismissal was documented and unreachable. The zone now reaches the stump line, and because that alone would turn every straight ball past the bat into an LBW and retire "bowled" entirely, a coin decides whether a pad was actually in the way: pad first is LBW, otherwise the ball carries on and hits the stumps. Extras count for the total and the chase but not for the batter.
 
 ## Run outs
 Once a ball is fielded it is thrown at the end the striker is running to. Batters nearly home make it, batters well short turn back, and in between they take on the throw: a direct hit runs them out.

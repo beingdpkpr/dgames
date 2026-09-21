@@ -1181,14 +1181,24 @@ function drawRadar() {
 // =====================================================================
 // The captain sets the field from the match situation: chasing hard brings the boundary riders in
 // play, a comfortable chase or a new batter brings the catchers in.
+// The powerplay is a fielding RESTRICTION, not a captain's choice: for the first overs only two
+// fielders may stand outside the circle, so the field stays up whatever the batter is doing. Six of
+// twenty in a real T20, which is the 0.3 below -- at 20 overs that is exactly six, and it scales down
+// to two at five overs and one at two.
+const powerplayBalls = () => Math.max(1, Math.round(totalOvers * 0.3)) * 6;
 function pickField() {
   let key = 'balanced';
-  if (target !== null) {
+  if (match.balls < powerplayBalls()) {
+    // Before this the powerplay was only a hint, match.balls under 12, and it sat AFTER the rr-over-9
+    // test in the same ternary -- so a boundary off the first ball put the run rate at 24 and spread the
+    // field immediately, during the overs when spreading it is not allowed.
+    key = 'attack';
+  } else if (target !== null) {
     const need = (target - match.runs) / Math.max(1, totalBalls - match.balls);
     key = need > 1.6 ? 'defend' : need < 0.9 ? 'attack' : 'balanced';
   } else {
     const rr = match.balls ? match.runs * 6 / match.balls : 0, oversLeft = (totalBalls - match.balls) / 6;
-    key = (oversLeft <= 2 || rr > 9) ? 'defend' : (match.balls < 12 || rr < 5) ? 'attack' : 'balanced';
+    key = (oversLeft <= 2 || rr > 9) ? 'defend' : rr < 5 ? 'attack' : 'balanced';
   }
   fieldKey = key;
   FIELDS[key].pos.forEach(([name, x, z], i) => { const f = fielders[i]; f.name = name; f.home.set(x * hand(), 0, z); f.target.copy(f.home); });
@@ -1697,7 +1707,15 @@ function nextBall() {
   if (notices.length) { showMsg(notices.shift(), 'info'); }
   if (match.balls % 6 === 0) {
     match.over = []; const prev = fieldKey; pickField(); pickBowler(); updateHud();
-    if (match.balls > 0 && !notices.length) showMsg(`Over ${match.balls / 6} done${prev !== fieldKey ? ` · ${FIELDS[fieldKey].label} field` : ''}`, 'info');
+    // Name the powerplay while it lasts, and name the over it ends on. A field that stays up for six
+    // overs and then spreads looks arbitrary unless the player knows why it was up in the first place.
+    if (match.balls > 0 && !notices.length) {
+      const ppOvers = powerplayBalls() / 6, inPP = match.balls < powerplayBalls();
+      const note = inPP ? ` · powerplay, ${ppOvers - match.balls / 6} over${ppOvers - match.balls / 6 === 1 ? '' : 's'} left`
+        : match.balls === powerplayBalls() ? ` · powerplay over · ${FIELDS[fieldKey].label} field`
+        : prev !== fieldKey ? ` · ${FIELDS[fieldKey].label} field` : '';
+      showMsg(`Over ${match.balls / 6} done${note}`, 'info');
+    }
   }
   startRunup();
 }
@@ -1933,13 +1951,25 @@ function checkEvents() {
     if ((b.phase === 'delivery' || b.phase === 'miss') && b.prev.z < STUMPS_Z && b.pos.z >= STUMPS_Z) {
       if (Math.abs(b.pos.x) < 0.17 && b.pos.y < 0.78) { stumpsFall = simTime; b.vel.multiplyScalar(0.25); b.vel.y = 1.5; b.phase = 'bowled'; endBall({ wicket: 'Bowled', how: `b ${curBowler.name}` }); return; }
     }
-    if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.3 * hand()) < 0.2 && b.pos.y > 0.1 && b.pos.y <= 0.85) {
+    // The pad zone used to sit at x = -0.3 while the stump-hitting test below wants |x| < 0.16. The pad
+    // plane is z = -1.25 and the stumps are z = 0, so a ball striking the pad had to drift 0.3 m across
+    // 1.25 m to go on and hit -- about 6 m/s sideways, which nothing here bowls. LBW could not fire at
+    // all, which is why the README described a dismissal nobody ever saw. The zone now reaches the stump
+    // line, so a ball on the stumps can actually strike a pad.
+    if ((b.phase === 'miss' || b.phase === 'delivery') && b.prev.z < -1.25 && b.pos.z >= -1.25 && Math.abs(b.pos.x + 0.18 * hand()) < 0.3 && b.pos.y > 0.1 && b.pos.y <= 0.85) {
       // on the pads: would it have hit the stumps? pitched outside leg is never out
       const t = (STUMPS_Z - b.pos.z) / b.vel.z, xs = b.pos.x + b.vel.x * t, ys = b.pos.y + b.vel.y * t - 0.5 * G * t * t;
       const hitting = Math.abs(xs) < 0.16 && ys > 0 && ys < 0.75 && b.pitchX * hand() > -0.2;
-      if (hitting && !freeHit && !b.noBall) {
-        b.vel.set(rand(-1, 1) * 2, 1.2, -1.5); b.phase = 'blow'; flinchUntil = simTime + 1.2; swing = null;
-        endBall({ wicket: 'LBW', how: `lbw b ${curBowler.name}` }); return;
+      if (hitting) {
+        // Widening the zone over the stump line would otherwise turn every straight ball that beat the
+        // bat into an lbw and retire "bowled" altogether. Whether a pad is actually in the way is the
+        // coin this roll stands in for: pad first is lbw, everything else carries on and hits the stumps
+        // next frame, because the bowled test sits earlier in this same function at z >= STUMPS_Z.
+        if (!freeHit && !b.noBall && Math.random() < 0.5) {
+          b.vel.set(rand(-1, 1) * 2, 1.2, -1.5); b.phase = 'blow'; flinchUntil = simTime + 1.2; swing = null;
+          endBall({ wicket: 'LBW', how: `lbw b ${curBowler.name}` }); return;
+        }
+        return;   // beaten, and no pad in the way: let it carry on to the stumps
       }
       // off the pads for leg byes: a soft deflection to the leg side, fielders and runners take over
       const dir = -hand();
