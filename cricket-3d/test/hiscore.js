@@ -41,7 +41,7 @@ THREE.WebGLRenderer = class { constructor(){ this.shadowMap={}; } setPixelRatio(
 const noop = new Proxy({}, { get: (t, k) => (k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
 const els = {}; const mkEl = (id) => els[id] || (els[id] = { id, width: 300, height: 300, textContent:'', innerHTML:'', className:'', style:{}, children:[], classList:{add(){},remove(){},toggle(){}}, addEventListener(){}, appendChild(){}, querySelector: (q) => mkEl(id + q), getContext: () => noop, dataset:{}, offsetWidth:0 });
 let rafCb = null;
-const ctx = { THREE, console, Math, performance:{now:()=>0}, innerWidth:1280, innerHeight:720, devicePixelRatio:1, document:{getElementById:mkEl, createElement:()=>mkEl('tmp'+Math.random())}, addEventListener(){}, requestAnimationFrame(cb){rafCb=cb;}, localStorage: memStorage(), Object, Number, String, Array, Float32Array, Set, JSON, Error };
+const ctx = { THREE, console, Math, performance:{now:()=>0}, innerWidth:1280, innerHeight:720, devicePixelRatio:1, document:{getElementById:mkEl, createElement:()=>mkEl('tmp'+Math.random())}, addEventListener(){}, requestAnimationFrame(cb){rafCb=cb;}, localStorage: memStorage(), location:{search:''}, matchMedia:()=>({matches:false}), Object, Number, String, Array, Float32Array, Set, JSON, Error };
 ctx.window = ctx; ctx.globalThis = ctx;
 const src = html.slice(html.indexOf("'use strict';"), html.lastIndexOf('</script>')) + "\nglobalThis.__g = { get state(){return state;}, ball, pressShot, match, set aimTheta(v){aimTheta=v;}, startMatch, get shot(){return shot;}, CONTACT_Z, set totalOvers(v){totalOvers=v;}, set mode(v){mode=v;}, quickHiScore, hiScores };";
 vm.createContext(ctx); vm.runInContext(src, ctx); const g = ctx.__g;

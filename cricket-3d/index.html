@@ -19,7 +19,8 @@
 <title>Cricket 3D</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=Barlow:wght@400;600&display=swap">
 <style>
-  :root { --hud: rgba(10, 20, 35, 0.72); --accent: #ffd54a; --display: "Barlow Condensed", "Arial Narrow", Impact, sans-serif; --hs-font: "Barlow", "Segoe UI", system-ui, sans-serif; }
+  :root { --hud: rgba(10, 20, 35, 0.72); --accent: #ffd54a; --display: "Barlow Condensed", "Arial Narrow", Impact, sans-serif; --hs-font: "Barlow", "Segoe UI", system-ui, sans-serif;;
+    --tp-bg: rgba(10, 20, 35, .6); --tp-line: rgba(255, 255, 255, .7); --tp-accent: #ffd54a; --tp-fg: #fff; --tp-on-fg: #0b1a2b; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1a2b; font-family: "Barlow", "Segoe UI", system-ui, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
   canvas#c { display: block; width: 100%; height: 100%; touch-action: none; }
   #hud { position: absolute; inset: 0; pointer-events: none; }
@@ -65,6 +66,19 @@
   #hint { bottom: 14px; left: 176px; font-size: 12px; line-height: 1.6; opacity: .85; white-space: nowrap; }
   #hint b { color: var(--accent); }
   #touchbar { position: absolute; bottom: 18px; right: 18px; display: flex; gap: 12px; pointer-events: auto; }
+  /* The pad replaces these two buttons on a touch screen: it carries the same GROUND and LOFT plus the
+     aim stick they never had. Without it a phone could only hit straight down the ground, and directing
+     the ball to leg or off is the whole skill. A fine pointer keeps them as a mouse affordance. */
+  @media (pointer: coarse) {
+    #touchbar { display: none; }
+    /* The keyboard hint names arrows, WASD, Space, Enter and Esc -- none of which a phone has -- and it
+       sits across the bottom where the pad now lives. */
+    #hint { display: none; }
+    /* The aim stick lands bottom-left at x 14..130, exactly where the radar sat at x 14..164, so the
+       stick was drawn underneath it and looked missing. Move the radar clear rather than shrink either:
+       the radar is how you read the field and the stick is how you aim. */
+    #radar { left: 146px; }
+  }
   /* The timing bar is a fixed 340px centred at bottom:92px, and the radar reaches x=164 in the corner,
      so the bar's left edge -- (100vw-340)/2 -- slides under it on anything narrower than 668px. On a phone
      the radar covered roughly the left 40% of the one gauge the batting depends on. Shrink the radar and
@@ -218,6 +232,152 @@
 </script>
 <script>
 'use strict';
+// ---------- dgames touch controls ----------
+// Shared snippet, pasted verbatim into every game that wants a keyboard (games stay self-contained).
+// A phone has no keys, so the pad turns thumbs into the very same KeyboardEvents the game already
+// listens for: nothing in the game logic knows the difference. Usage:
+//   const pad = makeTouchPad({
+//     stick: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' },
+//     buttons: [{ code: 'Space', label: 'JUMP' }, { code: 'KeyX', label: 'FIRE', main: true }],
+//   });
+//   pad.show(); pad.hide();             // e.g. show on start, hide on the title and end screens
+// `stick` is an eight-way thumbstick (a diagonal holds two keys at once). Pass `dpad` instead for four
+// discrete keys that never combine, which is what a driving game wants. Either may be omitted.
+// The pad renders only on a coarse pointer, so desktop is untouched; `?touch=1` forces it on for testing.
+// Styling comes from the tp-* classes below; override the --tp-* custom properties to match a palette.
+
+// Eight-way: the circle is cut into eight 45-degree sectors, so a diagonal press holds two directions.
+const TP_SECTORS = [['right'], ['right', 'down'], ['down'], ['left', 'down'], ['left'], ['left', 'up'], ['up'], ['right', 'up']];
+// Offset from the stick centre, in units of the stick radius, to the directions it stands for.
+function tpStickDirs(dx, dy, deadzone = 0.35) {
+  if (Math.hypot(dx, dy) < deadzone) return [];
+  const s = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
+  return TP_SECTORS[((s % 8) + 8) % 8];
+}
+
+// Holds a set of key codes down, sending only the transitions so a resting thumb does not restream keydown.
+function tpKeySynth(target) {
+  const held = new Set();
+  const send = (type, code) => target.dispatchEvent(new KeyboardEvent(type, { code, key: code, bubbles: true, cancelable: true }));
+  const set = (code, down) => {
+    if (down === held.has(code)) return;
+    if (down) held.add(code); else held.delete(code);
+    send(down ? 'keydown' : 'keyup', code);
+  };
+  return {
+    set, held,
+    // Make exactly `codes` the held set, releasing whatever else this synth was holding.
+    hold(codes) { const want = new Set(codes); for (const c of [...held]) if (!want.has(c)) set(c, false); for (const c of want) set(c, true); },
+    releaseAll() { for (const c of [...held]) set(c, false); },
+  };
+}
+
+function makeTouchPad({ stick = null, dpad = null, buttons = [], target = window } = {}) {
+  const coarse = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches)
+    || /[?&]touch=1/.test(location.search);
+  if (!coarse) return { el: null, show() {}, hide() {} };   // desktop: no pad, no listeners, no cost
+
+  if (!document.getElementById('tp-style')) {
+    const st = document.createElement('style'); st.id = 'tp-style';
+    st.textContent = [
+      '.tp{position:fixed;inset:auto 0 0 0;z-index:40;display:flex;justify-content:space-between;align-items:flex-end;',
+      'padding:12px max(14px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));',
+      'pointer-events:none;touch-action:none;user-select:none;-webkit-user-select:none;font-family:var(--tp-font,"Segoe UI",system-ui,sans-serif)}',
+      '.tp[hidden]{display:none}',
+      '.tp-stick{position:relative;width:var(--tp-size,38vw);max-width:170px;aspect-ratio:1;border-radius:50%;pointer-events:auto;touch-action:none;',
+      'background:var(--tp-bg,rgba(8,18,30,.42));border:2px solid var(--tp-line,rgba(255,255,255,.28))}',
+      '.tp-knob{position:absolute;left:50%;top:50%;width:42%;height:42%;border-radius:50%;transform:translate(-50%,-50%);',
+      'background:var(--tp-accent,#ffd54a);opacity:.85;pointer-events:none}',
+      '.tp-dpad{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:6px;width:var(--tp-size,38vw);max-width:170px;aspect-ratio:1;pointer-events:none}',
+      '.tp-dpad .tp-btn{min-width:0;min-height:0;width:100%;height:100%;border-radius:12px;font-size:20px}',
+      '.tp-dpad .tp-up{grid-area:1/2}.tp-dpad .tp-left{grid-area:2/1}.tp-dpad .tp-right{grid-area:2/3}.tp-dpad .tp-down{grid-area:3/2}',
+      // Steering only: two wide paddles side by side beat two small cells marooned in a 3x3 square.
+      '.tp-dpad.tp-lr{grid-template-columns:repeat(2,1fr);grid-template-rows:1fr;gap:10px;aspect-ratio:2.1/1;width:var(--tp-lr-size,52vw);max-width:240px}',
+      '.tp-dpad.tp-lr .tp-left{grid-area:1/1}.tp-dpad.tp-lr .tp-right{grid-area:1/2}',
+      '.tp-btns{display:flex;flex-wrap:wrap-reverse;justify-content:flex-end;align-items:flex-end;gap:10px;max-width:46vw;pointer-events:none}',
+      '.tp-btn{pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;appearance:none;cursor:pointer;',
+      'min-width:74px;min-height:74px;padding:0 10px;border-radius:50%;font:inherit;font-size:13px;font-weight:700;letter-spacing:1px;',
+      'color:var(--tp-fg,#fff);background:var(--tp-bg,rgba(8,18,30,.42));border:2px solid var(--tp-line,rgba(255,255,255,.28))}',
+      '.tp-btn.tp-main{min-width:92px;min-height:92px;font-size:15px;border-color:var(--tp-accent,#ffd54a)}',
+      '.tp-btn.tp-on{background:var(--tp-accent,#ffd54a);color:var(--tp-on-fg,#1a1a1a)}',
+      '@media (orientation:portrait){.tp-stick,.tp-dpad{--tp-size:42vw}}',
+      // Landscape is the orientation an action game wants, and there the playfield fills the screen, so
+      // the pad has nowhere to sit but on top of it. At 844x390 the full-size pad was 196px of a 390px
+      // playfield — half of it. Shrunk, it is about 136px, roughly a third, and every button still
+      // clears 44px. Some overlap is inherent to on-screen controls; the translucent fill is the rest
+      // of the answer, and the player stays horizontally centred where the pad is not.
+      '@media (orientation:landscape) and (pointer:coarse){.tp{padding-top:6px}',
+      '.tp-stick{max-width:116px}.tp-dpad{max-width:150px}',
+      '.tp-btn{min-width:60px;min-height:60px}.tp-btn.tp-main{min-width:72px;min-height:72px}}',
+    ].join('');
+    document.head.appendChild(st);
+  }
+
+  const synth = tpKeySynth(target);
+
+  function tpButton(code, label, main, extra) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'tp-btn' + (main ? ' tp-main' : '') + (extra ? ' ' + extra : '');
+    b.tabIndex = -1; b.textContent = label;
+    const down = (e) => { b.setPointerCapture(e.pointerId); b.classList.add('tp-on'); synth.set(code, true); e.preventDefault(); };
+    const up = (e) => { b.classList.remove('tp-on'); synth.set(code, false); e.preventDefault(); };
+    b.addEventListener('pointerdown', down);
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
+    return b;
+  }
+
+  const el = document.createElement('div');
+  el.className = 'tp'; el.hidden = true;
+  // The pad mirrors keys the game already documents, so it is noise to a screen reader.
+  el.setAttribute('aria-hidden', 'true');
+
+  const left = document.createElement('div');
+  if (stick) {
+    left.className = 'tp-stick';
+    const knob = document.createElement('i'); knob.className = 'tp-knob';
+    left.appendChild(knob);
+    let id = null;
+    const move = (e) => {
+      const r = left.getBoundingClientRect(), rad = r.width / 2;
+      const dx = (e.clientX - (r.left + rad)) / rad, dy = (e.clientY - (r.top + rad)) / rad;
+      synth.hold(tpStickDirs(dx, dy).map((d) => stick[d]).filter(Boolean));
+      const m = Math.min(1, Math.hypot(dx, dy)), a = Math.atan2(dy, dx);
+      knob.style.transform = 'translate(calc(-50% + ' + (Math.cos(a) * m * 42) + '%), calc(-50% + ' + (Math.sin(a) * m * 42) + '%))';
+    };
+    const end = (e) => {
+      if (id !== e.pointerId) return;
+      id = null; synth.releaseAll(); knob.style.transform = 'translate(-50%,-50%)';
+    };
+    left.addEventListener('pointerdown', (e) => { id = e.pointerId; left.setPointerCapture(e.pointerId); move(e); e.preventDefault(); });
+    left.addEventListener('pointermove', (e) => { if (id === e.pointerId) { move(e); e.preventDefault(); } });
+    left.addEventListener('pointerup', end); left.addEventListener('pointercancel', end);
+  } else if (dpad) {
+    // Steering only, no throttle keys: use the wide two-paddle layout instead of a marooned 3x3 cross.
+    const lr = dpad.left && dpad.right && !dpad.up && !dpad.down;
+    left.className = 'tp-dpad' + (lr ? ' tp-lr' : '');
+    const glyph = { up: '▲', down: '▼', left: '◀', right: '▶' };
+    for (const d of ['up', 'left', 'right', 'down']) if (dpad[d]) left.appendChild(tpButton(dpad[d], glyph[d], false, 'tp-' + d));
+  }
+  el.appendChild(left);
+
+  const right = document.createElement('div');
+  right.className = 'tp-btns';
+  for (const b of buttons) right.appendChild(tpButton(b.code, b.label, b.main));
+  el.appendChild(right);
+
+  document.body.appendChild(el);
+  // Backgrounding the tab must not leave the throttle pinned open.
+  window.addEventListener('blur', () => synth.releaseAll());
+  document.addEventListener('visibilitychange', () => { if (document.hidden) synth.releaseAll(); });
+
+  return {
+    el,
+    show() { el.hidden = false; },
+    hide() { synth.releaseAll(); el.hidden = true; },
+  };
+}
+
 // ---------- dgames high scores ----------
 // Shared snippet, pasted verbatim into every game (games stay self-contained). Keeps a top-N table per
 // key in localStorage against the player's name, which is shared by every game. Usage:
@@ -1962,6 +2122,25 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') toggleMute();
 });
 addEventListener('keyup', e => { keys.delete(e.code); updateAimFromKeys(); });
+
+// Eight-way stick on the arrow keys, because aim IS the game. The README promises "combine two for
+// diagonals" and a phone had only GROUND and LOFT -- it could play one shot straight down the ground and
+// nothing else, which is a fraction of cricket. A diagonal on the stick holds two keys, exactly as the
+// keyboard does. GROUND is Space and LOFT is Enter, both already bound above, so the pad drives the
+// existing input path and no game logic changes.
+const pad = makeTouchPad({
+  stick: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' },
+  buttons: [{ code: 'Enter', label: 'LOFT' }, { code: 'Space', label: 'GROUND', main: true }],
+});
+// Checked every frame but acted on only when it changes: hide() releases every held key, and doing that
+// sixty times a second would stamp on the aim the instant you touched the stick.
+let padShown = false;
+function syncPad() {
+  const playing = state !== 'menu' && state !== 'end' && !paused;
+  if (playing === padShown) return;
+  padShown = playing;
+  if (playing) pad.show(); else pad.hide();
+}
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 $('btnGround').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); pressShot('ground'); });
 $('btnLoft').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); pressShot('loft'); });
@@ -2033,6 +2212,7 @@ function tick(dt) {
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = paused ? 0 : Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  syncPad();
   if (!manual) tick(dt);
 }
 updateHud();
