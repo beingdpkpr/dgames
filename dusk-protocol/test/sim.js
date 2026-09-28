@@ -9,7 +9,7 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const a = html.indexOf('// ---------- SIM ----------'), b = html.indexOf('// ---------- UI ----------');
 if (a < 0 || b < a) throw new Error('SIM / UI markers not found');
 const src = html.slice(a, b) + '\nglobalThis.__sim = { createState, step, buildLevel, emptyLevel, finishLevel, addBox, findPath, guardSees, detectRate,'
-  + ' segBlocked, alertGuard, guardFire, playerFire, guardParts, damageGuard, lightAt, mulberry32, awareness, HACK_TIME, ALARM_R };';
+  + ' segBlocked, aimAssistTarget, alertGuard, guardFire, playerFire, guardParts, damageGuard, lightAt, mulberry32, awareness, HACK_TIME, ALARM_R };';
 const ctx = { Math, console, Array, Object, Number, Infinity, Float32Array, Int32Array, Uint8Array, Uint32Array, JSON, Error };
 ctx.globalThis = ctx;
 vm.createContext(ctx); vm.runInContext(src, ctx);
@@ -271,6 +271,23 @@ function bot(seed, style) {
     const inside = T.lightAt(L, B.cx, B.cz), bare = T.lightAt(open, B.cx, B.cz);
     ok(inside <= bare * 0.6, `${B.name}: light in the room ${inside.toFixed(2)} vs the same spot unroofed ${bare.toFixed(2)}`);
   }
+}
+
+// ---- aim assist (phones) only ever finds a guard the player can really see ----
+{
+  const look = (x, z) => ({ x: 0, z: 0, yaw: yawTo(x, z) });
+  const guard = { x: 0, z: -20, yaw: 0, route: [] };
+  const S1 = field([], guard, { x: 0, z: 0, yaw: 0 });
+  const t1 = T.aimAssistTarget(S1, 0.05, 0, 0.09, false);
+  ok(!!t1 && Math.abs(t1.dyaw + 0.05) < 0.02, `guard in plain view, 3 degrees off the crosshair: found, pull points back at him (${t1 && t1.dyaw.toFixed(3)})`);
+  ok(!T.aimAssistTarget(S1, 0.2, 0, 0.09, false), 'the same guard 11 degrees off: outside the cone, ignored');
+  const S2 = field([['crate', 0, -10, 2, 1, 0, 2.4]], guard, { x: 0, z: 0, yaw: 0 });
+  ok(!T.aimAssistTarget(S2, 0, 0, 0.09, false), 'a crate between you and him: no assist through it');
+  S1.guards[0].state = 'dead';
+  ok(!T.aimAssistTarget(S1, 0, 0, 0.09, false), 'a dead guard is never a target');
+  S1.guards[0].state = 'patrol';
+  const th = T.aimAssistTarget(S1, 0, 0, 0.09, true), tb = T.aimAssistTarget(S1, 0, 0, 0.09, false);
+  ok(th && tb && th.dpitch > tb.dpitch, 'scoped it aims at the head, above the chest');
 }
 
 if (failures) { console.log(`\n${failures} failed`); process.exit(1); }

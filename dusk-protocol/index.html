@@ -115,6 +115,8 @@
     .card { padding: 16px 18px; }
     .card p { font-size: 13px; margin: 8px 0; }
   }
+  /* SPRINT is a toggle on phones; lit while it is on, like a held button. */
+  .tp .tp-btn.dp-on { background: var(--tp-accent); color: #1a1a1a; border-color: var(--tp-accent); }
 </style>
 </head>
 <body>
@@ -751,6 +753,26 @@ function playerSpread(p) {
   const move = clamp(speedOf(p) / 4, 0, 1.6);
   if (p.scope) return 0.0015 + move * 0.02 + p.bloom * 0.5;
   return (0.006 + move * 0.035) * (p.crouch ? 0.7 : 1) + p.bloom;
+}
+
+// Aim assist's target (phones): the guard part nearest the crosshair that the player can actually see,
+// within `cone` radians of where they look -- the chest, or the head when scoped. Pure and in the sim
+// so it is tested with everything else: it must never find a guard through a wall, a dead guard, or one
+// outside the cone. How hard to pull is the UI's business.
+function aimAssistTarget(S, yaw, pitch, cone, head) {
+  const p = S.player; let best = null;
+  for (const g of S.guards) {
+    if (g.state === 'dead') continue;
+    const P = guardParts(g)[head ? 0 : 1];
+    const tx = (P.x0 + P.x1) / 2, ty = (P.y0 + P.y1) / 2, tz = (P.z0 + P.z1) / 2;
+    const dx = tx - p.x, dy = ty - p.eye, dz = tz - p.z, h = Math.hypot(dx, dz);
+    if (h < 0.5 || h > 70) continue;
+    const ey = angWrap(yawTo(dx, dz) - yaw), ep = Math.atan2(dy, h) - pitch, err = Math.hypot(ey, ep);
+    if (err > cone) continue;
+    if (segBlocked(S.level.sightBoxes, p.x, p.eye, p.z, tx, ty, tz)) continue;
+    if (!best || err < best.err) best = { dyaw: ey, dpitch: ep, err, dist: h, g };
+  }
+  return best;
 }
 
 function playerFire(S) {
@@ -2187,6 +2209,8 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' || e.code === 'ControlLeft' || e.code === 'ControlRight') view.crouch = !view.crouch;
   if (e.code === 'KeyV') view.scopeToggle = !view.scopeToggle;
   if (e.code === 'KeyR') view.reloadEdge = true;
+  // On a phone SPRINT toggles: holding it while one thumb steers and the other aims needs a third thumb.
+  if (touchMode && e.code === 'ShiftLeft') view.sprintToggle = !view.sprintToggle;
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; view.fireHeld = false; view.scopeHeld = false; });
@@ -2224,7 +2248,7 @@ addEventListener('pointerdown', (e) => {
 }, true);
 addEventListener('pointermove', (e) => {
   const l = lookers.get(e.pointerId); if (!l) return;
-  const k = 0.0058 * fovScale();
+  const k = 0.0058 * fovScale() * aimFriction;
   view.yaw -= (e.clientX - l.x) * k; view.pitch -= (e.clientY - l.y) * k * 0.85;
   view.pitch = Math.max(-1.4, Math.min(1.4, view.pitch));
   l.x = e.clientX; l.y = e.clientY;
@@ -2234,16 +2258,44 @@ addEventListener('pointerup', dropLooker); addEventListener('pointercancel', dro
 
 const pad = makeTouchPad({
   stick: { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' },
-  buttons: [{ code: 'KeyE', label: 'USE' }, { code: 'KeyR', label: 'RELOAD' }, { code: 'KeyC', label: 'CROUCH' }, { code: 'KeyV', label: 'SCOPE' }, { code: 'Space', label: 'FIRE', main: true }],
+  buttons: [{ code: 'ShiftLeft', label: 'SPRINT' }, { code: 'KeyE', label: 'USE' }, { code: 'KeyR', label: 'RELOAD' }, { code: 'KeyC', label: 'CROUCH' }, { code: 'KeyV', label: 'SCOPE' }, { code: 'Space', label: 'FIRE', main: true }],
 });
+
+const sprintBtn = pad.el ? [...pad.el.querySelectorAll('.tp-btn')].find((b) => b.textContent === 'SPRINT') : null;
+
+// ---- aim assist, phones only ----
+// A thumb cannot track a moving man at 40 m the way a mouse can. Two light helps, both only inside a
+// small cone around the crosshair and only on a guard in plain sight (aimAssistTarget checks the wall
+// boxes): friction -- the look slows to 55% while the crosshair sits on him, so it settles instead of
+// skating past -- and, while firing, a gentle pull toward his chest (his head when scoped). The cones
+// shrink when scoped because the view is five times narrower. Mouse aim is never touched.
+const AIM = { hipCone: 0.09, scopeCone: 0.03, friction: 0.55, pull: 3 };
+let aimFriction = 1;
+function applyAimAssist(dt) {
+  aimFriction = 1;
+  if (!touchMode || !S || mode !== 'play' || paused || S.player.dead) return;
+  const scoped = pv.scopeT > 0.5;
+  const t = aimAssistTarget(S, view.yaw, view.pitch, scoped ? AIM.scopeCone : AIM.hipCone, scoped);
+  if (!t) return;
+  aimFriction = AIM.friction;
+  if (view.fireHeld || keys.Space) {
+    const k = Math.min(1, dt * AIM.pull);
+    view.yaw += t.dyaw * k; view.pitch = Math.max(-1.4, Math.min(1.4, view.pitch + t.dpitch * k));
+  }
+}
 
 function buildInput() {
   const f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
   const r = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  const fire = view.fireHeld || !!keys.Space, scope = view.scopeHeld || view.scopeToggle;
+  // The toggle drops itself whenever sprinting would stop anyway -- no forward push, crouch, aim, fire --
+  // so it never springs back on by surprise the next time you move.
+  if (view.sprintToggle && (f <= 0 || view.crouch || fire || scope)) view.sprintToggle = false;
+  if (sprintBtn) sprintBtn.classList.toggle('dp-on', !!view.sprintToggle);
   return {
     mx: r, mz: f, yaw: view.yaw, pitch: view.pitch,
-    fire: view.fireHeld || !!keys.Space, scope: view.scopeHeld || view.scopeToggle, crouch: view.crouch,
-    sprint: !!(keys.ShiftLeft || keys.ShiftRight), interact: !!keys.KeyE, reload: view.reloadEdge,
+    fire, scope, crouch: view.crouch,
+    sprint: !!(keys.ShiftLeft || keys.ShiftRight || view.sprintToggle), interact: !!keys.KeyE, reload: view.reloadEdge,
   };
 }
 
@@ -2343,7 +2395,7 @@ function startMission() {
   Snd.ensure();
   S = createState((Date.now() & 0xffffffff) >>> 0, { level: LEVEL });
   buildGuardViews(S);
-  view.yaw = LEVEL.start.yaw; view.pitch = 0; view.crouch = false; view.scopeToggle = false; view.scopeHeld = false; view.fireHeld = false; view.reloadEdge = false;
+  view.yaw = LEVEL.start.yaw; view.pitch = 0; view.crouch = false; view.scopeToggle = false; view.sprintToggle = false; view.scopeHeld = false; view.fireHeld = false; view.reloadEdge = false;
   Object.assign(pv, { scopeT: 0, recoil: 0, reloadT: 0, dmg: 0, shake: 0, deadT: 0, sprintT: 0 });
   for (const m of medkitViews) m.visible = true;
   mode = 'play'; paused = false;
@@ -2537,6 +2589,7 @@ function frame(now) {
     gun.visible = false;
   } else if (S && (mode === 'play' || mode === 'end' || mode === 'dying')) {
     if (mode === 'play' && !paused) {
+      applyAimAssist(dt);
       acc += dt; let n = 0;
       while (acc >= 1 / 60 && n++ < 6) {
         acc -= 1 / 60;
