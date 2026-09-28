@@ -33,6 +33,20 @@
      the rails and the message line. Measured at 390x844 the well ran to y=867 on an 844px screen and the
      pad covered 202px of it. 420px is h1 + rails + msg + pad + gaps, checked by measuring, not guessed. */
   @media (pointer: coarse) { :root { --reserve: 420px; } }
+  /* ...except on a phone, where the rails no longer stack above the well: 420 less that strip. */
+  @media (pointer: coarse) and (max-width: 560px) { :root { --reserve: 285px; } }
+  /* A phone on its side is wider than 560px, so it gets the side-by-side layout -- but kept the 420px
+     reserve, on a screen 390px tall. The cell came out negative and the well rendered at 4x4px: Tetris
+     simply did not exist in landscape. There the pad sits in the two bottom corners, out of the well's
+     column, so only the title and message line need reserving. */
+  @media (pointer: coarse) and (orientation: landscape) and (min-width: 561px) {
+    :root { --reserve: 110px; }
+    /* ...and the well goes in the middle, one rail either side. The desktop order puts both rails on the
+       left, which shoved the well right into the HOLD / rotate / DROP cluster on a 667px-wide phone. */
+    .rails > .rail:first-child { order: 0; }
+    #well { order: 1; }
+    .rails > .rail:last-child { order: 2; }
+  }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; min-height: 100dvh; background: var(--bg); color: var(--fg);
     font-family: "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; align-items: center;
@@ -65,34 +79,30 @@
   .stat b { font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; font-weight: 700; }
   .stat.big b { font-size: 24px; color: var(--gold); }
 
-  /* On a phone the two rails would squeeze the well to nothing, so they become one row above it. */
+  /* The rails sit beside the well on every screen. On a phone they used to be a strip above it, and that
+     strip plus the title, message line and touch pad left the well about a third of a short phone's
+     height: at 360x640 it was 224px tall, 11px a cell, 110px wide. Beside it, the strip's 135px goes to the
+     well instead (cell 11 -> ~18px there), and on a tall phone, where width was already the limit, it
+     comes out about even. Hold and Score go on the left, Next on the right, so each thumb-side glance
+     lands on one rail. */
+  .rails { display: contents; }
   @media (max-width: 560px) {
-    #wrap { flex-direction: column; align-items: center; }
-    .rails { display: flex; gap: 8px; width: calc(var(--cell) * 10 + 4px); }
-    .rail { flex: 1 1 0; width: auto; flex-direction: row; gap: 8px; }
-    .rail .box { flex: 1 1 0; min-width: 0; }
-    .stats { flex: 1 1 0; }
-    /* The Next preview is a 96x216 canvas. Given a 113px flex slot it kept its aspect and grew to 253px
-       tall, which is what pushed the well off the screen. Size it by height so the rails stay one
-       compact strip and the board keeps the room it needs. */
-    .rail .box canvas { width: 100%; height: 84px; aspect-ratio: auto; }
-    /* That height used to come with width: auto, which gave Hold its natural 112px inside a 48px box: a
-       held piece drew out over the Score panel and only a sliver of it showed. Next, the other way round,
-       used 37px of a 104px box. Both now fill the box exactly, and the first rail (Hold + Score) takes a
-       little more of the strip so a held I piece has room. The height is unchanged on purpose: --reserve
-       below is sized around this strip. */
-    .rails > .rail:first-child { flex-grow: 1.15; }
-    .rails > .rail:last-child { flex-grow: 0.85; }
-    /* "Score 2140" at 24px could not share a 90px box with its label, so the number ran out past the
-       panel border. The element never reports overflow -- it is the panel it escapes, not its own box --
-       so only looking catches it. */
-    /* Label above value, not beside it. Side by side, "Score" and a four-digit number could not share
-       a ~90px flex slot and the number escaped the panel; stacked, it always has the full width. */
-    .stat { flex-direction: column; align-items: flex-start; gap: 0; font-size: 11px; }
-    .stat b { font-size: 15px; }
-    .stat.big b { font-size: 18px; }
+    #wrap { --rail: 64px; gap: 6px;
+      /* width: viewport less body padding (20), two rails, two gaps and the well's border */
+      --cell: min(calc((100vw - 2 * var(--rail) - 36px) / 10), calc((100dvh - var(--reserve)) / 20), 34px); }
+    /* 8px down clears the fixed 44px back button, whose bottom edge sat exactly on this rail's top. Only
+       the left rail moves, so the well keeps every pixel. */
+    .rails > .rail:first-child { order: 0; margin-top: 8px; }
+    #well { order: 1; }
+    .rails > .rail:last-child { order: 2; }
+    .rail { width: var(--rail); min-width: 0; gap: 6px; }
+    .box { padding: 5px; }
+    .box h2 { font-size: 9px; letter-spacing: 1px; }
+    /* Label above value, not beside it: in a rail this narrow the two cannot share a line. */
+    .stat { flex-direction: column; align-items: flex-start; gap: 0; font-size: 10px; }
+    .stat b { font-size: 14px; }
+    .stat.big b { font-size: 15px; }
   }
-  @media (min-width: 561px) { .rails { display: contents; } }
 
   #msg { min-height: 20px; font-size: 14px; color: var(--gold); text-align: center; font-weight: 600; letter-spacing: 1px; }
 
@@ -933,10 +943,13 @@ function drawSide() {
   // Three pieces stacked in order, the first given the most room: it is the one a player actually plans
   // around, the other two are glanced at. Before, three equal slots in a 37px-wide canvas drew it at 6.7px
   // a cell on a phone whose board cell is 21px, with 4px letters beside it.
+  // The letter labels need a slot wide enough to sit beside the piece; in a phone's 54px rail a "Z" was
+  // drawn on top of the Z. The shapes identify themselves, so there the labels are simply left out.
   const W = nextC.width, H = nextC.height, q = S.queue, a = H * 0.4, b = H * 0.3;
-  drawPreview(nctx, q[0], 0, 0, W, a, true);
-  drawPreview(nctx, q[1], 0, a, W, b, true);
-  drawPreview(nctx, q[2], 0, a + b, W, b, true);
+  const lab = nextC.getBoundingClientRect().width >= 90;
+  drawPreview(nctx, q[0], 0, 0, W, a, lab);
+  drawPreview(nctx, q[1], 0, a, W, b, lab);
+  drawPreview(nctx, q[2], 0, a + b, W, b, lab);
 }
 
 function hud() {
