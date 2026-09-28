@@ -1906,32 +1906,140 @@ const vmCam = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 10
 vmScene.add(new THREE.HemisphereLight(0xa59bd0, 0x3b3226, 0.75));
 const vmSun = new THREE.DirectionalLight(0xffa06a, 0.7); vmSun.position.set(-1, 1, 0.5); vmScene.add(vmSun);
 const vmFlashLight = new THREE.PointLight(0xffb060, 0, 2, 2); vmFlashLight.position.set(0.1, -0.1, -0.9); vmScene.add(vmFlashLight);
-const VM_MAT = new THREE.MeshLambertMaterial({ map: TEX.camo, vertexColors: true });
-function vmPart(parts) { const m = new THREE.Mesh(boneMesh(parts), VM_MAT); return m; }
+// ---- the rifle and hands, first person ----
+// The one model on screen for the whole game, so it is built properly: extruded side profiles for the
+// receiver, grip, stock and the curved magazine, cylinders for barrel, gas tube and scope, and gloved
+// hands whose fingers actually wrap the grip and handguard. Each surface has its own material -- blued
+// steel with a specular highlight, grained wood, polymer, glove -- because the first version was eleven
+// boxes sharing one camo-textured material, and steel, wood and hands all read as the same printed
+// plastic. Phong, not Standard: the viewmodel scene has no environment map, and without one a metal
+// Standard material renders flat black.
+const vmRim = new THREE.DirectionalLight(0xc8d6ff, 0.35); vmRim.position.set(0.6, 0.9, -1); vmScene.add(vmRim);
+const WOOD_TEX = canvasTex(64, 256, (g, w, h) => {
+  g.fillStyle = '#8a5530'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 70; i++) {
+    const x = vrng() * w, wd = 0.6 + vrng() * 1.6;
+    g.strokeStyle = vrng() < 0.5 ? 'rgba(60,30,12,.35)' : 'rgba(170,110,60,.25)'; g.lineWidth = wd;
+    g.beginPath(); g.moveTo(x, 0); g.bezierCurveTo(x + (vrng() - 0.5) * 10, h * 0.35, x + (vrng() - 0.5) * 10, h * 0.65, x + (vrng() - 0.5) * 6, h); g.stroke();
+  }
+}, 18, 5);
+const VM = {
+  steel: new THREE.MeshPhongMaterial({ color: 0x24282d, specular: 0x4f565f, shininess: 42 }),
+  dark: new THREE.MeshPhongMaterial({ color: 0x16181b, specular: 0x5d646d, shininess: 55 }),
+  wood: new THREE.MeshPhongMaterial({ map: WOOD_TEX, color: 0xc08a58, specular: 0x4a3020, shininess: 28 }),
+  poly: new THREE.MeshPhongMaterial({ color: 0x202124, specular: 0x34363b, shininess: 16 }),
+  glove: new THREE.MeshPhongMaterial({ color: 0x3b3f31, specular: 0x1c1d16, shininess: 6 }),
+  knuckle: new THREE.MeshPhongMaterial({ color: 0x2a2d23, specular: 0x222218, shininess: 10 }),
+  sleeve: new THREE.MeshLambertMaterial({ map: TEX.camo }),
+  lens: new THREE.MeshPhongMaterial({ color: 0x0b1822, specular: 0xa8dcff, shininess: 140, emissive: 0x04101a }),
+};
+const vmMesh = (geo, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
+  const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); return m;
+};
+// A cylinder lying along the barrel axis; r0 is the end nearer the camera (+z).
+const vmTube = (r0, r1, len, mat, x, y, z, seg = 18) => vmMesh(new THREE.CylinderGeometry(r0, r1, len, seg), mat, x, y, z, Math.PI / 2);
+// A side profile drawn in (z, y) and extruded across x, centred: how a gun is actually drawn.
+function vmProfile(pts, thick, mat, bevel = 0.0025) {
+  const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) sh.lineTo(pts[i][0], pts[i][1]);
+  const geo = new THREE.ExtrudeGeometry(sh, { depth: thick, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2 });
+  geo.rotateY(-Math.PI / 2); geo.translate(thick / 2, 0, 0);
+  return new THREE.Mesh(geo, mat);
+}
+// A rounded segment between two points: fingers, thumbs, sleeves.
+const _vmUp = new THREE.Vector3(0, 1, 0);
+function vmLimb(a, b, r0, r1, mat, caps = true) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), d = B.clone().sub(A), len = d.length();
+  const g = new THREE.Group();
+  const c = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, len, 12), mat);
+  c.position.copy(A).addScaledVector(d, 0.5); c.quaternion.setFromUnitVectors(_vmUp, d.normalize()); g.add(c);
+  if (caps) {
+    const e = new THREE.Mesh(new THREE.SphereGeometry(r1, 12, 8), mat); e.position.copy(B); g.add(e);
+    const s0 = new THREE.Mesh(new THREE.SphereGeometry(r0, 12, 8), mat); s0.position.copy(A); g.add(s0);
+  }
+  return g;
+}
+
 const gun = new THREE.Group(); vmScene.add(gun);
-const gunBody = vmPart([
-  [-0.026, -0.035, -0.18, 0.026, 0.03, 0.1, GUN],                // receiver
-  [-0.024, -0.03, -0.4, 0.024, 0.02, -0.18, WOOD],               // handguard
-  [-0.009, -0.009, -0.6, 0.009, 0.009, -0.38, GUN],              // barrel
-  [-0.014, -0.015, -0.63, 0.014, 0.015, -0.58, shade(0.1)],      // muzzle brake
-  [-0.005, 0.009, -0.56, 0.005, 0.045, -0.545, GUN],             // front sight
-  [-0.018, -0.11, 0.04, 0.018, -0.03, 0.085, WOOD],              // grip
-  [-0.022, -0.04, 0.1, 0.022, 0.025, 0.26, WOOD],                // stock (short: the rest is behind the camera)
-  [-0.017, 0.03, -0.12, 0.017, 0.064, 0.06, shade(0.08)],        // scope tube
-  [-0.023, 0.026, -0.155, 0.023, 0.072, -0.105, shade(0.08)], [-0.022, 0.026, 0.045, 0.022, 0.07, 0.08, shade(0.08)],
-  [-0.006, 0.03, -0.03, 0.006, 0.08, -0.012, shade(0.2)],        // turret
-]);
-gun.add(gunBody);
-const mag = vmPart([[-0.018, -0.16, -0.12, 0.018, -0.03, -0.06, GUN], [-0.018, -0.21, -0.105, 0.018, -0.15, -0.035, GUN]]);
-gun.add(mag);
-const lens = new THREE.Mesh(new THREE.CircleGeometry(0.014, 16), new THREE.MeshBasicMaterial({ color: 0x0f1c26 })); lens.position.set(0, 0.049, 0.0805); gun.add(lens);
-// Hands and sleeves: the right hand on the grip, the left under the handguard, each forearm a
-// separate box angled down and back so it runs out of frame instead of floating.
-const handR = vmPart([[-0.03, -0.1, 0.03, 0.034, -0.035, 0.1, SKIN]]);
-const armR = vmPart([[-0.042, -0.042, 0, 0.042, 0.042, 0.4]]); armR.position.set(0.012, -0.08, 0.08); armR.rotation.set(0.85, 0.3, 0);
-const handL = vmPart([[-0.033, -0.07, -0.37, 0.033, -0.02, -0.28, SKIN]]);
-const armL = vmPart([[-0.04, -0.04, 0, 0.04, 0.04, 0.42]]); armL.position.set(-0.01, -0.06, -0.31); armL.rotation.set(0.75, -0.6, 0);
-gun.add(handR, armR, handL, armL);
+// receiver, with a sloped rear and the dust cover's ribbed top
+gun.add(vmProfile([[-0.19, -0.036], [0.1, -0.036], [0.1, 0.012], [0.075, 0.028], [-0.19, 0.028]], 0.046, VM.steel));
+for (let i = 0; i < 5; i++) gun.add(vmMesh(new THREE.BoxGeometry(0.047, 0.004, 0.006), VM.dark, 0, 0.031, -0.02 + i * 0.016));
+gun.add(vmMesh(new THREE.BoxGeometry(0.004, 0.012, 0.05), VM.dark, -0.025, 0.012, 0.03));            // charging handle
+gun.add(vmMesh(new THREE.BoxGeometry(0.004, 0.018, 0.09), VM.dark, -0.024, -0.02, -0.06));           // selector lever
+// handguard: grained wood below, a wooden cap over the gas tube, two finger grooves
+gun.add(vmProfile([[-0.41, -0.024], [-0.4, -0.034], [-0.2, -0.034], [-0.19, -0.027], [-0.19, 0.016], [-0.41, 0.016]], 0.05, VM.wood, 0.004));
+gun.add(vmMesh(new THREE.BoxGeometry(0.054, 0.003, 0.17), VM.dark, 0, -0.012, -0.3));
+gun.add(vmMesh(new THREE.BoxGeometry(0.054, 0.003, 0.17), VM.dark, 0, 0.002, -0.3));
+gun.add(vmTube(0.0105, 0.0105, 0.23, VM.steel, 0, 0.03, -0.31));
+gun.add(vmTube(0.017, 0.016, 0.15, VM.wood, 0, 0.03, -0.3));
+// barrel, front sight block and a slotted muzzle brake
+gun.add(vmTube(0.0085, 0.0085, 0.26, VM.steel, 0, 0, -0.52));
+gun.add(vmProfile([[-0.585, -0.012], [-0.55, -0.012], [-0.55, 0.018], [-0.565, 0.04], [-0.572, 0.04], [-0.585, 0.02]], 0.03, VM.steel, 0.0015));
+gun.add(vmTube(0.0125, 0.0125, 0.055, VM.dark, 0, 0, -0.625));
+for (const sx of [-1, 1]) gun.add(vmMesh(new THREE.BoxGeometry(0.002, 0.007, 0.03), VM.poly, sx * 0.0125, 0.003, -0.625));
+// pistol grip and trigger in its guard
+gun.add(vmProfile([[0.034, -0.034], [0.076, -0.034], [0.106, -0.132], [0.1, -0.142], [0.066, -0.14], [0.04, -0.05]], 0.034, VM.poly, 0.004));
+{
+  const tg = new THREE.TorusGeometry(0.024, 0.0028, 6, 20, Math.PI); tg.rotateZ(Math.PI); tg.rotateY(Math.PI / 2);
+  gun.add(vmMesh(tg, VM.steel, 0, -0.036, -0.005));
+  gun.add(vmMesh(new THREE.BoxGeometry(0.006, 0.026, 0.006), VM.dark, 0, -0.048, -0.004, 0.35));
+}
+// stock: grained wood, a steel butt plate (mostly behind the camera, but its top edge frames the shot)
+gun.add(vmProfile([[0.1, 0.018], [0.34, -0.002], [0.345, -0.098], [0.1, -0.044]], 0.04, VM.wood, 0.004));
+gun.add(vmProfile([[0.34, -0.002], [0.352, -0.002], [0.357, -0.098], [0.345, -0.098]], 0.044, VM.dark, 0.002));
+// scope: rail mount, tube, objective and eyepiece bells, two turrets, lenses
+gun.add(vmMesh(new THREE.BoxGeometry(0.03, 0.012, 0.14), VM.dark, 0, 0.037, -0.03));
+for (const z of [-0.08, 0.02]) gun.add(vmMesh(new THREE.BoxGeometry(0.036, 0.02, 0.018), VM.steel, 0, 0.048, z));
+gun.add(vmTube(0.0165, 0.0165, 0.16, VM.dark, 0, 0.064, -0.03));
+gun.add(vmTube(0.0165, 0.025, 0.055, VM.dark, 0, 0.064, -0.137));
+gun.add(vmTube(0.022, 0.0165, 0.045, VM.dark, 0, 0.064, 0.072));
+gun.add(vmMesh(new THREE.CylinderGeometry(0.009, 0.01, 0.024, 14), VM.steel, 0, 0.088, -0.03));
+gun.add(vmMesh(new THREE.CylinderGeometry(0.009, 0.01, 0.024, 14), VM.steel, 0.024, 0.064, -0.03, 0, 0, Math.PI / 2));
+gun.add(vmMesh(new THREE.CircleGeometry(0.023, 24), VM.lens, 0, 0.064, -0.1655, 0, Math.PI));
+const lens = vmMesh(new THREE.CircleGeometry(0.02, 24), VM.lens, 0, 0.064, 0.0948); gun.add(lens);
+// a rubber eye-cup rim and a faint glint, so the eyepiece reads as glass in a bell rather than a black disc
+gun.add(vmMesh(new THREE.TorusGeometry(0.0205, 0.0028, 8, 28), VM.poly, 0, 0.064, 0.0952));
+gun.add(vmMesh(new THREE.CircleGeometry(0.006, 12), new THREE.MeshBasicMaterial({ color: 0x9fc4dc, transparent: true, opacity: 0.35 }), -0.007, 0.071, 0.0955));
+// Curved magazine, its own group so the reload can drop it out. It curves forward as it goes down.
+const mag = new THREE.Group(); gun.add(mag);
+{
+  const back = [], front = [];
+  for (let i = 0; i <= 8; i++) {
+    const t = i / 8, y = -0.034 - 0.17 * t, zb = -0.072 - 0.07 * t * t;
+    back.push([zb, y]); front.unshift([zb - 0.056 - 0.006 * t, y]);
+  }
+  mag.add(vmProfile(back.concat(front), 0.03, VM.dark, 0.003));
+  for (let i = 1; i <= 3; i++) {
+    const t = i / 4, y = -0.034 - 0.17 * t, zb = -0.072 - 0.07 * t * t;
+    mag.add(vmMesh(new THREE.BoxGeometry(0.035, 0.004, 0.05), VM.steel, 0, y, zb - 0.03, -0.3 * t));
+  }
+}
+// Right hand around the pistol grip: the palm on the far side, four fingers curled round the front
+// (the side the camera sees), index finger laid along the guard, thumb over the top.
+{
+  const palm = vmProfile([[0.05, -0.04], [0.11, -0.05], [0.12, -0.14], [0.07, -0.15]], 0.022, VM.glove, 0.006);
+  palm.position.x = 0.03; gun.add(palm);
+  for (let i = 0; i < 3; i++) {
+    const y = -0.075 - i * 0.021, z = 0.052 + (-0.036 - y) * 0.3;
+    gun.add(vmLimb([0.03, y, z + 0.012], [-0.021, y - 0.003, z - 0.006], 0.0105, 0.0095, VM.glove));
+    gun.add(vmMesh(new THREE.SphereGeometry(0.0085, 10, 8), VM.knuckle, -0.024, y - 0.004, z + 0.006));
+  }
+  gun.add(vmLimb([0.028, -0.052, 0.05], [-0.018, -0.046, -0.004], 0.0098, 0.0085, VM.glove));   // index, along the guard
+  gun.add(vmLimb([0.03, -0.038, 0.085], [-0.022, -0.018, 0.058], 0.011, 0.0095, VM.glove));      // thumb over the top
+  gun.add(vmLimb([0.04, -0.12, 0.13], [0.1, -0.29, 0.45], 0.034, 0.05, VM.glove, false));        // wrist into the cuff
+  gun.add(vmLimb([0.07, -0.2, 0.28], [0.16, -0.42, 0.72], 0.05, 0.07, VM.sleeve, false));        // sleeve, out of frame
+}
+// Left hand under the handguard: palm below, thumb along the near side, fingertips over the far side.
+{
+  gun.add(vmProfile([[-0.345, -0.034], [-0.255, -0.034], [-0.25, -0.06], [-0.35, -0.058]], 0.056, VM.glove, 0.008));
+  gun.add(vmLimb([-0.028, -0.03, -0.26], [-0.03, -0.004, -0.33], 0.0105, 0.009, VM.glove));    // thumb, facing the camera
+  for (let i = 0; i < 4; i++) {
+    const z = -0.338 + i * 0.022;
+    gun.add(vmLimb([0.026, -0.04, z], [0.03, 0.006, z - 0.004], 0.0098, 0.0088, VM.glove));
+  }
+  gun.add(vmLimb([-0.01, -0.06, -0.26], [-0.13, -0.3, 0.04], 0.033, 0.05, VM.glove, false));    // wrist
+  gun.add(vmLimb([-0.07, -0.18, -0.11], [-0.26, -0.46, 0.38], 0.05, 0.072, VM.sleeve, false));  // sleeve
+}
 const vmFlash = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.flash, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
 vmFlash.position.set(0, 0, -0.68); vmFlash.visible = false; gun.add(vmFlash);
 const shells = [];
