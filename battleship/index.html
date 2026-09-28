@@ -164,6 +164,54 @@
     body.playing .strip { height: 38px; min-height: 0; gap: 2px 4px; align-content: flex-start; overflow: hidden; }
     body.playing .strip span { font-size: 10px; padding: 1px 5px; gap: 4px; }
   }
+  /* An upright phone had the opposite problem: one board fits the width, but the chrome stacked above it
+     pushed it down. At 375x667 placement began the board at y=549 with 67% of it below the fold (page
+     scrolled 326px; 360x640: 89%, 390x844: 21%), and battle cut 9-24% off the bottom at 375/360 wide.
+     Above the board sat the title (58px), a HUD panel with the turn text on one row and Sound/Restart on
+     the next (108), and a placement panel of 284: five ship chips wrapping to two rows, the actions
+     wrapping to two more, and a three-line help paragraph. The board is ~346-360px at these widths, so
+     that stack had to lose ~300px. It does it without shrinking the board (cells stay 31.6-34.2px):
+     title on the back button's row, turn text and Sound/Restart on one row, the panels' chrome dropped
+     as in landscape, the chips as five two-line columns on one row, the four actions on one row, and the
+     help cut to one line that gives way to the message when there is one -- they share a slot, so the
+     board does not jump. The fleet strip under your board also goes during placement: it repeated the
+     chips directly above it. Scoped to placement and battle (body.playing) as the setup form is fine. */
+  #placeTip { display: none; }
+  @media (max-width: 560px) and (orientation: portrait) {
+    body.playing main { padding-top: 8px; gap: 6px; }
+    /* The back button is fixed at 8..52px; a 44px header row puts the title beside it, not under it. */
+    body.playing header { height: 44px; align-items: center; }
+    body.playing h1 { font-size: 24px; letter-spacing: 3px; }
+    body.playing .panel { background: none; border: 0; padding: 0; backdrop-filter: none; border-radius: 0; }
+    body.playing #hud { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; }
+    /* Two-player "Player 1: place your fleet" is the longest turn text; it may take two 20px lines, which
+       still fit the 44px the buttons beside it need. */
+    body.playing #turn { font-size: 18px; line-height: 20px; letter-spacing: 0; min-width: 0; }
+    body.playing #stats { grid-row: 2; grid-column: 1 / -1; gap: 0 14px; font-size: 13px; }
+    body.playing #stats:empty { display: none; }
+    body.playing #hud .btns { grid-row: 1; grid-column: 2; flex-wrap: nowrap; gap: 6px; }
+    body.playing main .btn { padding: 0 10px; font-size: 14px; letter-spacing: 0; white-space: nowrap; }
+    body.playing #placeBar .row:first-child { display: grid; gap: 6px; }
+    body.playing #placeBar .row + .row { margin-top: 4px !important; }
+    /* 346px across five chips is 66px each: "Battleship (4)" breaks to name over length, two 14px lines
+       inside the 44px it has to be for a finger anyway. */
+    body.playing #placeBar .chips { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+    body.playing #placeBar .chip { padding: 2px; font-size: 12px; line-height: 14px; }
+    body.playing #placeBar .btns { flex-wrap: nowrap; gap: 4px; }
+    body.playing #placeBar .btns .btn { flex: 1 1 auto; padding: 0 6px; font-size: 13px; }
+    body.playing #placeHint { display: none; }
+    /* 19px, the message line's height: the two swap places, and at 16px the board jumped 3px each time. */
+    body.playing #placeTip { display: block; font-size: 13px; line-height: 19px; text-align: center; width: 100%; }
+    body.playing main:has(#msg:not(:empty)) #placeTip { display: none; }
+    body.playing #msg { min-height: 0; font-size: 15px; line-height: 19px; }
+    body.playing #placeBar:not([hidden]) ~ .grids #stripFleet { display: none; }
+    body.playing .boardTabs { margin: 0; }
+    body.playing .board { gap: 4px; }
+    body.playing .board h2 { font-size: 13px; line-height: 16px; }
+    /* At 360px wide the five pills wrapped to a second line and scrolled the page 7px; at 11px they fit one. */
+    body.playing .strip { gap: 4px; }
+    body.playing .strip span { font-size: 11px; padding: 1px 6px; }
+  }
 </style>
 </head>
 <body>
@@ -224,7 +272,7 @@
         <button class="btn" id="confirm" disabled>Start battle</button>
       </div>
     </div>
-    <div class="row" style="margin-top:8px"><span class="hint" id="placeHint">Click a cell to place the selected ship (it extends right or down). Tap a ship on the board to turn it, or its chip in the fleet list to pick it up and move it.</span></div>
+    <div class="row" style="margin-top:8px"><span class="hint" id="placeHint">Click a cell to place the selected ship (it extends right or down). Tap a ship on the board to turn it, or its chip in the fleet list to pick it up and move it.</span><span class="hint" id="placeTip">Tap a cell to place. Tap a ship to turn it, its chip to move it.</span></div>
   </section>
 
   <div id="msg"></div>
