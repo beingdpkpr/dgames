@@ -262,5 +262,16 @@ function bot(seed, style) {
   ok(x === y, `same seed, same run: "${x}"`);
 }
 
+// ---- interiors are dark for the guards, not just on screen ----
+{
+  const L = T.buildLevel();
+  // Compared with the same spot unroofed, not with some yard point: a spot outside may simply be unlit.
+  const open = Object.assign({}, L, { buildings: [] });
+  for (const B of L.buildings) {
+    const inside = T.lightAt(L, B.cx, B.cz), bare = T.lightAt(open, B.cx, B.cz);
+    ok(inside <= bare * 0.6, `${B.name}: light in the room ${inside.toFixed(2)} vs the same spot unroofed ${bare.toFixed(2)}`);
+  }
+}
+
 if (failures) { console.log(`\n${failures} failed`); process.exit(1); }
 console.log('\nall passed');

@@ -586,14 +586,18 @@ function collide(L, x, z, r) {
   return [clamp(x, -WORLD, WORLD), clamp(z, -WORLD, WORLD)];
 }
 
-// Light at a point: dusk ambient plus the lamp pools (quadratic falloff), capped at 1.
+// Light at a point: dusk ambient plus the lamp pools (quadratic falloff), capped at 1. Under a roof it
+// is half the sky and a third of any lamp spilling through the door: the renderer draws interiors dark,
+// and what looks dark to the player has to be dark to the guards, or a room that plainly hides you
+// would get you spotted as if you stood in the yard.
 function lightAt(L, x, z) {
-  let l = L.ambient;
+  let lamps = 0;
   for (const lp of L.lamps) {
     const d = Math.hypot(x - lp.x, z - lp.z);
-    if (d < lp.r) { const f = 1 - d / lp.r; l += lp.i * f * f; }
+    if (d < lp.r) { const f = 1 - d / lp.r; lamps += lp.i * f * f; }
   }
-  return Math.min(1, l);
+  const inside = L.buildings.some((B) => Math.abs(x - B.cx) < B.w / 2 && Math.abs(z - B.cz) < B.d / 2);
+  return Math.min(1, inside ? L.ambient * 0.5 + lamps * 0.3 : L.ambient + lamps);
 }
 const speedOf = (p) => Math.hypot(p.vx, p.vz);
 
@@ -1223,6 +1227,26 @@ scene.add(new THREE.HemisphereLight(0x9a90c8, 0x3b3226, 0.62));
 const sun = new THREE.DirectionalLight(0xffa06a, 0.78);
 sun.position.set(-100, 22, -35);
 scene.add(sun);
+// Shadows from the sun, which sits about 12 degrees up, so trees, walls and guards throw the long
+// evening shadows the scene was missing -- and the buildings shade their own interiors. The shadow box
+// follows the player (updated each frame), because one map stretched over the whole 700 m world would be
+// too coarse to show a crate's shadow.
+// Desktop only. Measured: with the sky and ambient light doing most of the lighting at dusk the shadows
+// are a subtle touch, and the extra depth pass took triangles per frame from 97k to 147k -- a poor trade
+// on a phone, which is already the slower side. (Interiors do not depend on it: they are darkened
+// directly, below.)
+const SUN_DIR = sun.position.clone().normalize();
+renderer.shadowMap.enabled = !touchMode;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+sun.castShadow = !touchMode;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -38, right: 38, top: 38, bottom: -38, near: 1, far: 220 });
+sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.04;
+scene.add(sun.target);
+function aimSun(x, z) {
+  sun.position.set(x + SUN_DIR.x * 110, SUN_DIR.y * 110, z + SUN_DIR.z * 110);
+  sun.target.position.set(x, 0, z); sun.target.updateMatrixWorld();
+}
 scene.add(new THREE.AmbientLight(0x2a2438, 0.35));
 
 // ---------------------------------------------------------------- textures (all drawn at runtime)
@@ -1442,6 +1466,7 @@ function pushGeom(key, geom, matrix, col = WHITE, uvScale = 1) {
     if (vc) B.col.push(col[0] * vc[i * 3], col[1] * vc[i * 3 + 1], col[2] * vc[i * 3 + 2]); else B.col.push(...col);
   }
 }
+const NO_SHADOW = new Set(['fence', 'tuft', 'window', 'screen', 'helipad', 'bulb']);
 function flushBuckets(target) {
   for (const key of Object.keys(buckets)) {
     const B = buckets[key]; if (!B.pos.length) continue;
@@ -1452,6 +1477,9 @@ function flushBuckets(target) {
     g.setAttribute('color', new THREE.Float32BufferAttribute(B.col, 3));
     g.computeBoundingSphere();
     const m = new THREE.Mesh(g, MAT[key]); m.matrixAutoUpdate = false;
+    // Everything solid casts and takes shadows. Cut-out and glowing things do not: the fence and grass
+    // tufts would cast their whole quads without a custom depth material, and lamps and windows are lights.
+    if (!NO_SHADOW.has(key)) { m.castShadow = true; m.receiveShadow = true; }
     target.add(m);
     delete buckets[key];
   }
@@ -1527,7 +1555,18 @@ const cyl6 = new THREE.CylinderGeometry(1, 1, 1, 12, 1);
 for (const b of LEVEL.boxes) {
   const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, w = b.x1 - b.x0, d = b.z1 - b.z0, h = b.y1 - b.y0;
   switch (b.kind) {
-    case 'wall': case 'lintel': pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.6, skip: 'ny' }); break;
+    case 'wall': case 'lintel': {
+      // The face looking into the room is drawn apart and dark. Lit only per vertex and without shadows,
+      // a wall's inner face took the same sky and sun as its outer one, so rooms looked like the yard.
+      const B = b.bld && LEVEL.buildings.find((q) => q.name === b.bld);
+      if (!B) { pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.6, skip: 'ny' }); break; }
+      const alongX = b.x1 - b.x0 > b.z1 - b.z0;
+      const inner = alongX ? ((b.z0 + b.z1) / 2 < B.cz ? 'pz' : 'nz') : ((b.x0 + b.x1) / 2 < B.cx ? 'px' : 'nx');
+      pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.6, skip: ['ny', inner].join(',') });
+      pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.6, col: shade(0.38),
+        skip: ['px', 'nx', 'pz', 'nz', 'py', 'ny'].filter((k) => k !== inner).join(',') });
+      break;
+    }
     case 'hut': pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.2, skip: 'ny' });
       pushBox('roof', b.x0 - 0.2, b.y1, b.z0 - 0.2, b.x1 + 0.2, b.y1 + 0.12, b.z1 + 0.2, { tile: 2 }); break;
     case 'roof': case 'towerroof': pushBox('roof', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 2.5, seg: 2 }); break;
@@ -1590,8 +1629,8 @@ for (const B of LEVEL.buildings) {
     }
   }
   // interior floor, darker than the yard, and a ceiling so the roof does not read as a sheet from inside
-  pushBox('concrete', x0 + 0.15, 0.03, z0 + 0.15, x1 - 0.15, 0.05, z1 - 0.15, { tile: 3, seg: 2, col: shade(0.45), skip: 'ny' });
-  pushBox('concrete', x0 + 0.15, B.h - 0.05, z0 + 0.15, x1 - 0.15, B.h, z1 - 0.15, { tile: 3, seg: 2, col: shade(0.4) });
+  pushBox('concrete', x0 + 0.15, 0.03, z0 + 0.15, x1 - 0.15, 0.05, z1 - 0.15, { tile: 3, seg: 2, col: shade(0.32), skip: 'ny' });
+  pushBox('concrete', x0 + 0.15, B.h - 0.05, z0 + 0.15, x1 - 0.15, B.h, z1 - 0.15, { tile: 3, seg: 2, col: shade(0.22) });
 }
 // Towers: ladders and a crossbrace, on top of the sim's legs and deck.
 for (const T of LEVEL.towers) {
@@ -1882,7 +1921,10 @@ const guardViews = [];
 function buildGuardViews(S) {
   for (const v of guardViews) scene.remove(v.root);
   guardViews.length = 0;
-  for (let i = 0; i < S.guards.length; i++) { const v = makeSoldier(); scene.add(v.root); guardViews.push(v); }
+  for (let i = 0; i < S.guards.length; i++) {
+    const v = makeSoldier(); scene.add(v.root); guardViews.push(v);
+    v.root.traverse((o) => { if (o.isMesh && o.material !== blobMat) o.castShadow = true; });
+  }
 }
 function animateGuards(S, dt) {
   for (let i = 0; i < S.guards.length; i++) {
@@ -2516,6 +2558,7 @@ function frame(now) {
   // the LZ smoke: green once the upload is done, so it can be found by eye from inside the wire
   if (S && S.mission.phase === 'extract' && vrng() < dt * 14) spawn('soft', LEVEL.extraction.x + (vrng() - 0.5) * 0.4, 0.3, LEVEL.extraction.z + (vrng() - 0.5) * 0.4, 0.4 + vrng() * 0.3, 1.4 + vrng() * 0.8, (vrng() - 0.5) * 0.3, 5, 0.9, 5, 0.45, 0.85, 0.5, 0.55, -0.05);
   sky.position.copy(camera.position);
+  aimSun(camera.position.x, camera.position.z);
   renderer.clear();
   renderer.render(scene, camera);
   if (mode === 'play' || mode === 'dying') { renderer.clearDepth(); renderer.render(vmScene, vmCam); }
