@@ -777,19 +777,97 @@ function cellRect(ctx, x, y, size, colour, ghost) {
     ctx.globalAlpha = 1;
     return;
   }
-  ctx.fillStyle = colour;
-  ctx.fillRect(x + p, y + p, size - 2 * p, size - 2 * p);
-  // A light top-left edge and a dark bottom-right one: cheap bevel, and it keeps two adjacent blocks of
-  // the same colour from reading as one undifferentiated slab.
-  ctx.fillStyle = 'rgba(255,255,255,.28)';
-  ctx.fillRect(x + p, y + p, size - 2 * p, Math.max(1, size * 0.11));
-  ctx.fillStyle = 'rgba(0,0,0,.30)';
-  ctx.fillRect(x + p, y + size - p - Math.max(1, size * 0.11), size - 2 * p, Math.max(1, size * 0.11));
+  // Every cell of one colour at one size is pixel-identical, so the bevel is painted once into a sprite
+  // and stamped from then on. Painting it live cost ten times the old flat renderer: 6.0 ms against
+  // 0.6 ms for a full well on a phone-sized canvas at 4x CPU throttle. That fit the 16.7 ms frame, which
+  // is exactly why it would never have shown up as a bug -- it would just have eaten a third of a slow
+  // phone's frame for nothing. Keyed by size as well as colour, so the Next and Hold previews and a
+  // resized well each get their own.
+  const key = colour + '|' + size;
+  let spr = SPRITES.get(key);
+  if (!spr) {
+    if (SPRITES.size > 64) SPRITES.clear();       // resizes mint new sizes; don't let them pile up
+    spr = document.createElement('canvas');
+    spr.width = spr.height = Math.ceil(size);
+    paintCell(spr.getContext('2d'), size, colour);
+    SPRITES.set(key, spr);
+  }
+  ctx.drawImage(spr, x, y);
+}
+const SPRITES = new Map();
+
+function paintCell(ctx, size, colour) {
+  const x = 0, y = 0, p = Math.max(1, size * 0.06);
+  // Four bevelled faces, not two bands. The old version painted a light strip along the top and a dark
+  // one along the bottom, which reads as a striped square: the eye needs the LEFT and RIGHT faces too
+  // before it accepts a block as a solid with depth rather than a decorated flat tile.
+  const x0 = x + p, y0 = y + p, s = size - 2 * p, b = Math.max(2, s * 0.17);
+  // A diagonal gradient across the face puts the light in one place and keeps it there, so a stack of
+  // the same colour still shows its individual cells.
+  const g = ctx.createLinearGradient(x0, y0, x0 + s, y0 + s);
+  g.addColorStop(0, shade(colour, 1.14));
+  g.addColorStop(1, shade(colour, 0.84));
+  ctx.fillStyle = g;
+  ctx.fillRect(x0, y0, s, s);
+  const face = (pts, fill) => {
+    ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
+    for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+    ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+  };
+  face([x0, y0, x0 + s, y0, x0 + s - b, y0 + b, x0 + b, y0 + b], 'rgba(255,255,255,.46)');            // top
+  face([x0, y0, x0 + b, y0 + b, x0 + b, y0 + s - b, x0, y0 + s], 'rgba(255,255,255,.22)');            // left
+  face([x0 + s, y0, x0 + s, y0 + s, x0 + s - b, y0 + s - b, x0 + s - b, y0 + b], 'rgba(0,0,0,.24)');  // right
+  face([x0, y0 + s, x0 + s, y0 + s, x0 + s - b, y0 + s - b, x0 + b, y0 + s - b], 'rgba(0,0,0,.40)');  // bottom
+  // A small specular square near the lit corner. One highlight, always the same corner, so the whole
+  // well looks lit from one direction instead of every block glinting on its own.
+  if (s > 14) {
+    ctx.fillStyle = 'rgba(255,255,255,.30)';
+    ctx.fillRect(x0 + b * 1.35, y0 + b * 1.35, s * 0.17, s * 0.17);
+  }
+}
+
+// Lighten or darken a #rrggbb by a factor. Kept here rather than as precomputed palette entries so a
+// new piece colour needs one hex, not three.
+function shade(hex, k) {
+  const v = parseInt(hex.slice(1), 16);
+  const c = [(v >> 16) & 255, (v >> 8) & 255, v & 255]
+    .map((ch) => Math.max(0, Math.min(255, Math.round(ch * k))));
+  return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
 }
 
 function draw() {
   const w = boardC.width, h = boardC.height, size = w / COLS;
   bctx.clearRect(0, 0, w, h);
+  // The well is drawn as a recessed box, lit from the same top-left as the blocks. For a recess that
+  // puts the TOP and LEFT inner walls in shadow (they face away from the light) and lets the RIGHT and
+  // BOTTOM ones catch it -- the mirror image of a block's bevel, which is what tells the eye one is a
+  // hole and the other a solid. A first version lit the left wall and shaded the right, i.e. drew the
+  // well as a bump, which is the opposite of what the blocks needed to sit in.
+  //
+  // The interior is painted here rather than left to the CSS --well colour, because that colour is
+  // #08131f = (8,19,31) and a shadow can only ever remove what is there: black at 40% bottoms out at
+  // (5,11,19). Measured against the middle of the well, the right wall came to a difference of 12 and
+  // the floor 14 -- about five levels a channel, which is nothing. The lit left wall managed 35 only
+  // because adding light has the whole range to work with. So the floor of the box is the CSS colour
+  // and the top is lifted well clear of it, which both gives the shadows something to bite into and
+  // makes the well itself recede.
+  const base = bctx.createLinearGradient(0, 0, 0, h);
+  base.addColorStop(0, '#13253c');
+  base.addColorStop(1, '#08131f');
+  bctx.fillStyle = base; bctx.fillRect(0, 0, w, h);
+  // Shadow goes where the base gradient above is lightest (the top) and light where it is darkest (the
+  // bottom), so each has room to show. That is not a trick layered on the physics; it is the physics.
+  const wall = Math.max(3, size * 0.2);
+  const edge = (x0, y0, x1, y1, rx, ry, rw, rh, rgb, a) => {
+    const g = bctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
+    bctx.fillStyle = g; bctx.fillRect(rx, ry, rw, rh);
+  };
+  edge(0, 0, 0, wall * 1.5, 0, 0, w, wall * 1.5, '0,0,0', .55);           // top: deepest shadow
+  edge(0, 0, wall, 0, 0, 0, wall, h, '0,0,0', .45);                        // left: shadow
+  edge(w, 0, w - wall, 0, w - wall, 0, wall, h, '150,190,230', .13);       // right: catches the light
+  edge(0, h, 0, h - wall, 0, h - wall, w, wall, '150,190,230', .15);       // bottom: catches the light
+
   // faint grid so an empty well still reads as ten columns rather than a void
   bctx.strokeStyle = 'rgba(122,163,204,.10)'; bctx.lineWidth = 1;
   for (let x = 1; x < COLS; x++) { bctx.beginPath(); bctx.moveTo(Math.round(x * size) + .5, 0); bctx.lineTo(Math.round(x * size) + .5, h); bctx.stroke(); }
