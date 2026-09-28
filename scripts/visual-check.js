@@ -45,6 +45,7 @@ const GAMES = [
       await p.waitForFunction(() => { const b = document.getElementById('start-button'); return b && !b.disabled; }, null, { timeout: 60000 }).catch(() => {});
       await p.click('#start-button'); await p.waitForTimeout(3000);
     } },
+  { name: 'tetris', file: 'tetris/index.html', enter: async (p) => { await p.click('#startBtn'); await p.waitForTimeout(600); } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,
@@ -60,8 +61,12 @@ const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 
   for (const g of GAMES) {
     if (only.length && !only.includes(g.name)) continue;
-    const sizes = [['phone', PHONE, true], ['desktop', DESK, false]];
-    if (g.landscape) sizes.splice(1, 0, ['landscape', LAND, true]);
+    // Every game gets a landscape shot, not just the ones built for it. A phone turned sideways is not
+    // something a game gets to opt out of: with this list limited to the three landscape games, Tetris
+    // drew a 4x4px well sideways and Battleship, Tic-tac-toe and Dots-and-boxes put 40-98% of their
+    // board below the fold, and nothing here ever looked. `landscape` now only marks the games that
+    // are landscape-first and slower to load, not which ones get checked.
+    const sizes = [['phone', PHONE, true], ['landscape', LAND, true], ['desktop', DESK, false]];
 
     for (const [label, viewport, touch] of sizes) {
       const ctx = await browser.newContext({ viewport, hasTouch: touch, isMobile: touch, deviceScaleFactor: touch ? 2 : 1 });
