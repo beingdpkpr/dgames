@@ -158,6 +158,49 @@
     text-align: center; width: min(340px, 90vw); }
   .over h2 { margin: 0 0 6px; font-size: 24px; letter-spacing: 2px; }
 
+  /* #side only exists for this layout: everywhere else it is display:contents, so its children are laid
+     out as the body's own flex items exactly as before it was added. */
+  #side { display: contents; }
+
+  /* A phone turned sideways. The column above sized the board at 52vh, which on 844x390 was a 203px board
+     — 13% of the screen — with the die below it and the page scrolling 315-376px to reach it. Here the
+     board takes the full height on the right and everything else is a column on its left, so nothing
+     scrolls in play. The board box stays square; it only measures 213x198 in a DOM rect because rotateX
+     under perspective widens the near edge and foreshortens the height, which is why the right padding is
+     wider than the left: the near edge overhangs the box by about 3% of --s. */
+  @media (orientation: landscape) and (max-height: 500px) {
+    body { display: grid; min-height: 0; height: 100vh; height: 100dvh; align-items: start;
+      grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 44px minmax(0, 1fr); gap: 6px 12px;
+      padding: max(8px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+        max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+    /* The title shares the fixed back button's row, starting past it (44px button + 8px). */
+    h1 { grid-area: 1 / 1; align-self: center; justify-self: start; margin: 0 0 0 52px; font-size: 18px; }
+    /* 24px is the 16px of vertical padding plus the ~1% the tilted far edge drops below the box. The vw
+       term keeps a side column of at least ~250px on the narrowest phones (568x320). */
+    #stage, #board { --s: min(calc(100vh - 24px), calc(100vw - 300px), 520px); }
+    #stage, #board { --s: min(calc(100dvh - 24px), calc(100vw - 300px), 520px); }
+    #stage { grid-area: 1 / 2 / 3 / 3; align-self: center; }
+    /* The play controls come first and fit in the 309px a 375px-tall screen leaves: turn line 22, the
+       worst case of four move chips 4x44 + gaps = 194, the note 18. The seat settings follow and scroll
+       inside this column, never the page — they are for between games, not for a turn. */
+    #side { grid-area: 2 / 1; display: grid; grid-template-columns: 96px minmax(0, 1fr); align-content: start;
+      gap: 6px 8px; min-height: 0; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+    #side > .bar { width: auto; grid-column: 1 / -1; }
+    #rollBar, #hintBar { display: contents; }
+    #side > .bar:first-child { grid-row: 1; }
+    /* The cube draws outside its 72px box under perspective — most in the unrolled corner-on pose, where
+       it reached 16px below it and sat on "Tap to roll". The 96px column and these margins keep it off the
+       chips beside it and the hint below it. */
+    #die { grid-area: 2 / 1; margin: 10px 12px 22px; }
+    #dieHint { grid-area: 3 / 1; align-self: start; text-align: center; }
+    #moves { grid-area: 2 / 2 / 4 / 3; flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 6px; }
+    /* A chip may wrap to two lines in the 180px it gets on a 667px screen; it still stands 44px tall. */
+    .chip { font-size: 13px; padding: 4px 12px; text-align: left; line-height: 1.2; max-width: 100%; }
+    .chip i { flex: none; }
+    .seats { flex-direction: column; align-items: stretch; }
+    .seat select { margin-left: auto; min-height: 44px; min-width: 44px; }
+  }
+
   /* Someone who gets motion sick from a tilted plane can have it flat; the game is identical either way. */
   @media (prefers-reduced-motion: reduce) {
     :root { --tilt: 0deg; }
@@ -184,15 +227,16 @@
 <a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
 <h1>LU<span>DO</span></h1>
 <div id="stage"><div id="board"></div></div>
+<div id="side">
 <div class="bar"><div id="turn"></div></div>
-<div class="bar">
+<div class="bar" id="rollBar">
   <button id="die" title="Roll the die" aria-label="Roll the die"><div id="cube">
     <div class="f f1">&#9856;</div><div class="f f2">&#9857;</div><div class="f f3">&#9858;</div>
     <div class="f f4">&#9859;</div><div class="f f5">&#9860;</div><div class="f f6">&#9861;</div>
   </div></button>
   <div id="moves"></div>
 </div>
-<div class="bar"><div id="dieHint"></div></div>
+<div class="bar" id="hintBar"><div id="dieHint"></div></div>
 <div class="bar"><div id="note"></div></div>
 <div class="bar seats" id="seats"></div>
 <div class="bar">
@@ -202,6 +246,7 @@
   <button class="btn" id="newGame">New game</button>
 </div>
 <div class="bar"><div id="record"></div></div>
+</div>
 
 <div class="over" id="over" hidden><div>
   <h2 id="overTitle">Game over</h2>
