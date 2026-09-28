@@ -49,6 +49,7 @@ const GAMES = [
   { name: 'knights-tour', file: 'knights-tour/index.html', enter: async (p) => { await p.click('#randomBtn'); await p.waitForTimeout(600); } },
   // Queens opens a Rules card on a first visit; close it so the shot is the board.
   { name: 'queens', file: 'queens/index.html', enter: async (p) => { await p.waitForTimeout(600); const b = await p.$('#helpClose'); if (b && await b.isVisible()) await b.click(); await p.waitForTimeout(600); } },
+  { name: 'troll-chess', file: 'troll-chess/index.html', enter: async (p) => { await p.click('#startBtn'); await p.waitForTimeout(400); await p.click('#deck'); await p.waitForTimeout(1600); } },
   { name: 'dusk-protocol', file: 'dusk-protocol/index.html', landscape: true, enter: async (p) => { await p.click('#btnStart'); await p.waitForTimeout(1500); } },
 ];
 
