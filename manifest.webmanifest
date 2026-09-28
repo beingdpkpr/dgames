@@ -39,6 +39,16 @@
   ],
   "shortcuts": [
     {
+      "name": "Queens",
+      "url": "queens/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
       "name": "Dojo Duel",
       "url": "dojo-duel/index.html",
       "icons": [

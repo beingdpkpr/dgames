@@ -18,6 +18,7 @@ Play them at **<https://beingdpkpr.github.io/dgames/>**, or open any `index.html
 | Tetris | `tetris/` | Guideline-rules Tetris: SRS wall kicks, seven-bag, hold, ghost, T-spins. Test: `node test/engine.js` inside the folder. |
 | Dojo Duel | `dojo-duel/` | Three.js one-on-one fighter (prototype): four limb buttons, high/mid/low guard rules, frame data, knockdowns, three AI levels. Three.js bundled into the file. On-screen pad on phones. Test: `node test/sim.js` inside the folder. |
 | Knight's Tour | `knights-tour/` | Visit every square once with a chess knight, 5×5 to 8×8. Warnsdorff assist, hints and dead-end warnings from a real solver, closed-tour bonus. Test: `node test/solver.js` inside the folder. |
+| Queens | `queens/` | Daily logic puzzle: one queen per row, column and colour region, none touching. Every puzzle has exactly one solution and is solvable by deduction alone; hints explain the next deduction. Daily plus endless 5×5 to 10×10. Test: `node test/logic.js` inside the folder. |
 
 Conventions: one folder per game with its own `README.md`, `package.json` (only if it needs tooling) and `test/`. Keep games self-contained so any one can be opened or published on its own.
 

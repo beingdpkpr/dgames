@@ -47,6 +47,8 @@ const GAMES = [
     } },
   { name: 'tetris', file: 'tetris/index.html', enter: async (p) => { await p.click('#startBtn'); await p.waitForTimeout(600); } },
   { name: 'knights-tour', file: 'knights-tour/index.html', enter: async (p) => { await p.click('#randomBtn'); await p.waitForTimeout(600); } },
+  // Queens opens a Rules card on a first visit; close it so the shot is the board.
+  { name: 'queens', file: 'queens/index.html', enter: async (p) => { await p.waitForTimeout(600); const b = await p.$('#helpClose'); if (b && await b.isVisible()) await b.click(); await p.waitForTimeout(600); } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,
