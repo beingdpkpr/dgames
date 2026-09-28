@@ -46,6 +46,7 @@ const GAMES = [
       await p.click('#start-button'); await p.waitForTimeout(3000);
     } },
   { name: 'tetris', file: 'tetris/index.html', enter: async (p) => { await p.click('#startBtn'); await p.waitForTimeout(600); } },
+  { name: 'knights-tour', file: 'knights-tour/index.html', enter: async (p) => { await p.click('#randomBtn'); await p.waitForTimeout(600); } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,

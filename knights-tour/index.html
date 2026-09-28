@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#0f2a21">
+<link rel="icon" href="../icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="dgames">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+  /* Installable, and playable with no network once a game has been opened. Registered from every page so
+     a deep link into one game works offline too, not only a visit that started at the launcher. Over
+     file:// there is no service worker and register() rejects; the catch keeps that silent. */
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('../sw.js').catch(() => {}));
+</script>
+<meta name="description" content="Knight's Tour: move a chess knight so it lands on every square exactly once. 5x5 to 8x8, Warnsdorff assist, hints, dead-end detection, closed-tour bonus.">
+<title>Knight's Tour</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Optional. Offline or over file:// this fails quietly and the Georgia / system fallbacks take over. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap">
+<style>
+  :root {
+    --felt: #143b2e; --felt-deep: #081a14;
+    --brass: #e6c173; --brass-hi: #ffe2a0; --ivory: #f6ead0; --ink: #2a170b;
+    --panel: rgba(12, 26, 21, .72); --line: rgba(230, 193, 115, .38); --muted: #b9c8bd;
+    --ok: #4fd08a; --warn: #ff8a6b;
+    --maple: #e4c38f; --walnut: #9b6034;
+    --bs: 340px;            /* board side in px, set by layout() */
+    --gap: 8px;
+    --serif: "Cinzel", Georgia, "Times New Roman", serif;
+    --sans: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --hs-bg: #10281f; --hs-line: #6f5a33; --hs-accent: #e6c173; --hs-fg: #f6ead0;
+    /* Wood grain: fractal noise stretched along one axis reads as grain, and costs one tiny inline SVG
+       instead of an image file. Light squares run vertical, dark horizontal, like a real inlaid board. */
+    --grain-v: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.34 0.014' numOctaves='3' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .17 0 0 0 0 .05 1.1 0 0 0 -.44'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
+    --grain-h: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.014 0.34' numOctaves='3' seed='9'/%3E%3CfeColorMatrix values='0 0 0 0 .18 0 0 0 0 .08 0 0 0 0 .02 1.6 0 0 0 -.62'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
+  }
+  * { box-sizing: border-box; }
+  /* Every element toggled with `hidden` here also has a display rule somewhere, and an author display
+     rule beats the UA's [hidden] -- the dialog and the setup row both stayed on screen once already. */
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(ellipse 120% 80% at 50% 35%, #1d5140 0%, var(--felt) 38%, var(--felt-deep) 100%) fixed, var(--felt-deep);
+    color: var(--ivory); font-family: var(--sans); -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none; user-select: none; -webkit-user-select: none;
+  }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--brass-hi); outline-offset: 2px; }
+
+  #app {
+    min-height: 100%; display: grid; gap: var(--gap); align-content: center; justify-content: center;
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    grid-template-columns: var(--bs);
+    grid-template-areas: "head" "stats" "stage" "ctrl" "msg";
+  }
+  /* Landscape (phones on their side, and every desktop): the board sits right of the controls and is
+     sized from the height, because height is the short side. The back button then lands in the panel's
+     top-left corner instead of on a board square. */
+  @media (orientation: landscape) {
+    #app { grid-template-columns: minmax(0, 330px) var(--bs); column-gap: 14px;
+      grid-template-rows: auto auto auto auto 1fr; align-content: stretch; align-items: start;
+      grid-template-areas: "head stage" "stats stage" "ctrl stage" "msg stage" "guide stage"; }
+    header h1 { font-size: clamp(17px, calc(3.2vh + 5px), 25px); }
+    #stage { align-self: center; }
+  }
+  header { grid-area: head; display: flex; align-items: center; gap: 8px; min-height: 44px; padding-left: 52px; }
+  h1 { margin: 0; flex: 1; font-family: var(--serif); font-weight: 700; font-size: clamp(19px, 5.4vw, 27px);
+    letter-spacing: 1.5px; line-height: 1.05; color: var(--brass); text-shadow: 0 1px 0 #000, 0 0 18px rgba(230, 193, 115, .25); white-space: nowrap; }
+  h1 small { display: block; font-family: var(--sans); font-size: 11px; letter-spacing: 2px; color: var(--muted); font-weight: 600; text-transform: uppercase; text-shadow: none; }
+  .iconbtn { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel);
+    display: grid; place-items: center; cursor: pointer; color: var(--brass); }
+  .iconbtn svg { width: 22px; height: 22px; }
+
+  #stats { grid-area: stats; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .chip { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px 8px 5px; text-align: center; min-width: 0; }
+  .chip span { display: block; font-size: 10px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); }
+  .chip b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; color: var(--ivory); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip b.assisted::after { content: " \2022"; color: var(--brass); }
+
+  #ctrl { grid-area: ctrl; }
+  .row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  @media (orientation: landscape) { .row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .btn { min-height: 48px; border-radius: 12px; border: 1px solid var(--line); cursor: pointer;
+    background: linear-gradient(180deg, rgba(40, 70, 58, .9), rgba(14, 32, 25, .95)); color: var(--ivory);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 4px 2px;
+    font-size: 11.5px; font-weight: 600; letter-spacing: .4px; box-shadow: 0 2px 0 rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .08);
+    transition: transform .08s, border-color .15s, background .15s; }
+  .btn svg { width: 20px; height: 20px; color: var(--brass); }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .38; cursor: default; }
+  .btn.on { border-color: var(--brass); background: linear-gradient(180deg, #6b5324, #2f230d); }
+  .btn.size b { font-family: var(--serif); font-size: 17px; color: var(--brass); letter-spacing: 0; }
+  .btn.size.on b { color: var(--brass-hi); }
+  .btn.nudge { animation: nudge 1.1s ease-in-out infinite; border-color: var(--warn); }
+  @keyframes nudge { 50% { box-shadow: 0 0 0 4px rgba(255, 138, 107, .28), 0 2px 0 rgba(0,0,0,.35); } }
+
+  /* The legend and keys fill the panel's empty lower half on a desktop; a phone has no room for it. */
+  #guide { grid-area: guide; display: none; font-size: 12.5px; line-height: 1.45; color: var(--muted);
+    border-top: 1px solid rgba(230, 193, 115, .2); padding-top: 10px; }
+  @media (orientation: landscape) and (min-height: 560px) { #guide { display: block; } }
+  #guide ul { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 7px; }
+  #guide li { display: flex; align-items: center; gap: 10px; }
+  #guide i { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 11px; font-weight: 800; color: #fff; }
+  #guide i.g { background: radial-gradient(circle, rgba(40, 190, 120, .95), rgba(18, 110, 70, .85)); box-shadow: 0 0 8px rgba(60, 230, 150, .6); }
+  #guide i.b { background: radial-gradient(circle, #45e39a, #13875a); box-shadow: 0 0 0 2px #ffd878; }
+  #guide i.t { background: radial-gradient(circle, #e2604a, #9a2a1c); }
+  #guide i.c { background: linear-gradient(90deg, #f6e4bd, #d98a4e 50%, #7d1f2a); color: #3a220c; }
+  #guide .keys { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
+  #guide .keys b { color: var(--brass); font-weight: 700; }
+  #guide h3 { margin: 0 0 8px; font-family: var(--serif); font-size: 13px; letter-spacing: 1.5px; color: var(--brass); font-weight: 700; }
+  #msg { grid-area: msg; min-height: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
+    text-align: center; font-size: 13.5px; line-height: 1.3; color: var(--muted); padding: 0 4px; }
+  #msg.bad { color: #ffc3b1; }
+  #msg.good { color: #bff0d2; }
+  #msg .act { min-height: 36px; padding: 4px 12px; border-radius: 18px; border: 1px solid var(--warn); background: rgba(255, 138, 107, .14);
+    color: #ffd9cd; cursor: pointer; font-weight: 700; font-size: 13px; }
+  #msg kbd { font: inherit; font-weight: 700; color: var(--brass); }
+  @media (orientation: landscape) { #msg { justify-content: flex-start; text-align: left; } }
+
+  /* ---- the board ---- */
+  #stage { grid-area: stage; width: var(--bs); height: var(--bs); position: relative; }
+  #board { --frame: clamp(5px, calc(var(--bs) * .028), 16px);
+    position: absolute; inset: 0; padding: var(--frame); border-radius: 8px;
+    background: var(--grain-h) 0 0 / 180px, linear-gradient(145deg, #6a3519, #3a1a0b 55%, #2a1208);
+    box-shadow: 0 22px 50px rgba(0, 0, 0, .55), 0 4px 10px rgba(0, 0, 0, .5), inset 0 1px 1px rgba(255, 220, 170, .35), inset 0 -2px 3px rgba(0, 0, 0, .5); }
+  #inner { position: relative; width: 100%; height: 100%; outline: 1px solid rgba(230, 193, 115, .55); outline-offset: 1px; }
+  #grid { position: absolute; inset: 0; display: grid; }
+  .sq { position: relative; border: 0; padding: 0; margin: 0; cursor: default; overflow: hidden;
+    background-color: var(--maple); background-image: var(--grain-v), linear-gradient(160deg, rgba(255, 246, 225, .28), rgba(120, 70, 20, .08));
+    background-size: 180px, 100% 100%; }
+  .sq.d { background-color: var(--walnut); background-image: var(--grain-h), linear-gradient(160deg, rgba(255, 220, 170, .14), rgba(40, 15, 0, .18)); }
+  .sq .co { position: absolute; font-size: calc(var(--sq) * .19); font-weight: 700; line-height: 1; opacity: .8; pointer-events: none; }
+  .sq .co.f { right: 4%; bottom: 3%; } .sq .co.r { left: 5%; top: 4%; }
+  .sq .co { color: var(--walnut); } .sq.d .co { color: var(--maple); }
+  .sq.visited::before { content: ""; position: absolute; inset: 0; background: rgba(40, 16, 4, .16); }
+  /* the token: a raised coin carrying the move number, coloured along the tour from ivory to oxblood so
+     the order reads at a glance without reading a single digit */
+  .tok { position: absolute; inset: 14%; border-radius: 50%; display: grid; place-items: center;
+    font-weight: 800; font-size: calc(var(--sq) * .31); font-variant-numeric: tabular-nums; letter-spacing: -.5px;
+    background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, .55), rgba(255, 255, 255, 0) 45%), var(--tc);
+    color: var(--tt); box-shadow: 0 2px 3px rgba(0, 0, 0, .45), inset 0 -2px 3px rgba(0, 0, 0, .28), inset 0 0 0 1.5px rgba(255, 240, 210, .35); }
+  .tok.pop { animation: pop .42s cubic-bezier(.2, 1.6, .4, 1) both; }
+  @keyframes pop { from { transform: scale(.2); opacity: 0; } }
+  .sq.here .tok { visibility: hidden; }
+  .sq.start .tok { box-shadow: 0 0 0 2.5px var(--brass-hi), 0 2px 3px rgba(0, 0, 0, .45), inset 0 -2px 3px rgba(0, 0, 0, .28); }
+  /* legal targets: a soft emerald well that breathes, and in assist mode a badge with the onward count */
+  .sq.tgt { cursor: pointer; }
+  .sq.tgt::after { content: ""; position: absolute; left: 50%; top: 50%; width: 34%; height: 34%; border-radius: 50%; transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(40, 190, 120, .95), rgba(18, 110, 70, .85)); box-shadow: 0 0 10px 2px rgba(60, 230, 150, .55);
+    animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 50% { transform: translate(-50%, -50%) scale(1.18); box-shadow: 0 0 16px 5px rgba(60, 230, 150, .7); } }
+  .sq.tgt:hover::after { width: 42%; height: 42%; }
+  .sq.tgt.badge::after { width: 56%; height: 56%; }
+  .sq .num { position: absolute; inset: 0; display: grid; place-items: center; z-index: 1; font-weight: 800; color: #fff;
+    font-size: calc(var(--sq) * .3); text-shadow: 0 1px 2px rgba(0, 0, 0, .6); pointer-events: none; }
+  /* Warnsdorff's pick keeps the emerald of every other target and gains a brass ring: it must never be
+     mistaken for a visited coin, which the first version (a gold disc) was. */
+  .sq.best::after { background: radial-gradient(circle, #45e39a, #13875a); box-shadow: 0 0 0 3px #ffd878, 0 0 16px 5px rgba(255, 216, 120, .75); animation-name: breathe-best; }
+  @keyframes breathe-best { 50% { transform: translate(-50%, -50%) scale(1.12); box-shadow: 0 0 0 3px #ffe7a6, 0 0 22px 8px rgba(255, 216, 120, .9); } }
+  .sq.trap::after { background: radial-gradient(circle, #e2604a, #9a2a1c); box-shadow: 0 0 10px 2px rgba(255, 110, 80, .55); }
+  .sq.hint { box-shadow: inset 0 0 0 4px var(--brass-hi), inset 0 0 22px rgba(255, 226, 160, .9); animation: hintpulse .9s ease-in-out infinite; }
+  @keyframes hintpulse { 50% { box-shadow: inset 0 0 0 4px var(--brass-hi), inset 0 0 6px rgba(255, 226, 160, .4); } }
+  .sq.cursor { box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 5px rgba(0, 0, 0, .5); }
+  /* start picker */
+  .sq.pick { cursor: pointer; }
+  .sq.pick::after { content: ""; position: absolute; inset: 30%; border-radius: 50%; border: 2px solid rgba(255, 235, 190, .9);
+    box-shadow: 0 0 8px rgba(255, 220, 150, .8); animation: breathe2 2s ease-in-out infinite; }
+  @keyframes breathe2 { 50% { transform: scale(.8); opacity: .55; } }
+  .sq.pick:hover::after { background: rgba(255, 235, 190, .35); }
+  .sq.nostart::after { content: "\00d7"; position: absolute; inset: 0; display: grid; place-items: center; font-size: calc(var(--sq) * .42);
+    color: rgba(40, 14, 2, .38); }
+  .sq.nostart { filter: saturate(.55) brightness(.8); }
+  .sq.win .tok { animation: winflash .7s ease-out both; animation-delay: var(--wd); }
+  @keyframes winflash { 35% { transform: scale(1.22); box-shadow: 0 0 0 3px #fff6d6, 0 0 22px 8px rgba(255, 214, 110, .95); filter: brightness(1.35); } }
+
+  #lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  #trail { fill: none; stroke: rgba(255, 244, 214, .5); stroke-width: .045; stroke-linejoin: round; stroke-linecap: round; }
+  #hop { fill: none; stroke: rgba(255, 226, 150, .95); stroke-width: .07; stroke-linejoin: round; stroke-linecap: round; stroke-dasharray: .12 .1; }
+  #gold { fill: none; stroke: url(#goldgrad); stroke-width: .11; stroke-linejoin: round; stroke-linecap: round; filter: drop-shadow(0 0 .08px #ffcf6a); }
+  #closer { fill: none; stroke: #fff2c2; stroke-width: .13; stroke-linecap: round; }
+
+  #knight { position: absolute; left: 0; top: 0; width: var(--sq); height: var(--sq); pointer-events: none; z-index: 3; will-change: transform; }
+  #knight .lift { position: absolute; inset: 0; transform-origin: 50% 80%; }
+  #knight svg { position: absolute; left: 6%; top: 2%; width: 88%; height: 88%; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .55)); }
+  #knight .shadow { position: absolute; left: 20%; right: 20%; bottom: 7%; height: 14%; border-radius: 50%; background: rgba(0, 0, 0, .45); filter: blur(2px); }
+
+  /* ---- overlays ---- */
+  .veil { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 12px; background: rgba(3, 12, 9, .55); }
+  .card { width: min(380px, 100%); max-height: calc(100dvh - 24px); overflow: auto; text-align: center; border-radius: 18px; padding: 18px 18px 16px;
+    background: linear-gradient(180deg, #1a3d30, #0d2019); border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 230, 180, .18); }
+  .card h2 { margin: 0; font-family: var(--serif); font-size: 26px; letter-spacing: 1.5px; color: var(--brass); }
+  .card .big { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 4px 0 0; color: var(--ivory); }
+  .card .sub { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+  .card .ribbon { display: inline-block; margin: 8px 0 2px; padding: 5px 14px; border-radius: 20px; font-weight: 800; letter-spacing: 1px; font-size: 12.5px;
+    color: #3a2408; background: linear-gradient(90deg, #ffe7a3, #e6b54f, #ffe7a3); background-size: 200% 100%; animation: sheen 2.2s linear infinite; }
+  @keyframes sheen { to { background-position: -200% 0; } }
+  .card .tables { text-align: left; margin: 8px 0 4px; display: grid; gap: 10px; }
+  .card .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .card .btns .btn { font-size: 14px; min-height: 46px; }
+  .card .btns .btn.primary { background: linear-gradient(180deg, #e9c678, #b58a35); color: #2a1a06; border-color: #ffe2a0; }
+  #win .card { animation: rise .55s cubic-bezier(.2, 1.3, .4, 1) both; }
+  @keyframes rise { from { transform: translateY(40px) scale(.94); opacity: 0; } }
+  #win.peek { background: transparent; pointer-events: none; }
+  #win.peek .card { display: none; }
+  #confetti { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 55; pointer-events: none; }
+  .veil .card .tip { color: var(--muted); font-size: 12.5px; line-height: 1.45; text-align: left; margin: 8px 0 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sq.tgt::after, .sq.pick::after, .btn.nudge, .sq.hint, .card .ribbon { animation: none; }
+  }
+</style>
+</head>
+<body>
+<style>
+  /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
+     ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
+     A dark disc with a light ring reads on a bright pastel scene and on a black one without being
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
+  .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
+    font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
+</style>
+<a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
+
+<div id="app">
+  <header>
+    <h1>Knight&rsquo;s Tour<small id="sub">Pick a starting square</small></h1>
+    <button class="iconbtn" id="scoresBtn" type="button" title="Best times" aria-label="Best times">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a4 4 0 0 1-3.5 4M7 5H4v2a4 4 0 0 0 3.5 4"/></svg>
+    </button>
+  </header>
+  <div id="stats">
+    <div class="chip"><span>Time</span><b id="time">0:00</b></div>
+    <div class="chip"><span>Squares</span><b id="count">0/36</b></div>
+    <div class="chip"><span>Best</span><b id="best">&ndash;</b></div>
+  </div>
+  <div id="stage">
+    <div id="board">
+      <div id="inner">
+        <div id="grid" role="grid" aria-label="Board"></div>
+        <svg id="lines" aria-hidden="true">
+          <defs><linearGradient id="goldgrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#f0c35a"/><stop offset="1" stop-color="#ffe9a8"/></linearGradient></defs>
+          <polyline id="trail" points=""/>
+          <polyline id="gold" points=""/>
+          <line id="closer" x1="0" y1="0" x2="0" y2="0" visibility="hidden"/>
+          <path id="hop" d=""/>
+        </svg>
+        <div id="knight" hidden><div class="shadow"></div><div class="lift"></div></div>
+      </div>
+    </div>
+  </div>
+  <div id="ctrl">
+    <div class="row" id="setupRow">
+      <button class="btn size" type="button" data-size="5"><b>5&times;5</b></button>
+      <button class="btn size" type="button" data-size="6"><b>6&times;6</b></button>
+      <button class="btn size" type="button" data-size="7"><b>7&times;7</b></button>
+      <button class="btn size" type="button" data-size="8"><b>8&times;8</b></button>
+      <button class="btn" type="button" id="randomBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.3" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>Random</button>
+    </div>
+    <div class="row" id="playRow" hidden>
+      <button class="btn" type="button" id="undoBtn" title="Undo (U / Backspace)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Undo</button>
+      <button class="btn" type="button" id="hintBtn" title="Hint (H) - marks the run as assisted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>Hint</button>
+      <button class="btn" type="button" id="assistBtn" title="Assist (A): show onward moves - marks the run as assisted" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M10 9.5a2.2 2.2 0 1 1 3 2c-.7.3-1 .8-1 1.5v.5"/><circle cx="12" cy="16.8" r=".6" fill="currentColor"/></svg>Assist</button>
+      <button class="btn" type="button" id="restartBtn" title="Restart from the same square (R)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Restart</button>
+      <button class="btn" type="button" id="newBtn" title="New board (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>New</button>
+    </div>
+  </div>
+  <div id="msg" role="status" aria-live="polite"></div>
+  <aside id="guide">
+    <h3>Reading the board</h3>
+    <ul>
+      <li><i class="g"></i>Squares the knight can jump to</li>
+      <li><i class="b">2</i>Assist: onward moves from there; ringed is Warnsdorff&rsquo;s pick, the fewest</li>
+      <li><i class="t">0</i>A trap: no way out once you land</li>
+      <li><i class="c">7</i>Your route, ivory at the start to oxblood at the end</li>
+    </ul>
+    <h3>Keys</h3>
+    <div class="keys"><b>Arrows</b><span>choose a target</span><b>Enter / Space</b><span>jump</span><b>U / Backspace</b><span>undo</span><b>H &middot; A</b><span>hint &middot; assist</span><b>R &middot; N</b><span>restart &middot; new board</span></div>
+  </aside>
+</div>
+
+<canvas id="confetti" hidden></canvas>
+
+<div class="veil" id="win" hidden>
+  <div class="card" role="dialog" aria-labelledby="winTitle">
+    <h2 id="winTitle">Tour complete</h2>
+    <div id="winRibbon" class="ribbon" hidden>THE LAST JUMP LANDS BACK ON THE START</div>
+    <div class="big" id="winTime">0:00.0</div>
+    <div class="sub" id="winSub"></div>
+    <div class="tables" id="winTable"></div>
+    <div class="btns">
+      <button class="btn" type="button" id="viewBtn">View board</button>
+      <button class="btn primary" type="button" id="againBtn">Play again</button>
+    </div>
+  </div>
+</div>
+
+<div class="veil" id="scores" hidden>
+  <div class="card" role="dialog" aria-labelledby="scoresTitle">
+    <h2 id="scoresTitle">Best times</h2>
+    <div class="sub" id="scoresSub"></div>
+    <div class="tables" id="scoresTables"></div>
+    <p class="tip">A run is <b>assisted</b> once you use a hint or turn on Assist, and those go in their own table. Undo is free. The trick that makes most tours fall: always jump to the square with the <b>fewest</b> onward moves (Warnsdorff&rsquo;s rule, 1823).</p>
+    <div class="btns"><span></span><button class="btn primary" type="button" id="scoresClose">Close</button></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ---------- rules and solver (pure: no DOM, no clock, no Math.random) ----------
+// Squares are indices 0..n*n-1, row-major, index = r * n + c. Everything below takes the board size n
+// and a path (the squares in the order the knight visited them); nothing keeps hidden state, so the UI,
+// the tests and the solver all speak the same two values.
+
+const SIZES = [5, 6, 7, 8];
+const KNIGHT = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
+
+// Neighbour lists per size, built once. A knight on a corner has 2 moves, in the middle 8.
+const GRAPHS = {};
+function graph(n) {
+  if (GRAPHS[n]) return GRAPHS[n];
+  const N = n * n, nb = [], colour = new Uint8Array(N), centre = new Float64Array(N);
+  const mid = (n - 1) / 2;
+  for (let i = 0; i < N; i++) {
+    const r = Math.floor(i / n), c = i % n, list = [];
+    for (const [dr, dc] of KNIGHT) {
+      const rr = r + dr, cc = c + dc;
+      if (rr >= 0 && rr < n && cc >= 0 && cc < n) list.push(rr * n + cc);
+    }
+    nb.push(list);
+    colour[i] = (r + c) & 1;
+    centre[i] = (r - mid) * (r - mid) + (c - mid) * (c - mid);
+  }
+  return (GRAPHS[n] = { n, N, nb, colour, centre });
+}
+
+const rc = (n, i) => [Math.floor(i / n), i % n];
+const isKnightMove = (n, a, b) => graph(n).nb[a].includes(b);
+
+function visitedSet(n, path) { const v = new Uint8Array(n * n); for (const s of path) v[s] = 1; return v; }
+
+// Squares the knight on the last square of `path` may jump to.
+function legalMoves(n, path) {
+  if (!path.length) return [];
+  const v = visitedSet(n, path);
+  return graph(n).nb[path[path.length - 1]].filter((s) => !v[s]);
+}
+
+// Warnsdorff's number for a target: how many unvisited squares the knight could reach FROM it, once it
+// is there. Low numbers are the squares that will be stranded if they are not taken soon.
+function onwardCount(n, path, sq) {
+  const v = visitedSet(n, path); v[sq] = 1;
+  let k = 0; for (const t of graph(n).nb[sq]) if (!v[t]) k++;
+  return k;
+}
+
+// A path is legal if it never repeats a square and every step is a knight's move.
+function validPath(n, path) {
+  const v = new Uint8Array(n * n);
+  for (let i = 0; i < path.length; i++) {
+    const s = path[i];
+    if (!(s >= 0 && s < n * n) || v[s]) return false;
+    if (i && !isKnightMove(n, path[i - 1], s)) return false;
+    v[s] = 1;
+  }
+  return true;
+}
+const isComplete = (n, path) => path.length === n * n && validPath(n, path);
+// Closed ("re-entrant"): the last square is a knight's move from the first, so the tour is a loop and
+// could have started anywhere on it. Odd boards cannot have one -- the loop would need as many dark
+// squares as light ones, and an odd board has one more of one colour.
+const isClosed = (n, path) => isComplete(n, path) && isKnightMove(n, path[0], path[path.length - 1]);
+// Stuck: no legal move left and the board is not full.
+const isStuck = (n, path) => path.length > 0 && path.length < n * n && legalMoves(n, path).length === 0;
+
+// ---- the solver ----
+// Depth-first search for a completion of `path`, trying moves in Warnsdorff order (fewest onward moves
+// first, ties to the square farther from the centre). Warnsdorff alone walks an 8x8 tour straight
+// through from most starts; the ordering is what makes the search fast when it finds, and the pruning
+// below is what makes it fast when it refutes.
+//
+// Each position is pruned by three necessary conditions, all O(squares):
+//  1. Colour count. A knight always changes square colour, so the rest of the walk alternates colours
+//     and the unvisited squares must split exactly ceil/floor between the two. This is what refutes the
+//     5x5 minority-colour starts instantly, and many mid-game positions on 5x5 and 7x7.
+//  2. Degree. Every unvisited square needs a way in and a way out, except the final one. So none may be
+//     unreachable, and at most one may have a single remaining neighbour.
+//  3. Connectivity. The unvisited squares must form one connected piece of the knight graph; a region
+//     cut off is a dead end however far away it is. Human play produces these constantly.
+//
+// Iterative (an explicit stack) so the UI can run it a slice at a time between frames and the page never
+// freezes, and bounded by a node budget: when it runs out the answer is 'unknown', never a guess.
+// With closed = true only a tour ending a knight's move from its start counts, and the start square must
+// keep an unvisited neighbour to come home through.
+function createSearch(n, path, budget = 200000, closed = false) {
+  const g = graph(n), N = g.N, nb = g.nb, col = g.colour;
+  const vis = new Uint8Array(N);
+  const cur = path.slice();
+  for (const s of cur) vis[s] = 1;
+  const unvisitedByColour = [0, 0];
+  for (let i = 0; i < N; i++) if (!vis[i]) unvisitedByColour[col[i]]++;
+  const deg = new Uint8Array(N), seen = new Uint8Array(N), queue = new Int32Array(N);
+  let nodes = 0, status = 'running', result = null;
+
+  function feasible() {
+    const R = N - cur.length;
+    if (R === 0) return true;
+    const here = cur[cur.length - 1], c = col[here];
+    if (closed) { let open = false; for (const t of nb[cur[0]]) if (!vis[t]) { open = true; break; } if (!open) return false; }
+    // 1. colour count: next square is the other colour, so it gets the extra one when R is odd
+    if (unvisitedByColour[c ^ 1] !== ((R + 1) >> 1) || unvisitedByColour[c] !== (R >> 1)) return false;
+    // 2. degree, counting the knight's current square as a neighbour
+    let ones = 0, first = -1;
+    for (let i = 0; i < N; i++) {
+      if (vis[i]) continue;
+      if (first < 0) first = i;
+      let d = 0;
+      for (const t of nb[i]) if (!vis[t] || t === here) d++;
+      if (d === 0) return false;
+      if (d === 1 && ++ones > 1) return false;
+    }
+    // 3. connectivity of the unvisited squares
+    let head = 0, tail = 0, reached = 1;
+    seen.fill(0); seen[first] = 1; queue[tail++] = first;
+    while (head < tail) {
+      const s = queue[head++];
+      for (const t of nb[s]) if (!vis[t] && !seen[t]) { seen[t] = 1; reached++; queue[tail++] = t; }
+    }
+    return reached === R;
+  }
+
+  function ordered(here) {
+    const out = [];
+    for (const t of nb[here]) if (!vis[t]) {
+      let k = 0; for (const u of nb[t]) if (!vis[u]) k++;
+      out.push([k, -g.centre[t], t]);
+    }
+    out.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+    return out.map((x) => x[2]);
+  }
+
+  // stack[i] holds the untried moves out of cur[base + i]
+  const base = cur.length;
+  const stack = [];
+  if (!cur.length) status = 'none';
+  else if (!validPath(n, cur)) status = 'none';
+  else if (cur.length === N) { if (!closed || isKnightMove(n, cur[0], cur[N - 1])) { status = 'found'; result = cur.slice(); } else status = 'none'; }
+  else if (!feasible()) { status = 'none'; }
+  else stack.push(ordered(cur[cur.length - 1]));
+
+  const put = (s) => { vis[s] = 1; unvisitedByColour[col[s]]--; cur.push(s); };
+  const take = () => { const s = cur.pop(); vis[s] = 0; unvisitedByColour[col[s]]++; };
+
+  // Advance by up to `slice` nodes. Returns the status: 'found' | 'none' | 'unknown' | 'running'.
+  function step(slice = Infinity) {
+    let left = slice;
+    while (status === 'running') {
+      if (left-- <= 0) return status;
+      if (nodes >= budget) { status = 'unknown'; break; }
+      const top = stack[stack.length - 1];
+      if (!top) { status = 'none'; break; }
+      if (!top.length) { stack.pop(); if (cur.length > base) take(); continue; }
+      const s = top.shift();
+      nodes++;
+      put(s);
+      if (cur.length === N) {
+        if (!closed || isKnightMove(n, cur[0], s)) { status = 'found'; result = cur.slice(); break; }
+        take(); continue;
+      }
+      if (feasible()) stack.push(ordered(s)); else take();
+    }
+    return status;
+  }
+  return { step, get status() { return status; }, get nodes() { return nodes; }, get tour() { return result; } };
+}
+
+// Run a search to the end in one go. { status, tour, nodes }
+function solve(n, path, budget, closed = false) {
+  const s = createSearch(n, path, budget, closed); s.step();
+  return { status: s.status, tour: s.tour, nodes: s.nodes };
+}
+
+// Which start squares have a tour at all. 'tour' | 'none' | 'unknown' per square.
+function startStatus(n, budget) {
+  const out = [];
+  for (let i = 0; i < n * n; i++) { const st = solve(n, [i], budget).status; out.push(st === 'found' ? 'tour' : st); }
+  return out;
+}
+
+// The next square of a full tour that continues `path`, given one (a hint is a tour's next step, so a
+// hint cannot lead somewhere uncompletable: the rest of that tour is the proof).
+function hintFrom(path, tour) {
+  if (!tour || tour.length <= path.length) return -1;
+  for (let i = 0; i < path.length; i++) if (tour[i] !== path[i]) return -1;
+  return tour[path.length];
+}
+
+// From a dead end: how many moves to take back before a tour exists again, and the move to make then.
+// Tries the shortest rewind first, so the player loses as little of their work as possible.
+function rescue(n, path, budget) {
+  for (let back = 1; back < path.length; back++) {
+    const pre = path.slice(0, path.length - back);
+    const r = solve(n, pre, budget);
+    if (r.status === 'found') return { undo: back, next: r.tour[pre.length], tour: r.tour };
+  }
+  return { undo: path.length - 1, next: -1, tour: null };
+}
+
+globalThis.__kt = { SIZES, KNIGHT, graph, rc, isKnightMove, legalMoves, onwardCount, validPath, isComplete,
+  isClosed, isStuck, createSearch, solve, startStatus, hintFrom, rescue };
+
+// ---------- dgames high scores ----------
+// Shared snippet, pasted verbatim into every game (games stay self-contained). Keeps a top-N table per
+// key in localStorage against the player's name, which is shared by every game. Usage:
+//   const hs = makeHiScores({ key: 'duck-hunt', order: 'desc', max: 10, label: v => v + ' pts' });
+//   if (hs.rank(score) >= 0) hs.prompt(score, 'round 7').then(() => hs.render(document.getElementById('scores')));
+//   hs.render(el)                       // table of the current list
+// `order` is 'desc' (bigger is better) or 'asc' (smaller is better, e.g. shots or seconds).
+// The overlay keeps key events away from the game while it is open. Styling comes from the hs-* classes
+// below; override the --hs-* custom properties to match a game's palette.
+// The name lives at `dgames.player` and is asked for once, then reused everywhere. It used to be three
+// letters read by a window keydown listener into three spans, with nothing focusable on the card -- so a
+// phone had no keyboard to summon and no way to enter a name at all, and every mobile score saved "AAA".
+// One name for the whole collection rather than one per game.
+const HS_PLAYER_KEY = 'dgames.player';
+const hsPlayer = () => { try { return (localStorage.getItem(HS_PLAYER_KEY) || '').trim().slice(0, 12); } catch (e) { return ''; } };
+const hsSetPlayer = (n) => { try { localStorage.setItem(HS_PLAYER_KEY, n); } catch (e) {} };
+
+function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), title = 'High scores' }) {
+  const KEY = 'dgames.hiscores.' + key;
+  const load = () => { try { const l = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
+  const save = (l) => { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch (e) {} };
+  const cmp = (a, b) => (order === 'desc' ? b.value - a.value : a.value - b.value) || a.time - b.time;
+  const sorted = (l) => l.slice().sort(cmp);
+  const better = (v, e) => order === 'desc' ? v > e.value : v < e.value;
+  // 0-based position a value would take, or -1 if it misses the table
+  function rank(value) { const l = sorted(load()); let i = 0; while (i < l.length && !better(value, l[i])) i++; return i < max ? i : -1; }
+  // The field is still called `initials`: entries saved before this held three letters under that key,
+  // and renaming it would orphan every score already on someone's device.
+  function add(value, initials, detail) {
+    const e = { value, initials: String(initials || 'Player').trim().slice(0, 12).trim() || 'Player', detail: detail || '', time: Date.now() };
+    const l = sorted(load().concat([e])).slice(0, max); save(l); return e;
+  }
+  const list = () => sorted(load());
+  const clear = () => save([]);
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function ensureStyle() {
+    if (document.getElementById('hs-style')) return;
+    const st = document.createElement('style'); st.id = 'hs-style';
+    st.textContent = `
+      .hs-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(3,10,20,.72);font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff)}
+      .hs-card{background:var(--hs-bg,#10233a);border:1px solid var(--hs-line,#2c4a6e);border-radius:16px;padding:22px 26px;width:min(360px,92vw);text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.45)}
+      .hs-card h2{margin:0 0 4px;font-size:22px;letter-spacing:2px;color:var(--hs-accent,#ffd54a)}
+      .hs-card .hs-val{font-size:30px;font-weight:700;margin:6px 0 2px}
+      .hs-card .hs-detail,.hs-card .hs-hint{opacity:.7;font-size:13px}
+      .hs-card .hs-rank{margin:4px 0 14px;font-size:14px}
+      .hs-name{display:block;width:100%;margin:8px 0 16px;padding:12px 14px;min-height:48px;box-sizing:border-box;text-align:center;
+        border:2px solid var(--hs-line,#2c4a6e);border-radius:10px;background:rgba(0,0,0,.25);color:inherit;font:inherit;font-size:22px;font-weight:700}
+      .hs-name:focus{outline:none;border-color:var(--hs-accent,#ffd54a)}
+      .hs-btns{display:flex;gap:8px;justify-content:center}
+      .hs-btns button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:9px 18px;cursor:pointer;background:var(--hs-accent,#ffd54a);color:#0b1a2b}
+      .hs-btns button.hs-ghost{background:transparent;color:var(--hs-fg,#fff);border:1px solid var(--hs-line,#2c4a6e);font-weight:400}
+      .hs-btns button:focus-visible{outline:2px solid var(--hs-fg,#fff);outline-offset:2px}
+      .hs-table{width:100%;border-collapse:collapse;font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff);font-variant-numeric:tabular-nums}
+      .hs-table caption{text-align:left;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7;padding:0 0 6px}
+      .hs-table td{padding:4px 6px;border-top:1px solid var(--hs-line,#2c4a6e);font-size:14px}
+      .hs-table td:first-child{opacity:.6;width:2em;text-align:right}
+      .hs-table td.hs-ini{font-weight:700;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .hs-table td.hs-score{text-align:right;color:var(--hs-accent,#ffd54a);font-weight:600}
+      .hs-table td.hs-d{opacity:.65;font-size:12px}
+      .hs-table tr.hs-new td{background:rgba(255,213,74,.12)}
+      .hs-table td.hs-empty{opacity:.55;text-align:center;padding:10px}`;
+    document.head.appendChild(st);
+  }
+  // Modal asking for the player's name, prefilled from `dgames.player` so it is typed once, ever.
+  // Resolves with the saved entry, or null if skipped. Only call when rank(value) >= 0.
+  function prompt(value, detail) {
+    ensureStyle();
+    return new Promise((resolve) => {
+      const r = rank(value);
+      const known = hsPlayer();
+      const ov = document.createElement('div'); ov.className = 'hs-overlay';
+      ov.innerHTML = `<div class="hs-card" role="dialog" aria-label="New high score"><h2>NEW HIGH SCORE</h2>
+        <div class="hs-val">${esc(label(value))}</div><div class="hs-detail">${esc(detail || '')}</div>
+        <div class="hs-rank">#${r + 1} on this device</div>
+        <label class="hs-hint" for="hs-name-input">Your name</label>
+        <input class="hs-name" id="hs-name-input" type="text" maxlength="12" autocomplete="nickname" autocapitalize="words" spellcheck="false" placeholder="Player" value="${esc(known)}">
+        <div class="hs-btns"><button class="hs-ok" type="button">Save</button><button class="hs-ghost hs-skip" type="button">Skip</button></div></div>`;
+      document.body.appendChild(ov);
+      const input = ov.querySelector('.hs-name');
+      const done = (ok) => {
+        window.removeEventListener('keydown', outside, true); window.removeEventListener('keyup', outside, true); window.removeEventListener('keypress', outside, true);
+        const name = (input.value || '').trim().slice(0, 12);
+        ov.remove();
+        if (ok && name) hsSetPlayer(name);
+        resolve(ok ? add(value, name || known || 'Player', detail) : null);
+      };
+      // Game key handlers sit on window in the bubble phase, so stopping the event at the field lets the
+      // character land while keeping the player from also jumping or firing as they type their name.
+      const field = (e) => {
+        e.stopPropagation();
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Enter') { e.preventDefault(); done(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+      };
+      input.addEventListener('keydown', field); input.addEventListener('keyup', field); input.addEventListener('keypress', field);
+      // Anything typed while the field is not focused still must not reach the game underneath.
+      const outside = (e) => {
+        if (e.target === input) return;
+        e.stopPropagation(); e.preventDefault();
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false);
+      };
+      window.addEventListener('keydown', outside, true); window.addEventListener('keyup', outside, true); window.addEventListener('keypress', outside, true);
+      ov.querySelector('.hs-ok').addEventListener('click', () => done(true));
+      ov.querySelector('.hs-skip').addEventListener('click', () => done(false));
+      // A name already known means there is nothing to type, so focus Save and leave the on-screen
+      // keyboard shut; a first-time player gets the field focused and selected instead.
+      if (known) ov.querySelector('.hs-ok').focus(); else { input.focus(); input.select(); }
+    });
+  }
+  // Renders the table into el; the entry whose time equals `newTime` is highlighted.
+  function render(el, newTime) {
+    ensureStyle();
+    const l = list();
+    const rows = l.length ? l.map((e, i) => `<tr${e.time === newTime ? ' class="hs-new"' : ''}><td>${i + 1}</td><td class="hs-ini">${esc(e.initials)}</td><td class="hs-score">${esc(label(e.value))}</td><td class="hs-d">${esc(e.detail)}</td></tr>`).join('')
+      : `<tr><td class="hs-empty" colspan="4">No scores yet. Be the first.</td></tr>`;
+    el.innerHTML = `<table class="hs-table"><caption>${esc(title)}</caption><tbody>${rows}</tbody></table>`;
+  }
+  return { key, rank, add, list, clear, prompt, render };
+}
+
+// ---------- UI ----------
+const K = globalThis.__kt;
+const $ = (id) => document.getElementById(id);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Drawn for this game: a Staunton-ish knight head facing left, ivory with an ink outline so it reads on
+// both the maple and the walnut squares. 100x100 box, base at the bottom.
+const KNIGHT_SVG = `<svg viewBox="0 0 100 100" aria-hidden="true">
+  <defs>
+    <linearGradient id="kIv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fffaf0"/><stop offset=".55" stop-color="#f1e2c2"/><stop offset="1" stop-color="#cdb285"/></linearGradient>
+    <linearGradient id="kBase" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fbf1dc"/><stop offset="1" stop-color="#c7a975"/></linearGradient>
+  </defs>
+  <g stroke="#23140a" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path fill="url(#kBase)" d="M19 94h62a5 5 0 0 0 5-5v-2a5 5 0 0 0-5-5H19a5 5 0 0 0-5 5v2a5 5 0 0 0 5 5z"/>
+    <path fill="url(#kBase)" d="M25 82h50l-2-8H27z"/>
+    <path fill="url(#kIv)" d="M29 74C28 64 33 57 43 51C37 52 31 55 26 58C21 60 15 58 14 53C13 49 15 45 18 42L35 23C37 20 39 16 40 11L44 5L47 12C50 13 53 13 56 14C68 17 76 27 78 41C80 53 78 64 73 74Z"/>
+    <path fill="none" stroke-width="2.2" d="M56 17C63 22 67 30 68 39M60 16C69 23 73 34 73 46M66 19C74 28 77 40 76 52"/>
+  </g>
+  <path d="M22 45c2-1 4-1 5 1" fill="none" stroke="#23140a" stroke-width="2.4" stroke-linecap="round"/>
+  <ellipse cx="38" cy="27" rx="3.6" ry="2.6" transform="rotate(-30 38 27)" fill="#23140a"/>
+  <circle cx="37" cy="26.2" r=".9" fill="#fff"/>
+  <path d="M17 52c3 0 6-1 8-3" fill="none" stroke="#23140a" stroke-width="2" stroke-linecap="round"/>
+  <path d="M33 66c1-7 5-12 11-15M60 72c4-8 5-18 3-27" fill="none" stroke="rgba(120,85,40,.45)" stroke-width="3" stroke-linecap="round"/>
+</svg>`;
+
+// ---- preferences ----
+const PREF_KEY = 'dgames.knights-tour.prefs';
+const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREF_KEY) || '{}') || {}; } catch (e) { return {}; } })();
+const savePrefs = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (e) {} };
+
+// 6x6 is the default for a first visit: 35 moves is a puzzle you can finish in a few minutes on the bus,
+// while 8x8 unassisted is 63 moves where one early slip is only found out forty moves later. The last
+// size played is remembered, so anyone who moves up to 8x8 stays there.
+let n = K.SIZES.includes(prefs.size) ? prefs.size : 6;
+let assist = !!prefs.assist;
+
+// ---- high scores: one table per size, clean runs and assisted runs ranked apart ----
+const fmt = (sec) => { const m = Math.floor(sec / 60), s = sec - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); };
+const tables = {};
+const hsFor = (size, assisted) => {
+  const key = 'knights-tour-' + size + (assisted ? '-assisted' : '');
+  return tables[key] || (tables[key] = makeHiScores({ key, order: 'asc', max: 10, label: fmt,
+    title: size + '×' + size + (assisted ? ' · assisted' : ' · unassisted') }));
+};
+
+// ---- state ----
+let mode = 'pick';            // 'pick' | 'play' | 'won'
+let path = [];
+let starts = {};              // per size: array of 'tour' | 'none' | 'unknown'
+let assisted = false, undos = 0, hintSq = -1, cursor = -1;
+let t0 = 0, elapsed = 0, timing = false;
+let knownTour = null;          // a full tour that extends the current path, when one is known
+let verdict = 'found';         // for the current path: 'found' | 'none' | 'unknown' | 'running' | 'stuck'
+let search = null, searchRaf = 0, searchFor = '';
+let hopAnim = null, liftAnim = null, shadowAnim = null;
+let sq = 40;                   // square size in px
+
+const grid = $('grid'), knight = $('knight');
+knight.querySelector('.lift').innerHTML = KNIGHT_SVG;
+const name = (i) => String.fromCharCode(97 + (i % n)) + (n - Math.floor(i / n));
+
+function startsFor(size) {
+  // Every start on every size resolves in at most 115 search nodes (measured, see test/solver.js), so
+  // this is instant even on 8x8; the budget is only there so a surprise could never hang the picker.
+  return starts[size] || (starts[size] = K.startStatus(size, 200000));
+}
+
+// ---- layout ----
+// The board is the one thing that must be as big as possible, so it gets whatever the other rows leave.
+function layout() {
+  const app = $('app'), cs = getComputedStyle(app);
+  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  const W = innerWidth, H = innerHeight, gap = 8;
+  let bs;
+  if (W > H) {
+    // side panel needs ~236px for three 44px+ buttons in a row with readable labels
+    bs = Math.min(H - padY, W - padX - 14 - 236, 860);
+  } else {
+    const other = ['head', 'stats', 'ctrl', 'msg'].reduce((a, id) => a + (id === 'head' ? document.querySelector('header') : $(id)).getBoundingClientRect().height, 0);
+    bs = Math.min(W - padX, H - padY - other - 4 * gap, 860);
+  }
+  bs = Math.max(200, Math.floor(bs));
+  document.documentElement.style.setProperty('--bs', bs + 'px');
+  const frame = Math.max(5, Math.min(16, bs * 0.028));
+  sq = (bs - 2 * frame) / n;
+  document.documentElement.style.setProperty('--sq', sq + 'px');
+  placeKnight();
+}
+
+// ---- building and painting the board ----
+function build() {
+  grid.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+  grid.style.gridTemplateRows = `repeat(${n}, 1fr)`;
+  grid.innerHTML = '';
+  // The grain textures tile at 180px; offsetting each square's copy stops the eye catching the repeat.
+  let seed = 7 + n;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) % 180;
+  for (let i = 0; i < n * n; i++) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const r = Math.floor(i / n), c = i % n;
+    b.className = 'sq' + ((r + c) & 1 ? ' d' : '');
+    b.dataset.i = i;
+    b.style.backgroundPosition = `${rnd()}px ${rnd()}px, 0 0`;
+    b.tabIndex = -1;
+    grid.appendChild(b);
+  }
+  $('lines').setAttribute('viewBox', `0 0 ${n} ${n}`);
+  layout();
+}
+
+// Colour along the tour: ivory at move 1, amber in the middle, oxblood at the end.
+function tokenColour(k) {
+  const t = n * n > 1 ? (k - 1) / (n * n - 1) : 0;
+  const h = 46 - t * 58, s = 62 + t * 8, l = 86 - t * 52;
+  return [`hsl(${(h + 360) % 360} ${s}% ${l}%)`, l > 56 ? '#3a220c' : '#fff3dc'];
+}
+
+const centre = (i) => [(i % n) + 0.5, Math.floor(i / n) + 0.5];
+
+function paint(fresh = -1) {
+  const vis = new Map(path.map((s, k) => [s, k + 1]));
+  const legal = mode === 'play' ? K.legalMoves(n, path) : [];
+  const counts = new Map(legal.map((s) => [s, K.onwardCount(n, path, s)]));
+  const left = n * n - path.length;
+  // In assist mode the lowest count is Warnsdorff's pick. A zero is a trap, except as the very last move.
+  let low = Infinity; for (const [s, k] of counts) if (k > 0 || left === 1) low = Math.min(low, k);
+  const st = mode === 'pick' ? startsFor(n) : null;
+  for (const b of grid.children) {
+    const i = +b.dataset.i, r = Math.floor(i / n), c = i % n;
+    const cls = ['sq']; if ((r + c) & 1) cls.push('d');
+    let html = '';
+    if (c === 0) html += `<span class="co r">${n - r}</span>`;
+    if (r === n - 1) html += `<span class="co f">${String.fromCharCode(97 + c)}</span>`;
+    let label = name(i);
+    if (mode === 'pick') {
+      if (st[i] === 'none') { cls.push('nostart'); label += ', no tour starts here'; }
+      else { cls.push('pick'); label += ', start here'; }
+    } else if (vis.has(i)) {
+      const k = vis.get(i), [bg, fg] = tokenColour(k);
+      cls.push('visited'); if (k === 1) cls.push('start'); if (i === path[path.length - 1] && mode !== 'won') cls.push('here');
+      html += `<span class="tok${i === fresh ? ' pop' : ''}" style="--tc:${bg};--tt:${fg}">${k}</span>`;
+      label += ', move ' + k;
+    } else if (counts.has(i)) {
+      const k = counts.get(i);
+      cls.push('tgt');
+      if (assist) {
+        cls.push('badge'); if (k === low) cls.push('best'); else if (k === 0 && left > 1) cls.push('trap');
+        html += `<span class="num">${k}</span>`;
+      }
+      label += ', jump here' + (assist ? ', ' + k + ' onward' : '');
+    }
+    if (i === hintSq) cls.push('hint');
+    if (i === cursor) cls.push('cursor');
+    b.className = cls.join(' ');
+    b.innerHTML = html;
+    b.setAttribute('aria-label', label);
+  }
+  // the faint trail of the tour so far
+  $('trail').setAttribute('points', path.map((s) => centre(s).join(',')).join(' '));
+  knight.hidden = mode === 'pick' || !path.length;
+  $('count').textContent = path.length + '/' + n * n;
+  $('count').classList.toggle('assisted', assisted && mode !== 'pick');
+  $('setupRow').hidden = mode !== 'pick';
+  $('playRow').hidden = mode === 'pick';
+  for (const b of document.querySelectorAll('.btn.size')) b.classList.toggle('on', +b.dataset.size === n);
+  $('assistBtn').classList.toggle('on', assist);
+  $('assistBtn').setAttribute('aria-pressed', String(assist));
+  $('undoBtn').disabled = mode !== 'play' || path.length < 2;
+  $('hintBtn').disabled = mode !== 'play';
+  $('restartBtn').disabled = mode === 'pick' || path.length < 2 && mode !== 'won';
+  const best = hsFor(n, false).list()[0];
+  $('best').textContent = best ? fmt(best.value) : '–';
+  $('sub').textContent = mode === 'pick' ? `${n}×${n} · pick a starting square` : mode === 'won' ? `${n}×${n} · complete` : `${n}×${n} · ${assisted ? 'assisted' : 'unassisted'}`;
+}
+
+function placeKnight() {
+  if (!path.length) return;
+  const i = path[path.length - 1];
+  knight.style.transform = `translate(${(i % n) * sq}px, ${Math.floor(i / n) * sq}px)`;
+}
+
+// ---- the hop ----
+// A knight's move drawn as an L: along the two-square leg, round the corner, along the one-square leg,
+// lifted off the board in the middle and squashing slightly as it lands. 380ms is long enough to follow
+// with the eye and short enough that a fast player never waits on it (a new move finishes the old hop).
+function hop(from, to) {
+  for (const a of [hopAnim, liftAnim, shadowAnim]) if (a) a.finish();
+  const [r0, c0] = [Math.floor(from / n), from % n], [r1, c1] = [Math.floor(to / n), to % n];
+  const corner = Math.abs(r1 - r0) === 2 ? [r1, c0] : [r0, c1];
+  const T = (r, c) => `translate(${c * sq}px, ${r * sq}px)`;
+  const hopPath = `M${c0 + .5} ${r0 + .5}L${corner[1] + .5} ${corner[0] + .5}L${c1 + .5} ${r1 + .5}`;
+  const hp = $('hop'); hp.setAttribute('d', hopPath);
+  if (reduced) { placeKnight(); hp.setAttribute('d', ''); return; }
+  const D = 380;
+  hopAnim = knight.animate([
+    { transform: T(r0, c0), offset: 0 },
+    { transform: T(corner[0], corner[1]), offset: 0.64 },
+    { transform: T(r1, c1), offset: 1 },
+  ], { duration: D, easing: 'cubic-bezier(.45,.05,.4,1)' });
+  liftAnim = knight.querySelector('.lift').animate([
+    { transform: 'translateY(0) scale(1)' },
+    { transform: `translateY(${-sq * .22}px) scale(1.16)`, offset: .45 },
+    { transform: `translateY(${-sq * .1}px) scale(1.1)`, offset: .78 },
+    { transform: 'translateY(0) scale(1.08, .9)', offset: .9 },
+    { transform: 'translateY(0) scale(1)' },
+  ], { duration: D + 60 });
+  shadowAnim = knight.querySelector('.shadow').animate([
+    { transform: 'scale(1)', opacity: 1 }, { transform: 'scale(.6)', opacity: .45, offset: .45 }, { transform: 'scale(1)', opacity: 1 },
+  ], { duration: D });
+  hp.animate([{ opacity: 1, strokeDashoffset: 0 }, { opacity: 0, strokeDashoffset: -.66 }], { duration: 650, easing: 'ease-in', fill: 'forwards' });
+  placeKnight();
+}
+
+// ---- messages ----
+function say(html, kind = '') { const m = $('msg'); m.innerHTML = html; m.className = kind; }
+
+function statusMessage() {
+  $('undoBtn').classList.remove('nudge');
+  if (mode === 'pick') {
+    const st = startsFor(n), none = st.filter((x) => x === 'none').length;
+    say(none ? `Tap a glowing square to place the knight. On ${n}×${n} a tour can only start on the ${n * n - none} squares of the corner colour.`
+      : 'Tap any square to place the knight, then visit every square once.');
+    return;
+  }
+  if (mode === 'won') return;
+  if (verdict === 'stuck') {
+    say(`Stuck on ${path.length} of ${n * n}. <button class="act" type="button" data-act="undo">Undo</button>`, 'bad');
+    $('undoBtn').classList.add('nudge');
+  } else if (verdict === 'none') {
+    say(`No tour from here. <button class="act" type="button" data-act="undo">Undo?</button>`, 'bad');
+    $('undoBtn').classList.add('nudge');
+  } else if (verdict === 'unknown') {
+    say('Can’t tell if a tour still exists from here (the search gave up).');
+  } else if (hintSq >= 0) {
+    say(`Hint: jump to <kbd>${name(hintSq)}</kbd>. This run now counts as assisted.`, 'good');
+  } else if (path.length === 1) {
+    say('Jump to a glowing square. Every square once — finish a knight’s move from the start for a closed tour.');
+  } else say('');
+}
+
+// ---- the background search ----
+// Runs about 8ms per frame, in 500-node steps, so a hard position cannot freeze the page. Sliced by time
+// rather than a fixed node count because the node rate varies: 400-700 nodes/ms on a laptop, and one
+// test run on a loaded machine measured 25. The budget is 1.5M nodes (~2-3s on a laptop), then 'unknown'.
+const SLICE = 500, FRAME_MS = 8, UI_BUDGET = 1500000;
+function runSliced(s) { const end = performance.now() + FRAME_MS; let st; do st = s.step(SLICE); while (st === 'running' && performance.now() < end); return st; }
+function analyse(then) {
+  cancelAnimationFrame(searchRaf); search = null;
+  const key = path.join(',');
+  if (path.length === n * n) { verdict = 'found'; return; }
+  if (K.isStuck(n, path)) { verdict = 'stuck'; knownTour = null; statusMessage(); if (then) then(); return; }
+  if (knownTour && K.hintFrom(path, knownTour) >= 0) { verdict = 'found'; statusMessage(); if (then) then(); return; }
+  verdict = 'running'; searchFor = key;
+  search = K.createSearch(n, path, UI_BUDGET);
+  const started = performance.now();
+  const tick = () => {
+    if (!search || searchFor !== path.join(',')) return;
+    const s = runSliced(search);
+    if (s === 'running') {
+      if (performance.now() - started > 350) say('Checking whether a tour is still possible…');
+      searchRaf = requestAnimationFrame(tick); return;
+    }
+    verdict = s; if (s === 'found') knownTour = search.tour;
+    search = null; statusMessage(); if (then) then();
+  };
+  tick();
+}
+
+// ---- actions ----
+function begin(start) {
+  mode = 'play'; path = [start]; undos = 0; hintSq = -1; knownTour = null; cursor = -1;
+  assisted = assist; elapsed = 0; t0 = performance.now(); timing = true;
+  hideWin();
+  paint(start); placeKnight();
+  knight.animate([{ transform: knight.style.transform + ' translateY(-30px)', opacity: 0 }, { transform: knight.style.transform, opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.3,1.5,.5,1)' });
+  analyse(); statusMessage();
+}
+
+function move(to) {
+  if (mode !== 'play' || !K.legalMoves(n, path).includes(to)) return;
+  const from = path[path.length - 1];
+  path.push(to); hintSq = -1; cursor = -1;
+  if (knownTour && K.hintFrom(path, knownTour) < 0 && path.length < n * n) knownTour = null;
+  // the coin appears on the square being left, as the knight lifts off it
+  paint(from); hop(from, to);
+  if (path.length === n * n) return win();
+  analyse(); statusMessage();
+}
+
+function undo(steps = 1) {
+  if (mode !== 'play' || path.length < 2) return;
+  for (let k = 0; k < steps && path.length > 1; k++) path.pop();
+  undos++; hintSq = -1; cursor = -1;
+  for (const a of [hopAnim, liftAnim, shadowAnim]) if (a) a.cancel();
+  $('hop').setAttribute('d', '');
+  paint(); placeKnight(); analyse(); statusMessage();
+}
+
+function restart() { if (path.length) begin(path[0]); }
+
+function toPicker() {
+  mode = 'pick'; path = []; timing = false; elapsed = 0; hintSq = -1; cursor = -1;
+  cancelAnimationFrame(searchRaf); search = null;
+  hideWin(); clearWinFx(); $('time').textContent = '0:00';
+  paint(); statusMessage();
+}
+
+function setSize(size) {
+  if (!K.SIZES.includes(size)) return;
+  n = size; prefs.size = n; savePrefs();
+  build(); toPicker();
+}
+
+function toggleAssist() {
+  assist = !assist; prefs.assist = assist; savePrefs();
+  if (assist && mode === 'play') assisted = true;
+  paint(); statusMessage();
+}
+
+// A hint is the next square of a real tour that extends the current path, so it can never lead into a
+// dead end. From a dead end it says how far to rewind first: the shortest rewind that finds a tour.
+function hint() {
+  if (mode !== 'play') return;
+  assisted = true;
+  const show = () => {
+    if (verdict === 'found' && knownTour) {
+      hintSq = K.hintFrom(path, knownTour); paint(); statusMessage();
+    } else rescueAsync();
+  };
+  if (verdict === 'running') { say('Looking for a sure move…'); const wait = () => (verdict === 'running' ? requestAnimationFrame(wait) : show()); wait(); }
+  else show();
+  paint();
+}
+
+function rescueAsync() {
+  const base = path.join(',');
+  let back = 1;
+  const next = () => {
+    if (path.join(',') !== base || mode !== 'play') return;
+    if (back >= path.length) { say('No sure move found. Try Restart.', 'bad'); return; }
+    const pre = path.slice(0, path.length - back);
+    const s = K.createSearch(n, pre, 200000);
+    const run = () => {
+      if (path.join(',') !== base) return;
+      const st = runSliced(s);
+      if (st === 'running') { requestAnimationFrame(run); return; }
+      if (st === 'found') {
+        say(`Hint: undo ${back} move${back > 1 ? 's' : ''}, then jump to <kbd>${name(s.tour[pre.length])}</kbd>. <button class="act" type="button" data-act="rewind" data-n="${back}" data-to="${s.tour[pre.length]}">Undo ${back}</button>`, 'bad');
+        return;
+      }
+      back++; next();
+    };
+    run();
+  };
+  say('Looking for the way back…'); next();
+}
+
+// ---- keyboard ----
+// Arrows move a cursor over the legal targets (over every square while picking a start), choosing the
+// target that lies most nearly in the arrow's direction from the cursor. Enter or Space jumps.
+function arrow(dr, dc) {
+  const here = cursor >= 0 ? cursor : (path.length ? path[path.length - 1] : Math.floor(n / 2) * n + Math.floor(n / 2));
+  if (mode === 'pick') {
+    const r = Math.min(n - 1, Math.max(0, Math.floor(here / n) + dr)), c = Math.min(n - 1, Math.max(0, (here % n) + dc));
+    cursor = cursor < 0 ? here : r * n + c; paint(); return;
+  }
+  const opts = hintSq >= 0 ? K.legalMoves(n, path) : K.legalMoves(n, path);
+  if (!opts.length) return;
+  if (cursor < 0 || !opts.includes(cursor)) { cursor = opts[0]; paint(); return; }
+  const [hr, hc] = [Math.floor(here / n), here % n];
+  let bestS = -1, bestScore = Infinity;
+  for (const s of opts) {
+    if (s === cursor) continue;
+    const vr = Math.floor(s / n) - hr, vc = (s % n) - hc;
+    const along = vr * dr + vc * dc; if (along <= 0) continue;
+    const across = Math.abs(vr * dc - vc * dr);
+    const score = along + across * 2;
+    if (score < bestScore) { bestScore = score; bestS = s; }
+  }
+  if (bestS >= 0) { cursor = bestS; paint(); }
+}
+
+addEventListener('keydown', (e) => {
+  if (!$('scores').hidden) { if (e.key === 'Escape') $('scores').hidden = true; return; }
+  if (!$('win').hidden && !$('win').classList.contains('peek')) return;
+  const k = e.key;
+  const dirs = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+  if (dirs[k]) { e.preventDefault(); arrow(...dirs[k]); return; }
+  if (k === 'Enter' || k === ' ') {
+    if (e.target && e.target.closest && e.target.closest('button') && cursor < 0) return;  // let focused buttons click
+    e.preventDefault();
+    if (mode === 'pick' && cursor >= 0 && startsFor(n)[cursor] !== 'none') begin(cursor);
+    else if (mode === 'play' && cursor >= 0) move(cursor);
+    return;
+  }
+  if (k === 'u' || k === 'U' || k === 'Backspace') { e.preventDefault(); undo(); return; }
+  if (k === 'h' || k === 'H') hint();
+  else if (k === 'a' || k === 'A') toggleAssist();
+  else if (k === 'r' || k === 'R') restart();
+  else if (k === 'n' || k === 'N') toPicker();
+  else if (mode === 'pick' && k >= '5' && k <= '8') setSize(+k);
+});
+
+// ---- pointer ----
+grid.addEventListener('click', (e) => {
+  const b = e.target.closest('.sq'); if (!b) return;
+  const i = +b.dataset.i;
+  if (mode === 'pick') { if (startsFor(n)[i] !== 'none') begin(i); }
+  else if (mode === 'play') move(i);
+});
+$('msg').addEventListener('click', (e) => {
+  const a = e.target.closest('[data-act]'); if (!a) return;
+  if (a.dataset.act === 'undo') undo();
+  else if (a.dataset.act === 'rewind') { undo(+a.dataset.n); hintSq = +a.dataset.to; paint(); statusMessage(); }
+});
+for (const b of document.querySelectorAll('.btn.size')) b.addEventListener('click', () => setSize(+b.dataset.size));
+$('randomBtn').addEventListener('click', () => {
+  const ok = startsFor(n).map((s, i) => (s === 'none' ? -1 : i)).filter((i) => i >= 0);
+  begin(ok[Math.floor(Math.random() * ok.length)]);
+});
+$('undoBtn').addEventListener('click', () => undo());
+$('hintBtn').addEventListener('click', hint);
+$('assistBtn').addEventListener('click', toggleAssist);
+$('restartBtn').addEventListener('click', restart);
+$('newBtn').addEventListener('click', toPicker);
+$('scoresBtn').addEventListener('click', () => {
+  $('scoresSub').textContent = `${n}×${n} board`;
+  const box = $('scoresTables'); box.innerHTML = '<div></div><div></div>';
+  hsFor(n, false).render(box.children[0]); hsFor(n, true).render(box.children[1]);
+  $('scores').hidden = false; $('scoresClose').focus();
+});
+$('scoresClose').addEventListener('click', () => { $('scores').hidden = true; });
+$('scores').addEventListener('click', (e) => { if (e.target === $('scores')) $('scores').hidden = true; });
+
+// ---- the clock ----
+function clock() {
+  if (timing) { elapsed = performance.now() - t0; $('time').textContent = fmt(Math.floor(elapsed / 1000)).replace(/\.0$/, ''); }
+  requestAnimationFrame(clock);
+}
+
+// ---- winning ----
+let fxTimers = [];
+function clearWinFx() {
+  for (const t of fxTimers) clearTimeout(t); fxTimers = [];
+  $('gold').setAttribute('points', ''); $('closer').setAttribute('visibility', 'hidden');
+  for (const b of grid.children) b.classList.remove('win');
+  confettiStop();
+}
+function hideWin() { $('win').hidden = true; $('win').classList.remove('peek'); }
+
+function win() {
+  timing = false; elapsed = performance.now() - t0; mode = 'won';
+  cancelAnimationFrame(searchRaf); search = null;
+  const secs = Math.round(elapsed / 100) / 10;
+  const closed = K.isClosed(n, path);
+  $('time').textContent = fmt(secs);
+  paint(); say(closed ? 'Closed tour! The last square is a knight’s move from the first.' : 'Tour complete!', 'good');
+  const N = n * n, sweep = reduced ? 0 : Math.min(1600, 40 * N);
+  // 1. the tour re-lights itself in move order, and a gold line retraces the whole route
+  for (const b of grid.children) {
+    const k = path.indexOf(+b.dataset.i);
+    b.style.setProperty('--wd', (k / N) * sweep + 300 + 'ms'); b.classList.add('win');
+  }
+  const gold = $('gold');
+  gold.setAttribute('points', path.map((s) => centre(s).join(',')).join(' '));
+  let len = 0; for (let i = 1; i < N; i++) { const a = centre(path[i - 1]), b = centre(path[i]); len += Math.hypot(a[0] - b[0], a[1] - b[1]); }
+  gold.style.strokeDasharray = len; gold.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], { duration: sweep + 300, delay: 300, easing: 'ease-in-out', fill: 'both' });
+  // 2. a closed tour snaps shut with a bright closing stroke
+  if (closed) {
+    const a = centre(path[N - 1]), b = centre(path[0]), cl = $('closer');
+    cl.setAttribute('x1', a[0]); cl.setAttribute('y1', a[1]); cl.setAttribute('x2', b[0]); cl.setAttribute('y2', b[1]);
+    fxTimers.push(setTimeout(() => {
+      cl.setAttribute('visibility', 'visible');
+      cl.animate([{ opacity: 0, strokeWidth: .02 }, { opacity: 1, strokeWidth: .3, offset: .3 }, { opacity: .9, strokeWidth: .13 }], { duration: 700, fill: 'forwards' });
+    }, sweep + 650));
+  }
+  // 3. the knight rears up
+  knight.querySelector('.lift').animate([
+    { transform: 'none' }, { transform: `translateY(${-sq * .5}px) rotate(-14deg) scale(1.25)`, offset: .35 },
+    { transform: `translateY(${-sq * .2}px) rotate(8deg) scale(1.15)`, offset: .6 }, { transform: 'none' },
+  ], { duration: 900, delay: 350, easing: 'ease-in-out' });
+  // 4. confetti, then the card
+  fxTimers.push(setTimeout(() => confetti(closed), sweep + 400));
+  fxTimers.push(setTimeout(() => showCard(secs, closed), sweep + 1300));
+}
+
+function showCard(secs, closed) {
+  const table = hsFor(n, assisted);
+  $('winTitle').textContent = closed ? 'Closed tour!' : 'Tour complete';
+  $('winRibbon').hidden = !closed;
+  $('winTime').textContent = fmt(secs);
+  $('winSub').textContent = `${n}×${n} from ${name(path[0])} · ${undos} undo${undos === 1 ? '' : 's'} · ${assisted ? 'assisted' : 'unassisted'}`;
+  const el = $('winTable');
+  $('win').hidden = false; $('win').classList.remove('peek'); $('againBtn').focus();
+  const detail = `${closed ? 'closed' : 'open'} from ${name(path[0])}`;
+  if (table.rank(secs) >= 0) table.prompt(secs, detail).then((e) => { table.render(el, e && e.time); paint(); });
+  else table.render(el);
+}
+$('viewBtn').addEventListener('click', () => { $('win').classList.add('peek'); say('Tap the board or press Enter for the results.', 'good'); });
+$('win').addEventListener('click', (e) => { if (e.target === $('win')) $('win').classList.add('peek'); });
+document.addEventListener('pointerdown', (e) => {
+  if ($('win').classList.contains('peek') && mode === 'won' && e.target.closest('#stage')) $('win').classList.remove('peek');
+});
+$('againBtn').addEventListener('click', toPicker);
+
+// Confetti in the board's own colours, plus gold stars for a closed tour. Canvas, capped at ~2.8s.
+let confRaf = 0;
+function confettiStop() { cancelAnimationFrame(confRaf); $('confetti').hidden = true; }
+function confetti(closed) {
+  if (reduced) return;
+  const cv = $('confetti'), dpr = Math.min(2, devicePixelRatio || 1);
+  cv.hidden = false; cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+  const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
+  const rb = $('board').getBoundingClientRect(), cx = rb.left + rb.width / 2, cy = rb.top + rb.height / 2;
+  const cols = ['#ffe29a', '#e6b54f', '#fff6dc', '#b8322f', '#4fd08a', '#f3a55b'];
+  const P = [];
+  const burst = (x, y, count, speed) => {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2, v = speed * (0.35 + Math.random());
+      P.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - speed * .5, r: 3 + Math.random() * 5, rot: Math.random() * 6, vr: (Math.random() - .5) * .4,
+        c: cols[i % cols.length], star: closed && i % 4 === 0, life: 0 });
+    }
+  };
+  burst(cx, cy, 160, 9);
+  if (closed) { burst(rb.left + rb.width * .2, rb.top + rb.height * .3, 70, 7); burst(rb.right - rb.width * .2, rb.top + rb.height * .3, 70, 7); }
+  const star = (r) => { ctx.beginPath(); for (let k = 0; k < 10; k++) { const rr = k & 1 ? r * .45 : r, a = k * Math.PI / 5 - Math.PI / 2; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); };
+  const t0c = performance.now();
+  const frame = (now) => {
+    const t = now - t0c;
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    for (const p of P) {
+      p.vy += .22; p.vx *= .985; p.vy *= .985; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.globalAlpha = Math.max(0, 1 - t / 2800); ctx.fillStyle = p.c;
+      if (p.star) star(p.r * 1.4); else ctx.fillRect(-p.r, -p.r * .45, p.r * 2, p.r * .9);
+      ctx.restore();
+    }
+    if (t < 2800) confRaf = requestAnimationFrame(frame); else confettiStop();
+  };
+  confRaf = requestAnimationFrame(frame);
+}
+
+// ---- boot ----
+addEventListener('resize', layout);
+build(); toPicker(); requestAnimationFrame(clock);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
+
+// A handle for the headless checks: they drive a whole tour through the real UI code paths.
+window.__ktUI = { get path() { return path.slice(); }, get n() { return n; }, get verdict() { return verdict; }, get mode() { return mode; },
+  begin, move, undo, setSize, toggleAssist, hint, get hintSq() { return hintSq; } };
+</script>
+</body>
+</html>

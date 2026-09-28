@@ -49,6 +49,16 @@
       ]
     },
     {
+      "name": "Knight's Tour",
+      "url": "knights-tour/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
       "name": "Tetris",
       "url": "tetris/index.html",
       "icons": [
