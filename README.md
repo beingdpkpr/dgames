@@ -19,6 +19,7 @@ Play them at **<https://beingdpkpr.github.io/dgames/>**, or open any `index.html
 | Dojo Duel | `dojo-duel/` | Three.js one-on-one fighter (prototype): four limb buttons, high/mid/low guard rules, frame data, knockdowns, three AI levels. Three.js bundled into the file. On-screen pad on phones. Test: `node test/sim.js` inside the folder. |
 | Knight's Tour | `knights-tour/` | Visit every square once with a chess knight, 5×5 to 8×8. Warnsdorff assist, hints and dead-end warnings from a real solver, closed-tour bonus. Test: `node test/solver.js` inside the folder. |
 | Queens | `queens/` | Daily logic puzzle: one queen per row, column and colour region, none touching. Every puzzle has exactly one solution and is solvable by deduction alone; hints explain the next deduction. Daily plus endless 5×5 to 10×10. Test: `node test/logic.js` inside the folder. |
+| Dusk Protocol | `dusk-protocol/` | Prototype first-person infiltration shooter on Three.js: a guarded compound at dusk, guards with sight cones and suspicion, hack a terminal, reach extraction. On-screen pad and touch look on phones. Tests: `node test/sim.js`, `node test/touch.js` inside the folder. |
 
 Conventions: one folder per game with its own `README.md`, `package.json` (only if it needs tooling) and `test/`. Keep games self-contained so any one can be opened or published on its own.
 

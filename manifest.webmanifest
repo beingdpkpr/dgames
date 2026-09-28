@@ -107,6 +107,16 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "Dusk Protocol",
+      "url": "dusk-protocol/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
