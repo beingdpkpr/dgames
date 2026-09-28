@@ -4,14 +4,16 @@ Move a chess knight so it lands on every square of the board exactly once. One f
 
 ## Playing
 
-- Pick a board, 5×5 to 8×8, then tap a glowing square to place the knight, or press **Random**. The first visit opens on 6×6: 35 moves is a puzzle you can finish in a few minutes, while an unassisted 8×8 is 63 moves where one early slip only shows up forty moves later. After that the last size you played is remembered.
-- Tap a glowing square to jump. Visited squares get a coin with the move number, shaded from ivory at the start to oxblood at the end, and a faint line traces the route.
-- **Undo** as often as you like. **Restart** starts again from the same square, **New** goes back to the picker.
-- **Assist** puts a number on each target: how many moves you would have from that square. The lowest one gets a brass ring, and taking it every time is Warnsdorff's rule (1823), which finishes most tours by itself. A red 0 is a trap.
+- Pick a board, 5×5 to 8×8, then tap a ringed square to place the knight, or press **Random**. The first visit opens on 6×6: 35 moves is a puzzle you can finish in a few minutes, while an unassisted 8×8 is 63 moves where one early slip only shows up forty moves later. After that the last size you played is remembered.
+- Tap a dotted square to jump. Visited squares take a flat tint with a small move number, running teal at the start to violet at the end, and a line traces only the last four jumps, fading with age. The whole route is drawn when you finish.
+- **Undo** as often as you like. The **⋯** menu holds **Restart** (again from the same square), **New board** (back to the picker), the best times, and a key to the board marks.
+- **Assist** puts a number on each target: how many moves you would have from that square. The lowest one is the filled amber disc, and taking it every time is Warnsdorff's rule (1823), which finishes most tours by itself. A red-ringed 0 is a trap.
 - **Hint** marks the next square of a real tour from where you are. From a dead end it tells you how many moves to take back first.
 - **Closed tour**: if your last square is a knight's move from your first, the tour is a loop and you get the closed-tour finish. That is only possible on 6×6 and 8×8. An odd board has one more square of one colour than the other, and a loop needs the same number of each.
 
 Keys: arrows pick a target, Enter or Space jumps, U or Backspace undoes, H is hint, A is assist, R restarts, N is a new board.
+
+The look is light by default and dark when the system asks for it; every colour is a token at the top of the stylesheet.
 
 ## Dead ends
 
@@ -23,7 +25,7 @@ After every move a solver checks whether a tour can still be finished from the p
 
 It runs about 8ms per animation frame so the page never freezes, and gives up after 1.5 million positions. If it gives up the game says it cannot tell. It never guesses.
 
-The start picker uses the same solver: on 5×5 and 7×7 the minority-colour squares are marked ×.
+The start picker uses the same solver: on 5×5 and 7×7 the minority-colour squares are dimmed and have no ring.
 
 ## Best times
 

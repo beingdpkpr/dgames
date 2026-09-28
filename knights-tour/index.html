@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="manifest" href="../manifest.webmanifest">
-<meta name="theme-color" content="#0f2a21">
+<meta name="theme-color" content="#f2f3f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1015" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="../icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -20,24 +21,40 @@
 <title>Knight's Tour</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- Optional. Offline or over file:// this fails quietly and the Georgia / system fallbacks take over. -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap">
+<!-- Optional. Offline or over file:// this fails quietly and the Segoe UI / system fallbacks take over. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <style>
+  /* One calm surface, one focal point. The board is flat two-tone slate; the tour so far is a tint that
+     runs teal at move 1 to violet at the last move, so the order reads without a coin on every square.
+     Light is the default; dark follows the system. Every colour lives in these tokens. */
   :root {
-    --felt: #143b2e; --felt-deep: #081a14;
-    --brass: #e6c173; --brass-hi: #ffe2a0; --ivory: #f6ead0; --ink: #2a170b;
-    --panel: rgba(12, 26, 21, .72); --line: rgba(230, 193, 115, .38); --muted: #b9c8bd;
-    --ok: #4fd08a; --warn: #ff8a6b;
-    --maple: #e4c38f; --walnut: #9b6034;
-    --bs: 340px;            /* board side in px, set by layout() */
-    --gap: 8px;
-    --serif: "Cinzel", Georgia, "Times New Roman", serif;
-    --sans: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-    --hs-bg: #10281f; --hs-line: #6f5a33; --hs-accent: #e6c173; --hs-fg: #f6ead0;
-    /* Wood grain: fractal noise stretched along one axis reads as grain, and costs one tiny inline SVG
-       instead of an image file. Light squares run vertical, dark horizontal, like a real inlaid board. */
-    --grain-v: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.34 0.014' numOctaves='3' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .17 0 0 0 0 .05 1.1 0 0 0 -.44'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
-    --grain-h: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.014 0.34' numOctaves='3' seed='9'/%3E%3CfeColorMatrix values='0 0 0 0 .18 0 0 0 0 .08 0 0 0 0 .02 1.6 0 0 0 -.62'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3C/svg%3E");
+    color-scheme: light;
+    --bg: #f2f3f6; --bg-top: #fbfbfd;
+    --surface: #ffffff; --surface-2: #e6e8ee; --line: rgba(22, 27, 38, .1);
+    --text: #161a22; --muted: #5a6273;
+    --accent: #4338ca; --accent-soft: rgba(67, 56, 202, .1);
+    --best: #b45309; --best-ink: #ffffff; --trap: #b91c1c; --hint: #b45309;
+    --sq-l: #e4e7ee; --sq-d: #cdd2dd; --coord: #474e5f; --frame-bg: #ffffff; --dim: rgba(242, 243, 246, .72);
+    /* visited tint: hue runs 185 (teal) to 280 (violet); s/l for the tile and its number */
+    --vs: 62%; --vl: 86%; --vdl: 5%; --ns: 55%; --nl: 27%;
+    --shadow: 0 1px 2px rgba(16, 20, 30, .06), 0 14px 34px -10px rgba(16, 20, 30, .28);
+    --bs: 340px; --sq: 40px; --frame: 4px; --gap: 8px;
+    --sans: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    /* the shared high-score prompt opens on its own dark card in both themes */
+    --hs-bg: #1a1e27; --hs-line: #3a4150; --hs-accent: #a5b4fc; --hs-fg: #eef0f4; --hs-font: var(--sans);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0d1015; --bg-top: #161a22;
+      --surface: #181c24; --surface-2: #1f242e; --line: rgba(255, 255, 255, .08);
+      --text: #e9ecf1; --muted: #9aa2b1;
+      --accent: #a5b4fc; --accent-soft: rgba(165, 180, 252, .12);
+      --best: #fbbf24; --best-ink: #1a1405; --trap: #f87171; --hint: #fbbf24;
+      --sq-l: #333a46; --sq-d: #2a303a; --coord: #b9c1cf; --frame-bg: #1a1e26; --dim: rgba(13, 16, 21, .6);
+      --vs: 40%; --vl: 32%; --vdl: 3%; --ns: 80%; --nl: 86%;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 18px 40px -12px rgba(0, 0, 0, .7);
+    }
   }
   * { box-sizing: border-box; }
   /* Every element toggled with `hidden` here also has a display rule somewhere, and an author display
@@ -45,173 +62,183 @@
   [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; }
   body {
-    background: radial-gradient(ellipse 120% 80% at 50% 35%, #1d5140 0%, var(--felt) 38%, var(--felt-deep) 100%) fixed, var(--felt-deep);
-    color: var(--ivory); font-family: var(--sans); -webkit-tap-highlight-color: transparent;
+    background: linear-gradient(180deg, var(--bg-top), var(--bg) 60%) fixed, var(--bg);
+    color: var(--text); font-family: var(--sans); -webkit-tap-highlight-color: transparent;
     overscroll-behavior: none; user-select: none; -webkit-user-select: none;
+    -webkit-font-smoothing: antialiased;
   }
   button { font: inherit; color: inherit; }
-  :focus-visible { outline: 3px solid var(--brass-hi); outline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+  /* Portrait: an app bar level with the back button, then the stats, board, message and controls as one
+     centred block. The empty rows soak up spare height; layout() counts every row gap. */
   #app {
-    min-height: 100%; display: grid; gap: var(--gap); align-content: center; justify-content: center;
+    min-height: 100%; display: grid; gap: var(--gap); justify-content: center;
     padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
     grid-template-columns: var(--bs);
-    grid-template-areas: "head" "stats" "stage" "ctrl" "msg";
+    grid-template-rows: auto 1fr auto auto auto auto 1fr;
+    grid-template-areas: "head" "." "stats" "stage" "msg" "ctrl" ".";
   }
-  /* Landscape (phones on their side, and every desktop): the board sits right of the controls and is
-     sized from the height, because height is the short side. The back button then lands in the panel's
-     top-left corner instead of on a board square. */
+  /* Landscape (phones on their side, and every desktop): a quiet panel left of the board, sized from the
+     height. The back button lands in the panel's top-left corner, beside the title. */
   @media (orientation: landscape) {
-    #app { grid-template-columns: minmax(0, 330px) var(--bs); column-gap: 14px;
-      grid-template-rows: auto auto auto auto 1fr; align-content: stretch; align-items: start;
-      grid-template-areas: "head stage" "stats stage" "ctrl stage" "msg stage" "guide stage"; }
-    header h1 { font-size: clamp(17px, calc(3.2vh + 5px), 25px); }
+    #app { grid-template-columns: minmax(0, 320px) var(--bs); column-gap: 24px;
+      grid-template-rows: auto 1fr auto auto auto 1fr;
+      grid-template-areas: "head stage" ". stage" "stats stage" "msg stage" "ctrl stage" ". stage"; }
     #stage { align-self: center; }
   }
-  header { grid-area: head; display: flex; align-items: center; gap: 8px; min-height: 44px; padding-left: 52px; }
-  h1 { margin: 0; flex: 1; font-family: var(--serif); font-weight: 700; font-size: clamp(19px, 5.4vw, 27px);
-    letter-spacing: 1.5px; line-height: 1.05; color: var(--brass); text-shadow: 0 1px 0 #000, 0 0 18px rgba(230, 193, 115, .25); white-space: nowrap; }
-  h1 small { display: block; font-family: var(--sans); font-size: 11px; letter-spacing: 2px; color: var(--muted); font-weight: 600; text-transform: uppercase; text-shadow: none; }
-  .iconbtn { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel);
-    display: grid; place-items: center; cursor: pointer; color: var(--brass); }
+  header { grid-area: head; display: flex; align-items: center; gap: 8px; min-height: 44px; padding-left: 54px; }
+  h1 { margin: 0; flex: 1; min-width: 0; font-weight: 700; font-size: 18px; letter-spacing: -.2px; line-height: 1.15; white-space: nowrap; }
+  h1 small { display: block; font-size: 12.5px; font-weight: 500; letter-spacing: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  .iconbtn { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 0; background: transparent;
+    display: grid; place-items: center; cursor: pointer; color: var(--muted); transition: background .15s, color .15s; }
+  .iconbtn:hover { background: var(--surface-2); color: var(--text); }
   .iconbtn svg { width: 22px; height: 22px; }
 
-  #stats { grid-area: stats; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .chip { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px 8px 5px; text-align: center; min-width: 0; }
-  .chip span { display: block; font-size: 10px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); }
-  .chip b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; color: var(--ivory); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chip b.assisted::after { content: " \2022"; color: var(--brass); }
+  #stats { grid-area: stats; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 4px;
+    font-size: 13px; color: var(--muted); }
+  .chip { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap; }
+  .chip span { font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; }
+  .chip b { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+  .chip b.assisted::after { content: " \2022"; color: var(--best); }
 
+  /* controls: one segmented bar, the same shape for the size picker and for play */
   #ctrl { grid-area: ctrl; }
-  .row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
-  @media (orientation: landscape) { .row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-  .btn { min-height: 48px; border-radius: 12px; border: 1px solid var(--line); cursor: pointer;
-    background: linear-gradient(180deg, rgba(40, 70, 58, .9), rgba(14, 32, 25, .95)); color: var(--ivory);
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 4px 2px;
-    font-size: 11.5px; font-weight: 600; letter-spacing: .4px; box-shadow: 0 2px 0 rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .08);
-    transition: transform .08s, border-color .15s, background .15s; }
-  .btn svg { width: 20px; height: 20px; color: var(--brass); }
-  .btn:active { transform: translateY(1px); }
+  .row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; padding: 4px;
+    border-radius: 16px; background: var(--surface-2); }
+  .btn { min-height: 48px; border-radius: 12px; border: 0; cursor: pointer; background: transparent; color: var(--text);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px 2px;
+    font-size: 12px; font-weight: 600; transition: background .15s, color .15s, box-shadow .15s, transform .08s; }
+  .btn svg { width: 20px; height: 20px; color: var(--muted); transition: color .15s; }
+  .btn:hover:not(:disabled) { background: var(--accent-soft); }
+  .btn:active:not(:disabled) { transform: scale(.97); }
   .btn:disabled { opacity: .38; cursor: default; }
-  .btn.on { border-color: var(--brass); background: linear-gradient(180deg, #6b5324, #2f230d); }
-  .btn.size b { font-family: var(--serif); font-size: 17px; color: var(--brass); letter-spacing: 0; }
-  .btn.size.on b { color: var(--brass-hi); }
-  .btn.nudge { animation: nudge 1.1s ease-in-out infinite; border-color: var(--warn); }
-  @keyframes nudge { 50% { box-shadow: 0 0 0 4px rgba(255, 138, 107, .28), 0 2px 0 rgba(0,0,0,.35); } }
+  .btn.on { background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); color: var(--accent); }
+  .btn.on svg { color: var(--accent); }
+  .btn.size b { font-size: 15px; font-weight: 600; letter-spacing: -.2px; }
+  .btn.nudge { color: var(--trap); animation: nudge 1.4s ease-in-out infinite; }
+  .btn.nudge svg { color: var(--trap); }
+  @keyframes nudge { 50% { box-shadow: inset 0 0 0 2px var(--trap); } }
 
-  /* The legend and keys fill the panel's empty lower half on a desktop; a phone has no room for it. */
-  #guide { grid-area: guide; display: none; font-size: 12.5px; line-height: 1.45; color: var(--muted);
-    border-top: 1px solid rgba(230, 193, 115, .2); padding-top: 10px; }
-  @media (orientation: landscape) and (min-height: 560px) { #guide { display: block; } }
-  #guide ul { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 7px; }
-  #guide li { display: flex; align-items: center; gap: 10px; }
-  #guide i { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 11px; font-weight: 800; color: #fff; }
-  #guide i.g { background: radial-gradient(circle, rgba(40, 190, 120, .95), rgba(18, 110, 70, .85)); box-shadow: 0 0 8px rgba(60, 230, 150, .6); }
-  #guide i.b { background: radial-gradient(circle, #45e39a, #13875a); box-shadow: 0 0 0 2px #ffd878; }
-  #guide i.t { background: radial-gradient(circle, #e2604a, #9a2a1c); }
-  #guide i.c { background: linear-gradient(90deg, #f6e4bd, #d98a4e 50%, #7d1f2a); color: #3a220c; }
-  #guide .keys { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
-  #guide .keys b { color: var(--brass); font-weight: 700; }
-  #guide h3 { margin: 0 0 8px; font-family: var(--serif); font-size: 13px; letter-spacing: 1.5px; color: var(--brass); font-weight: 700; }
-  #msg { grid-area: msg; min-height: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
-    text-align: center; font-size: 13.5px; line-height: 1.3; color: var(--muted); padding: 0 4px; }
-  #msg.bad { color: #ffc3b1; }
-  #msg.good { color: #bff0d2; }
-  #msg .act { min-height: 36px; padding: 4px 12px; border-radius: 18px; border: 1px solid var(--warn); background: rgba(255, 138, 107, .14);
-    color: #ffd9cd; cursor: pointer; font-weight: 700; font-size: 13px; }
-  #msg kbd { font: inherit; font-weight: 700; color: var(--brass); }
+  #msg { grid-area: msg; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 10px;
+    text-align: center; font-size: 13px; line-height: 1.35; color: var(--muted); padding: 0 4px; }
+  #msg .mt { min-width: 0; }
+  #msg.bad { color: var(--trap); }
+  #msg.good { color: var(--text); }
+  #msg .act { flex: none; min-height: 44px; padding: 0 16px; border-radius: 22px; border: 0; background: var(--trap); color: var(--bg);
+    cursor: pointer; font-weight: 600; font-size: 13px; }
+  #msg kbd { font: inherit; font-weight: 700; color: var(--text); }
   @media (orientation: landscape) { #msg { justify-content: flex-start; text-align: left; } }
 
   /* ---- the board ---- */
   #stage { grid-area: stage; width: var(--bs); height: var(--bs); position: relative; }
-  #board { --frame: clamp(5px, calc(var(--bs) * .028), 16px);
-    position: absolute; inset: 0; padding: var(--frame); border-radius: 8px;
-    background: var(--grain-h) 0 0 / 180px, linear-gradient(145deg, #6a3519, #3a1a0b 55%, #2a1208);
-    box-shadow: 0 22px 50px rgba(0, 0, 0, .55), 0 4px 10px rgba(0, 0, 0, .5), inset 0 1px 1px rgba(255, 220, 170, .35), inset 0 -2px 3px rgba(0, 0, 0, .5); }
-  #inner { position: relative; width: 100%; height: 100%; outline: 1px solid rgba(230, 193, 115, .55); outline-offset: 1px; }
-  #grid { position: absolute; inset: 0; display: grid; }
-  .sq { position: relative; border: 0; padding: 0; margin: 0; cursor: default; overflow: hidden;
-    background-color: var(--maple); background-image: var(--grain-v), linear-gradient(160deg, rgba(255, 246, 225, .28), rgba(120, 70, 20, .08));
-    background-size: 180px, 100% 100%; }
-  .sq.d { background-color: var(--walnut); background-image: var(--grain-h), linear-gradient(160deg, rgba(255, 220, 170, .14), rgba(40, 15, 0, .18)); }
-  .sq .co { position: absolute; font-size: calc(var(--sq) * .19); font-weight: 700; line-height: 1; opacity: .8; pointer-events: none; }
-  .sq .co.f { right: 4%; bottom: 3%; } .sq .co.r { left: 5%; top: 4%; }
-  .sq .co { color: var(--walnut); } .sq.d .co { color: var(--maple); }
-  .sq.visited::before { content: ""; position: absolute; inset: 0; background: rgba(40, 16, 4, .16); }
-  /* the token: a raised coin carrying the move number, coloured along the tour from ivory to oxblood so
-     the order reads at a glance without reading a single digit */
-  .tok { position: absolute; inset: 14%; border-radius: 50%; display: grid; place-items: center;
-    font-weight: 800; font-size: calc(var(--sq) * .31); font-variant-numeric: tabular-nums; letter-spacing: -.5px;
-    background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, .55), rgba(255, 255, 255, 0) 45%), var(--tc);
-    color: var(--tt); box-shadow: 0 2px 3px rgba(0, 0, 0, .45), inset 0 -2px 3px rgba(0, 0, 0, .28), inset 0 0 0 1.5px rgba(255, 240, 210, .35); }
-  .tok.pop { animation: pop .42s cubic-bezier(.2, 1.6, .4, 1) both; }
-  @keyframes pop { from { transform: scale(.2); opacity: 0; } }
-  .sq.here .tok { visibility: hidden; }
-  .sq.start .tok { box-shadow: 0 0 0 2.5px var(--brass-hi), 0 2px 3px rgba(0, 0, 0, .45), inset 0 -2px 3px rgba(0, 0, 0, .28); }
-  /* legal targets: a soft emerald well that breathes, and in assist mode a badge with the onward count */
+  #board { position: absolute; inset: 0; padding: var(--frame); border-radius: 14px; background: var(--frame-bg); box-shadow: var(--shadow); }
+  #inner { position: relative; width: 100%; height: 100%; }
+  #grid { position: absolute; inset: 0; display: grid; border-radius: 10px; overflow: hidden; }
+  .sq { position: relative; border: 0; padding: 0; margin: 0; cursor: default; overflow: hidden; background: var(--sq-l); }
+  .sq.d { background: var(--sq-d); }
+  .sq .co { position: absolute; z-index: 2; font-size: max(9px, min(12px, calc(var(--sq) * .15))); font-weight: 600; line-height: 1; color: var(--coord); pointer-events: none; }
+  .sq .co.f { right: 6%; bottom: 5%; } .sq .co.r { left: 6%; top: 5%; }
+  .sq.visited .co { color: hsl(calc(185 + var(--t) * 95) var(--ns) var(--nl)); }
+  /* a visited square is a flat tint of its place along the tour, with the move number small in its middle */
+  .tok { --h: calc(185 + var(--t) * 95); position: absolute; inset: 0; display: grid; place-items: center;
+    background: hsl(var(--h) var(--vs) var(--vl)); color: hsl(var(--h) var(--ns) var(--nl));
+    font-weight: 600; font-size: min(20px, calc(var(--sq) * .27)); font-variant-numeric: tabular-nums; letter-spacing: -.3px; }
+  .sq.d .tok { background: hsl(var(--h) var(--vs) calc(var(--vl) - var(--vdl))); }
+  .tok.pop { animation: tint .5s ease-out both; }
+  @keyframes tint { from { background: var(--accent-soft); color: transparent; } }
+  .sq.here .tok { color: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
+  .sq.start .tok { box-shadow: inset 0 0 0 2px hsl(var(--h) var(--ns) var(--nl) / .55); }
+  /* legal targets: a small dot; with Assist, a ring holding the onward count */
   .sq.tgt { cursor: pointer; }
-  .sq.tgt::after { content: ""; position: absolute; left: 50%; top: 50%; width: 34%; height: 34%; border-radius: 50%; transform: translate(-50%, -50%);
-    background: radial-gradient(circle, rgba(40, 190, 120, .95), rgba(18, 110, 70, .85)); box-shadow: 0 0 10px 2px rgba(60, 230, 150, .55);
-    animation: breathe 1.6s ease-in-out infinite; }
-  @keyframes breathe { 50% { transform: translate(-50%, -50%) scale(1.18); box-shadow: 0 0 16px 5px rgba(60, 230, 150, .7); } }
-  .sq.tgt:hover::after { width: 42%; height: 42%; }
-  .sq.tgt.badge::after { width: 56%; height: 56%; }
-  .sq .num { position: absolute; inset: 0; display: grid; place-items: center; z-index: 1; font-weight: 800; color: #fff;
-    font-size: calc(var(--sq) * .3); text-shadow: 0 1px 2px rgba(0, 0, 0, .6); pointer-events: none; }
-  /* Warnsdorff's pick keeps the emerald of every other target and gains a brass ring: it must never be
-     mistaken for a visited coin, which the first version (a gold disc) was. */
-  .sq.best::after { background: radial-gradient(circle, #45e39a, #13875a); box-shadow: 0 0 0 3px #ffd878, 0 0 16px 5px rgba(255, 216, 120, .75); animation-name: breathe-best; }
-  @keyframes breathe-best { 50% { transform: translate(-50%, -50%) scale(1.12); box-shadow: 0 0 0 3px #ffe7a6, 0 0 22px 8px rgba(255, 216, 120, .9); } }
-  .sq.trap::after { background: radial-gradient(circle, #e2604a, #9a2a1c); box-shadow: 0 0 10px 2px rgba(255, 110, 80, .55); }
-  .sq.hint { box-shadow: inset 0 0 0 4px var(--brass-hi), inset 0 0 22px rgba(255, 226, 160, .9); animation: hintpulse .9s ease-in-out infinite; }
-  @keyframes hintpulse { 50% { box-shadow: inset 0 0 0 4px var(--brass-hi), inset 0 0 6px rgba(255, 226, 160, .4); } }
-  .sq.cursor { box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 5px rgba(0, 0, 0, .5); }
-  /* start picker */
+  .sq.tgt::after { content: ""; position: absolute; left: 50%; top: 50%; width: min(26%, 18px); height: min(26%, 18px); border-radius: 50%; transform: translate(-50%, -50%);
+    background: var(--accent); transition: width .15s, height .15s; animation: breathe 2.4s ease-in-out infinite; }
+  @keyframes breathe { 50% { transform: translate(-50%, -50%) scale(.82); } }
+  .sq.tgt:hover::after { width: min(34%, 24px); height: min(34%, 24px); }
+  .sq.tgt.badge::after { width: min(60%, 48px); height: min(60%, 48px); background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); animation: none; }
+  .sq .num { position: absolute; inset: 0; display: grid; place-items: center; z-index: 1; font-weight: 700; color: var(--accent);
+    font-size: min(22px, calc(var(--sq) * .28)); font-variant-numeric: tabular-nums; pointer-events: none; }
+  /* Warnsdorff's pick is the one filled mark on the board: it must never be mistaken for a visited
+     square, which the first version (a gold disc among gold coins) was. A trap is a red ring. */
+  .sq.tgt.badge.best::after { background: var(--best); box-shadow: none; width: min(64%, 52px); height: min(64%, 52px); }
+  .sq.best .num { color: var(--best-ink); }
+  .sq.tgt.badge.trap::after { background: transparent; box-shadow: inset 0 0 0 2px var(--trap); }
+  .sq.trap .num { color: var(--trap); }
+  .sq.hint { box-shadow: inset 0 0 0 3px var(--hint); animation: hintpulse 1.2s ease-in-out infinite; }
+  @keyframes hintpulse { 50% { box-shadow: inset 0 0 0 5px var(--hint); } }
+  .sq.cursor { box-shadow: inset 0 0 0 2px var(--text); }
+  /* start picker: every square a tour can start from wears a thin ring; the rest are dimmed */
   .sq.pick { cursor: pointer; }
-  .sq.pick::after { content: ""; position: absolute; inset: 30%; border-radius: 50%; border: 2px solid rgba(255, 235, 190, .9);
-    box-shadow: 0 0 8px rgba(255, 220, 150, .8); animation: breathe2 2s ease-in-out infinite; }
-  @keyframes breathe2 { 50% { transform: scale(.8); opacity: .55; } }
-  .sq.pick:hover::after { background: rgba(255, 235, 190, .35); }
-  .sq.nostart::after { content: "\00d7"; position: absolute; inset: 0; display: grid; place-items: center; font-size: calc(var(--sq) * .42);
-    color: rgba(40, 14, 2, .38); }
-  .sq.nostart { filter: saturate(.55) brightness(.8); }
-  .sq.win .tok { animation: winflash .7s ease-out both; animation-delay: var(--wd); }
-  @keyframes winflash { 35% { transform: scale(1.22); box-shadow: 0 0 0 3px #fff6d6, 0 0 22px 8px rgba(255, 214, 110, .95); filter: brightness(1.35); } }
+  .sq.pick::after { content: ""; position: absolute; left: 50%; top: 50%; width: clamp(12px, 30%, 20px); height: clamp(12px, 30%, 20px);
+    transform: translate(-50%, -50%); border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--muted); transition: width .15s, height .15s, background .15s; }
+  .sq.pick:hover::after { width: clamp(16px, 40%, 28px); height: clamp(16px, 40%, 28px); background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+  .sq.nostart::before { content: ""; position: absolute; inset: 0; background: var(--dim); }
+  .sq.win .tok { animation: winflash .6s ease-out both; animation-delay: var(--wd); }
+  @keyframes winflash { 40% { filter: brightness(1.28) saturate(1.25); } }
 
-  #lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-  #trail { fill: none; stroke: rgba(255, 244, 214, .5); stroke-width: .045; stroke-linejoin: round; stroke-linecap: round; }
-  #hop { fill: none; stroke: rgba(255, 226, 150, .95); stroke-width: .07; stroke-linejoin: round; stroke-linecap: round; stroke-dasharray: .12 .1; }
-  #gold { fill: none; stroke: url(#goldgrad); stroke-width: .11; stroke-linejoin: round; stroke-linecap: round; filter: drop-shadow(0 0 .08px #ffcf6a); }
-  #closer { fill: none; stroke: #fff2c2; stroke-width: .13; stroke-linecap: round; }
+  #lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 2; }
+  /* only the last few jumps are drawn, fading with age: the route stays legible without a web over the board */
+  #trail line { stroke: var(--accent); stroke-width: .045; stroke-linecap: round; }
+  #hop { fill: none; stroke: var(--accent); stroke-width: .05; stroke-linejoin: round; stroke-linecap: round; stroke-dasharray: .1 .1; }
+  #gold { fill: none; stroke: url(#goldgrad); stroke-width: .05; stroke-linejoin: round; stroke-linecap: round; opacity: .9; }
+  #closer { fill: none; stroke: var(--best); stroke-width: .09; stroke-linecap: round; }
 
   #knight { position: absolute; left: 0; top: 0; width: var(--sq); height: var(--sq); pointer-events: none; z-index: 3; will-change: transform; }
   #knight .lift { position: absolute; inset: 0; transform-origin: 50% 80%; }
-  #knight svg { position: absolute; left: 6%; top: 2%; width: 88%; height: 88%; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .55)); }
-  #knight .shadow { position: absolute; left: 20%; right: 20%; bottom: 7%; height: 14%; border-radius: 50%; background: rgba(0, 0, 0, .45); filter: blur(2px); }
+  #knight svg { position: absolute; left: 8%; top: 4%; width: 84%; height: 84%; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .35)); }
+  #knight .shadow { position: absolute; left: 22%; right: 22%; bottom: 8%; height: 10%; border-radius: 50%; background: rgba(0, 0, 0, .28); filter: blur(2px); }
 
   /* ---- overlays ---- */
-  .veil { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 12px; background: rgba(3, 12, 9, .55); }
-  .card { width: min(380px, 100%); max-height: calc(100dvh - 24px); overflow: auto; text-align: center; border-radius: 18px; padding: 18px 18px 16px;
-    background: linear-gradient(180deg, #1a3d30, #0d2019); border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 230, 180, .18); }
-  .card h2 { margin: 0; font-family: var(--serif); font-size: 26px; letter-spacing: 1.5px; color: var(--brass); }
-  .card .big { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 4px 0 0; color: var(--ivory); }
-  .card .sub { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
-  .card .ribbon { display: inline-block; margin: 8px 0 2px; padding: 5px 14px; border-radius: 20px; font-weight: 800; letter-spacing: 1px; font-size: 12.5px;
-    color: #3a2408; background: linear-gradient(90deg, #ffe7a3, #e6b54f, #ffe7a3); background-size: 200% 100%; animation: sheen 2.2s linear infinite; }
-  @keyframes sheen { to { background-position: -200% 0; } }
-  .card .tables { text-align: left; margin: 8px 0 4px; display: grid; gap: 10px; }
-  .card .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-  .card .btns .btn { font-size: 14px; min-height: 46px; }
-  .card .btns .btn.primary { background: linear-gradient(180deg, #e9c678, #b58a35); color: #2a1a06; border-color: #ffe2a0; }
-  #win .card { animation: rise .55s cubic-bezier(.2, 1.3, .4, 1) both; }
-  @keyframes rise { from { transform: translateY(40px) scale(.94); opacity: 0; } }
-  #win.peek { background: transparent; pointer-events: none; }
+  .veil { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 12px; background: rgba(8, 10, 16, .42);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); animation: fade .2s ease-out both; }
+  @keyframes fade { from { opacity: 0; } }
+  .card { width: min(380px, 100%); max-height: calc(100dvh - 24px); overflow: auto; text-align: center; border-radius: 20px; padding: 22px 20px 18px;
+    background: var(--surface); color: var(--text); border: 1px solid var(--line); box-shadow: 0 24px 60px -12px rgba(0, 0, 0, .45);
+    --hs-bg: var(--surface); --hs-line: var(--line); --hs-accent: var(--accent); --hs-fg: var(--text); }
+  .card h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.2px; }
+  .card .big { font-size: 44px; font-weight: 700; letter-spacing: -1px; font-variant-numeric: tabular-nums; margin: 6px 0 0; }
+  .card .sub { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  .card .ribbon { display: inline-block; margin: 10px 0 0; padding: 5px 12px; border-radius: 20px; font-weight: 600; font-size: 12px;
+    color: var(--best-ink); background: var(--best); }
+  .card .tables { text-align: left; margin: 8px 0 4px; display: grid; gap: 12px; }
+  .card .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+  .card .btns .btn { font-size: 14px; min-height: 48px; background: var(--surface-2); }
+  .card .btns .btn.primary { background: var(--accent); color: var(--surface); }
+  #win .card { animation: rise .45s cubic-bezier(.2, 1.1, .3, 1) both; }
+  @keyframes rise { from { transform: translateY(24px) scale(.97); opacity: 0; } }
+  #win.peek { background: transparent; pointer-events: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   #win.peek .card { display: none; }
   #confetti { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 55; pointer-events: none; }
-  .veil .card .tip { color: var(--muted); font-size: 12.5px; line-height: 1.45; text-align: left; margin: 8px 0 0; }
+  .veil .card .tip { color: var(--muted); font-size: 12.5px; line-height: 1.5; text-align: left; margin: 12px 0 0; }
+  .veil .card .tip b { color: var(--text); }
+
+  /* the menu: a bottom sheet on a phone held upright, a small card otherwise */
+  #menu { place-items: end center; }
+  #menu .card { text-align: left; padding: 10px; animation: rise .3s cubic-bezier(.2, 1.1, .3, 1) both; }
+  @media (orientation: landscape) { #menu { place-items: center; } }
+  .mi { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border: 0; border-radius: 12px;
+    background: transparent; cursor: pointer; font-size: 15px; font-weight: 500; text-align: left; }
+  .mi:hover:not(:disabled) { background: var(--surface-2); }
+  .mi:disabled { opacity: .4; cursor: default; }
+  .mi svg { width: 20px; height: 20px; color: var(--muted); flex: none; }
+  .mi kbd, .keys kbd { margin-left: auto; font: 600 11px var(--sans); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+  #guide { margin: 4px 0 0; border-top: 1px solid var(--line); padding: 12px 12px 4px; font-size: 13px; line-height: 1.45; color: var(--muted); }
+  #guide h3 { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; }
+  #guide ul { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
+  #guide li { display: flex; align-items: center; gap: 10px; }
+  #guide i { flex: none; width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; font-style: normal; font-size: 11px; font-weight: 700; background: var(--sq-d); position: relative; }
+  #guide i::after { content: ""; position: absolute; border-radius: 50%; }
+  #guide i.g::after { width: 8px; height: 8px; background: var(--accent); }
+  #guide i.a { color: var(--accent); } #guide i.a::after { inset: 3px; box-shadow: inset 0 0 0 2px var(--accent); }
+  #guide i.b { color: var(--best-ink); z-index: 0; } #guide i.b::after { inset: 3px; background: var(--best); z-index: -1; }
+  #guide i.t { color: var(--trap); } #guide i.t::after { inset: 3px; box-shadow: inset 0 0 0 2px var(--trap); }
+  #guide i.c { background: linear-gradient(90deg, hsl(185 var(--vs) var(--vl)), hsl(280 var(--vs) var(--vl))); color: hsl(230 var(--ns) var(--nl)); }
+  #guide .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; }
+  #guide .keys kbd { margin: 0; justify-self: start; }
 
   @media (prefers-reduced-motion: reduce) {
-    .sq.tgt::after, .sq.pick::after, .btn.nudge, .sq.hint, .card .ribbon { animation: none; }
+    .sq.tgt::after, .btn.nudge, .sq.hint, .tok.pop, .veil, #win .card, #menu .card { animation: none; }
+    .sq.tgt::after, .sq.pick::after, .btn, .iconbtn { transition: none; }
   }
 </style>
 </head>
@@ -234,8 +261,8 @@
 <div id="app">
   <header>
     <h1>Knight&rsquo;s Tour<small id="sub">Pick a starting square</small></h1>
-    <button class="iconbtn" id="scoresBtn" type="button" title="Best times" aria-label="Best times">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a4 4 0 0 1-3.5 4M7 5H4v2a4 4 0 0 0 3.5 4"/></svg>
+    <button class="iconbtn" id="menuBtn" type="button" title="Menu" aria-label="Menu" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>
     </button>
   </header>
   <div id="stats">
@@ -248,8 +275,8 @@
       <div id="inner">
         <div id="grid" role="grid" aria-label="Board"></div>
         <svg id="lines" aria-hidden="true">
-          <defs><linearGradient id="goldgrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#f0c35a"/><stop offset="1" stop-color="#ffe9a8"/></linearGradient></defs>
-          <polyline id="trail" points=""/>
+          <defs><linearGradient id="goldgrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2dd4bf"/><stop offset=".5" stop-color="#818cf8"/><stop offset="1" stop-color="#c084fc"/></linearGradient></defs>
+          <g id="trail"></g>
           <polyline id="gold" points=""/>
           <line id="closer" x1="0" y1="0" x2="0" y2="0" visibility="hidden"/>
           <path id="hop" d=""/>
@@ -258,44 +285,51 @@
       </div>
     </div>
   </div>
+  <div id="msg" role="status" aria-live="polite"></div>
   <div id="ctrl">
     <div class="row" id="setupRow">
       <button class="btn size" type="button" data-size="5"><b>5&times;5</b></button>
       <button class="btn size" type="button" data-size="6"><b>6&times;6</b></button>
       <button class="btn size" type="button" data-size="7"><b>7&times;7</b></button>
       <button class="btn size" type="button" data-size="8"><b>8&times;8</b></button>
-      <button class="btn" type="button" id="randomBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.3" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>Random</button>
+      <button class="btn" type="button" id="randomBtn" title="Start on a random square"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.3" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>Random</button>
     </div>
     <div class="row" id="playRow" hidden>
       <button class="btn" type="button" id="undoBtn" title="Undo (U / Backspace)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Undo</button>
       <button class="btn" type="button" id="hintBtn" title="Hint (H) - marks the run as assisted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>Hint</button>
       <button class="btn" type="button" id="assistBtn" title="Assist (A): show onward moves - marks the run as assisted" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M10 9.5a2.2 2.2 0 1 1 3 2c-.7.3-1 .8-1 1.5v.5"/><circle cx="12" cy="16.8" r=".6" fill="currentColor"/></svg>Assist</button>
-      <button class="btn" type="button" id="restartBtn" title="Restart from the same square (R)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Restart</button>
-      <button class="btn" type="button" id="newBtn" title="New board (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>New</button>
     </div>
   </div>
-  <div id="msg" role="status" aria-live="polite"></div>
-  <aside id="guide">
-    <h3>Reading the board</h3>
-    <ul>
-      <li><i class="g"></i>Squares the knight can jump to</li>
-      <li><i class="b">2</i>Assist: onward moves from there; ringed is Warnsdorff&rsquo;s pick, the fewest</li>
-      <li><i class="t">0</i>A trap: no way out once you land</li>
-      <li><i class="c">7</i>Your route, ivory at the start to oxblood at the end</li>
-    </ul>
-    <h3>Keys</h3>
-    <div class="keys"><b>Arrows</b><span>choose a target</span><b>Enter / Space</b><span>jump</span><b>U / Backspace</b><span>undo</span><b>H &middot; A</b><span>hint &middot; assist</span><b>R &middot; N</b><span>restart &middot; new board</span></div>
-  </aside>
 </div>
 
 <canvas id="confetti" hidden></canvas>
 
+<div class="veil" id="menu" hidden>
+  <div class="card" role="dialog" aria-label="Menu">
+    <button class="mi" type="button" id="newBtn" title="New board (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>New board<kbd>N</kbd></button>
+    <button class="mi" type="button" id="restartBtn" title="Restart from the same square (R)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Restart from the same square<kbd>R</kbd></button>
+    <button class="mi" type="button" id="scoresBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a4 4 0 0 1-3.5 4M7 5H4v2a4 4 0 0 0 3.5 4"/></svg>Best times</button>
+    <div id="guide">
+      <h3>Reading the board</h3>
+      <ul>
+        <li><i class="g"></i>A square the knight can jump to</li>
+        <li><i class="a">3</i>Assist: moves onward from there</li>
+        <li><i class="b">2</i>Warnsdorff&rsquo;s pick: the fewest onward moves</li>
+        <li><i class="t">0</i>A trap: no way out once you land</li>
+        <li><i class="c">7</i>Your route, teal at the start to violet at the end</li>
+      </ul>
+      <h3>Keys</h3>
+      <div class="keys"><kbd>Arrows</kbd><span>choose a target</span><kbd>Enter</kbd><span>jump</span><kbd>U</kbd><span>undo</span><kbd>H</kbd><span>hint</span><kbd>A</kbd><span>assist</span></div>
+    </div>
+  </div>
+</div>
+
 <div class="veil" id="win" hidden>
   <div class="card" role="dialog" aria-labelledby="winTitle">
     <h2 id="winTitle">Tour complete</h2>
-    <div id="winRibbon" class="ribbon" hidden>THE LAST JUMP LANDS BACK ON THE START</div>
     <div class="big" id="winTime">0:00.0</div>
     <div class="sub" id="winSub"></div>
+    <div id="winRibbon" class="ribbon" hidden>The last jump lands back on the start</div>
     <div class="tables" id="winTable"></div>
     <div class="btns">
       <button class="btn" type="button" id="viewBtn">View board</button>
@@ -645,7 +679,7 @@ const $ = (id) => document.getElementById(id);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // Drawn for this game: a Staunton-ish knight head facing left, ivory with an ink outline so it reads on
-// both the maple and the walnut squares. 100x100 box, base at the bottom.
+// the light and dark squares in both themes, and on every tint of the route. 100x100 box, base at the bottom.
 const KNIGHT_SVG = `<svg viewBox="0 0 100 100" aria-hidden="true">
   <defs>
     <linearGradient id="kIv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fffaf0"/><stop offset=".55" stop-color="#f1e2c2"/><stop offset="1" stop-color="#cdb285"/></linearGradient>
@@ -712,20 +746,28 @@ function layout() {
   const app = $('app'), cs = getComputedStyle(app);
   const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
   const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-  const W = innerWidth, H = innerHeight, gap = 8;
+  const W = innerWidth, H = innerHeight, rowGap = parseFloat(cs.rowGap) || 0, colGap = parseFloat(cs.columnGap) || 0;
   let bs;
   if (W > H) {
-    // side panel needs ~236px for three 44px+ buttons in a row with readable labels
-    bs = Math.min(H - padY, W - padX - 14 - 236, 860);
+    // the side panel needs ~236px for its three-button bar with readable labels
+    bs = Math.min(H - padY, W - padX - colGap - 236, 860);
   } else {
+    // every row of the grid, the empty spacer rows included, costs one row gap
     const other = ['head', 'stats', 'ctrl', 'msg'].reduce((a, id) => a + (id === 'head' ? document.querySelector('header') : $(id)).getBoundingClientRect().height, 0);
-    bs = Math.min(W - padX, H - padY - other - 4 * gap, 860);
+    const rows = cs.gridTemplateRows.trim().split(/\s+/).length;
+    bs = Math.min(W - padX, H - padY - other - (rows - 1) * rowGap, 860);
   }
   bs = Math.max(200, Math.floor(bs));
   document.documentElement.style.setProperty('--bs', bs + 'px');
-  const frame = Math.max(5, Math.min(16, bs * 0.028));
+  // a hairline frame: the old 16px wooden rim cost every square 3px
+  const frame = Math.max(3, Math.min(8, bs * 0.01));
+  document.documentElement.style.setProperty('--frame', frame + 'px');
   sq = (bs - 2 * frame) / n;
   document.documentElement.style.setProperty('--sq', sq + 'px');
+  // The title clears the fixed 44px back button (8px in, so 52px + a gap), but only by as much as it
+  // has to: on a wide screen the panel already starts right of it.
+  const head = document.querySelector('header');
+  head.style.paddingLeft = Math.max(0, 62 - head.getBoundingClientRect().left) + 'px';
   placeKnight();
 }
 
@@ -734,16 +776,12 @@ function build() {
   grid.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
   grid.style.gridTemplateRows = `repeat(${n}, 1fr)`;
   grid.innerHTML = '';
-  // The grain textures tile at 180px; offsetting each square's copy stops the eye catching the repeat.
-  let seed = 7 + n;
-  const rnd = () => (seed = (seed * 16807) % 2147483647) % 180;
   for (let i = 0; i < n * n; i++) {
     const b = document.createElement('button');
     b.type = 'button';
     const r = Math.floor(i / n), c = i % n;
     b.className = 'sq' + ((r + c) & 1 ? ' d' : '');
     b.dataset.i = i;
-    b.style.backgroundPosition = `${rnd()}px ${rnd()}px, 0 0`;
     b.tabIndex = -1;
     grid.appendChild(b);
   }
@@ -751,12 +789,10 @@ function build() {
   layout();
 }
 
-// Colour along the tour: ivory at move 1, amber in the middle, oxblood at the end.
-function tokenColour(k) {
-  const t = n * n > 1 ? (k - 1) / (n * n - 1) : 0;
-  const h = 46 - t * 58, s = 62 + t * 8, l = 86 - t * 52;
-  return [`hsl(${(h + 360) % 360} ${s}% ${l}%)`, l > 56 ? '#3a220c' : '#fff3dc'];
-}
+// Place along the tour, 0 at move 1 to 1 at the last move. The CSS turns it into a hue, teal to violet,
+// at a fixed lightness per theme, so the number on every tint keeps the same contrast.
+const tint = (k) => (n * n > 1 ? (k - 1) / (n * n - 1) : 0);
+const TRAIL = 4;               // how many of the latest jumps stay drawn as a line
 
 const centre = (i) => [(i % n) + 0.5, Math.floor(i / n) + 0.5];
 
@@ -779,9 +815,9 @@ function paint(fresh = -1) {
       if (st[i] === 'none') { cls.push('nostart'); label += ', no tour starts here'; }
       else { cls.push('pick'); label += ', start here'; }
     } else if (vis.has(i)) {
-      const k = vis.get(i), [bg, fg] = tokenColour(k);
+      const k = vis.get(i);
       cls.push('visited'); if (k === 1) cls.push('start'); if (i === path[path.length - 1] && mode !== 'won') cls.push('here');
-      html += `<span class="tok${i === fresh ? ' pop' : ''}" style="--tc:${bg};--tt:${fg}">${k}</span>`;
+      html += `<span class="tok${i === fresh ? ' pop' : ''}">${k}</span>`;
       label += ', move ' + k;
     } else if (counts.has(i)) {
       const k = counts.get(i);
@@ -795,11 +831,17 @@ function paint(fresh = -1) {
     if (i === hintSq) cls.push('hint');
     if (i === cursor) cls.push('cursor');
     b.className = cls.join(' ');
+    if (vis.has(i)) b.style.setProperty('--t', tint(vis.get(i)).toFixed(4)); else b.style.removeProperty('--t');
     b.innerHTML = html;
     b.setAttribute('aria-label', label);
   }
-  // the faint trail of the tour so far
-  $('trail').setAttribute('points', path.map((s) => centre(s).join(',')).join(' '));
+  // only the latest jumps, fading with age; the whole route is drawn once, at the win
+  let segs = '';
+  if (mode === 'play') for (let k = Math.max(1, path.length - TRAIL); k < path.length; k++) {
+    const [x1, y1] = centre(path[k - 1]), [x2, y2] = centre(path[k]), age = path.length - k;
+    segs += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" opacity="${(0.75 * (1 - (age - 1) / TRAIL)).toFixed(2)}"/>`;
+  }
+  $('trail').innerHTML = segs;
   knight.hidden = mode === 'pick' || !path.length;
   $('count').textContent = path.length + '/' + n * n;
   $('count').classList.toggle('assisted', assisted && mode !== 'pick');
@@ -855,13 +897,19 @@ function hop(from, to) {
 }
 
 // ---- messages ----
-function say(html, kind = '') { const m = $('msg'); m.innerHTML = html; m.className = kind; }
+// The action button (Undo, Undo N) sits beside the text rather than inside it, so a two-line message
+// still fits the row's fixed height.
+function say(html, kind = '') {
+  const m = $('msg'), at = html.indexOf('<button');
+  const text = at < 0 ? html : html.slice(0, at).trim(), act = at < 0 ? '' : html.slice(at);
+  m.innerHTML = (text ? `<span class="mt">${text}</span>` : '') + act; m.className = kind;
+}
 
 function statusMessage() {
   $('undoBtn').classList.remove('nudge');
   if (mode === 'pick') {
     const st = startsFor(n), none = st.filter((x) => x === 'none').length;
-    say(none ? `Tap a glowing square to place the knight. On ${n}×${n} a tour can only start on the ${n * n - none} squares of the corner colour.`
+    say(none ? `Tap a ringed square to place the knight. On ${n}×${n} a tour only starts on the corner colour.`
       : 'Tap any square to place the knight, then visit every square once.');
     return;
   }
@@ -877,7 +925,7 @@ function statusMessage() {
   } else if (hintSq >= 0) {
     say(`Hint: jump to <kbd>${name(hintSq)}</kbd>. This run now counts as assisted.`, 'good');
   } else if (path.length === 1) {
-    say('Jump to a glowing square. Every square once — finish a knight’s move from the start for a closed tour.');
+    say('Visit every square once. End a knight’s move from the start for a closed tour.');
   } else say('');
 }
 
@@ -1025,6 +1073,7 @@ function arrow(dr, dc) {
 
 addEventListener('keydown', (e) => {
   if (!$('scores').hidden) { if (e.key === 'Escape') $('scores').hidden = true; return; }
+  if (!$('menu').hidden) { if (e.key === 'Escape') closeMenu(); return; }
   if (!$('win').hidden && !$('win').classList.contains('peek')) return;
   const k = e.key;
   const dirs = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
@@ -1064,9 +1113,15 @@ $('randomBtn').addEventListener('click', () => {
 $('undoBtn').addEventListener('click', () => undo());
 $('hintBtn').addEventListener('click', hint);
 $('assistBtn').addEventListener('click', toggleAssist);
-$('restartBtn').addEventListener('click', restart);
-$('newBtn').addEventListener('click', toPicker);
+$('restartBtn').addEventListener('click', () => { closeMenu(); restart(); });
+$('newBtn').addEventListener('click', () => { closeMenu(); toPicker(); });
+// Restart, New, the best times and the legend live behind one button, so the board has the screen.
+function openMenu() { $('menu').hidden = false; $('newBtn').focus(); }
+function closeMenu() { if ($('menu').hidden) return; $('menu').hidden = true; $('menuBtn').focus(); }
+$('menuBtn').addEventListener('click', openMenu);
+$('menu').addEventListener('click', (e) => { if (e.target === $('menu')) closeMenu(); });
 $('scoresBtn').addEventListener('click', () => {
+  $('menu').hidden = true;
   $('scoresSub').textContent = `${n}×${n} board`;
   const box = $('scoresTables'); box.innerHTML = '<div></div><div></div>';
   hsFor(n, false).render(box.children[0]); hsFor(n, true).render(box.children[1]);
@@ -1086,6 +1141,7 @@ let fxTimers = [];
 function clearWinFx() {
   for (const t of fxTimers) clearTimeout(t); fxTimers = [];
   $('gold').setAttribute('points', ''); $('closer').setAttribute('visibility', 'hidden');
+  for (const a of $('gold').getAnimations()) a.cancel();
   for (const b of grid.children) b.classList.remove('win');
   confettiStop();
 }
@@ -1108,6 +1164,7 @@ function win() {
   gold.setAttribute('points', path.map((s) => centre(s).join(',')).join(' '));
   let len = 0; for (let i = 1; i < N; i++) { const a = centre(path[i - 1]), b = centre(path[i]); len += Math.hypot(a[0] - b[0], a[1] - b[1]); }
   gold.style.strokeDasharray = len; gold.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], { duration: sweep + 300, delay: 300, easing: 'ease-in-out', fill: 'both' });
+  gold.animate([{ opacity: .9 }, { opacity: .3 }], { duration: reduced ? 1 : 900, delay: sweep + 1100, easing: 'ease-out', fill: 'both' });
   // 2. a closed tour snaps shut with a bright closing stroke
   if (closed) {
     const a = centre(path[N - 1]), b = centre(path[0]), cl = $('closer');
@@ -1146,7 +1203,7 @@ document.addEventListener('pointerdown', (e) => {
 });
 $('againBtn').addEventListener('click', toPicker);
 
-// Confetti in the board's own colours, plus gold stars for a closed tour. Canvas, capped at ~2.8s.
+// Confetti in the route's own colours, plus amber stars for a closed tour. Canvas, capped at ~2.8s.
 let confRaf = 0;
 function confettiStop() { cancelAnimationFrame(confRaf); $('confetti').hidden = true; }
 function confetti(closed) {
@@ -1155,17 +1212,17 @@ function confetti(closed) {
   cv.hidden = false; cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
   const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
   const rb = $('board').getBoundingClientRect(), cx = rb.left + rb.width / 2, cy = rb.top + rb.height / 2;
-  const cols = ['#ffe29a', '#e6b54f', '#fff6dc', '#b8322f', '#4fd08a', '#f3a55b'];
+  const cols = ['#2dd4bf', '#67e8f9', '#818cf8', '#a5b4fc', '#c084fc', '#fbbf24'];
   const P = [];
   const burst = (x, y, count, speed) => {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2, v = speed * (0.35 + Math.random());
-      P.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - speed * .5, r: 3 + Math.random() * 5, rot: Math.random() * 6, vr: (Math.random() - .5) * .4,
+      P.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - speed * .5, r: 2.5 + Math.random() * 3.5, rot: Math.random() * 6, vr: (Math.random() - .5) * .4,
         c: cols[i % cols.length], star: closed && i % 4 === 0, life: 0 });
     }
   };
-  burst(cx, cy, 160, 9);
-  if (closed) { burst(rb.left + rb.width * .2, rb.top + rb.height * .3, 70, 7); burst(rb.right - rb.width * .2, rb.top + rb.height * .3, 70, 7); }
+  burst(cx, cy, 110, 8);
+  if (closed) { burst(rb.left + rb.width * .2, rb.top + rb.height * .3, 50, 7); burst(rb.right - rb.width * .2, rb.top + rb.height * .3, 50, 7); }
   const star = (r) => { ctx.beginPath(); for (let k = 0; k < 10; k++) { const rr = k & 1 ? r * .45 : r, a = k * Math.PI / 5 - Math.PI / 2; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); };
   const t0c = performance.now();
   const frame = (now) => {
