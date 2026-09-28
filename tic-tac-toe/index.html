@@ -75,6 +75,19 @@
      table) goes underneath and that part scrolls inside its own box, so the page itself never does and
      New game stays on screen. Right, not left, because the back button owns the top-left corner.
      Every control is lifted to 44px here: the segmented buttons were 33px tall, New game 41. */
+  /* Everywhere but a sideways phone (which has its own layout below): New game goes straight under the board. It used to sit after the score and the
+     streak / high-score panel, at y=858 on a 667px screen, so every rematch began with a scroll. Moving it
+     up alone was not enough -- it would still end 12px (375x667) and 24px (360x640) off the bottom -- so
+     the board is also capped by height: everything above it is 271px, the button row and gaps below it
+     63px. At 360x640 that takes the board from 338 to 306px, cells 112 -> 102px, which a 3x3 grid does
+     not miss; wherever width was already the limit (390x844 and up) nothing changes. Score, streak and
+     high scores stay below the fold, where reaching them by scrolling costs nothing. */
+  @media not all and (orientation: landscape) and (max-height: 500px) {
+    .btns { order: 1; }
+    #score, .side-b > .panel, .hint { order: 2; }
+    #board { width: min(100%, calc(100vh - 334px)); align-self: center; }
+    @supports (height: 100dvh) { #board { width: min(100%, calc(100dvh - 334px)); } }
+  }
   @media (orientation: landscape) and (max-height: 500px) {
     body { display: block; min-height: 0; }
     main { --bd: min(calc(100vh - 16px), calc(100vw - 290px)); width: auto; height: 100vh;
