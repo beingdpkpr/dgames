@@ -56,6 +56,11 @@
   .box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
   .box h2 { margin: 0 0 4px; font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; font-weight: 600; }
   .box canvas { display: block; width: 100%; height: auto; }
+  /* The shape comes from here, not from the canvas's own width/height attributes: script now sets those
+     to the on-screen size times devicePixelRatio, and letting them also drive the layout would make each
+     resize round the size into the next one. */
+  #holdC { aspect-ratio: 4 / 3; }
+  #nextC { aspect-ratio: 4 / 9; }
   .stat { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); }
   .stat b { font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; font-weight: 700; }
   .stat.big b { font-size: 24px; color: var(--gold); }
@@ -70,7 +75,14 @@
     /* The Next preview is a 96x216 canvas. Given a 113px flex slot it kept its aspect and grew to 253px
        tall, which is what pushed the well off the screen. Size it by height so the rails stay one
        compact strip and the board keeps the room it needs. */
-    .rail .box canvas { width: auto; height: 84px; margin: 0 auto; }
+    .rail .box canvas { width: 100%; height: 84px; aspect-ratio: auto; }
+    /* That height used to come with width: auto, which gave Hold its natural 112px inside a 48px box: a
+       held piece drew out over the Score panel and only a sliver of it showed. Next, the other way round,
+       used 37px of a 104px box. Both now fill the box exactly, and the first rail (Hold + Score) takes a
+       little more of the strip so a held I piece has room. The height is unchanged on purpose: --reserve
+       below is sized around this strip. */
+    .rails > .rail:first-child { flex-grow: 1.15; }
+    .rails > .rail:last-child { flex-grow: 0.85; }
     /* "Score 2140" at 24px could not share a 90px box with its label, so the number ran out past the
        panel border. The element never reports overflow -- it is the panel it escapes, not its own box --
        so only looking catches it. */
@@ -764,8 +776,13 @@ let S = null, running = false, paused = false, lastT = 0, raf = 0;
 // The canvas is sized in CSS but drawn at device resolution; without this the well is a blurry mess on
 // any phone, where devicePixelRatio is 2 or 3.
 function fitBoard() {
-  const r = boardC.getBoundingClientRect(), dpr = Math.min(3, window.devicePixelRatio || 1);
-  boardC.width = Math.round(r.width * dpr); boardC.height = Math.round(r.height * dpr);
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  // The previews too. They were fixed 96x72 and 96x216 bitmaps stretched to whatever box they landed
+  // in: 1.5x upscaled on a desktop, and far too small to draw a readable piece into on a phone.
+  for (const c of [boardC, holdC, nextC]) {
+    const r = c.getBoundingClientRect();
+    c.width = Math.max(1, Math.round(r.width * dpr)); c.height = Math.max(1, Math.round(r.height * dpr));
+  }
 }
 
 function cellRect(ctx, x, y, size, colour, ghost) {
@@ -889,29 +906,37 @@ function draw() {
 
 // Draw one piece centred in a preview box, with its letter, so the queue is unambiguous even to someone
 // who cannot separate the green S from the cyan I by hue alone.
-function drawPreview(ctx, type, boxY, boxH) {
-  const w = ctx.canvas.width;
+// Draw a piece centred in the slot (bx, by, bw, bh), in backing pixels. Every piece fits 4 wide by 2
+// tall in its spawn rotation, so one cell size for all seven keeps an O from looking bigger than an I.
+function drawPreview(ctx, type, bx, by, bw, bh, label) {
   if (!type) return;
-  const cells = ROT[type][0], size = Math.min(w / 5.6, boxH / 3.4);
+  const cells = ROT[type][0], size = Math.floor(Math.min(bw / 4.5, bh / 2.5));
   let minX = 9, maxX = -9, minY = 9, maxY = -9;
   for (const [x, y] of cells) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
   const pw = (maxX - minX + 1) * size, ph = (maxY - minY + 1) * size;
-  const ox = (w - pw) / 2 - minX * size, oy = boxY + (boxH - ph) / 2 - minY * size;
+  const ox = Math.round(bx + (bw - pw) / 2 - minX * size), oy = Math.round(by + (bh - ph) / 2 - minY * size);
   const col = COLOURS[TYPES.indexOf(type) + 1];
   for (const [x, y] of cells) cellRect(ctx, ox + x * size, oy + y * size, size, col, false);
-  ctx.fillStyle = 'rgba(234,242,251,.5)'; ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
+  if (!label) return;
+  const k = ctx.canvas.width / Math.max(1, ctx.canvas.getBoundingClientRect().width);
+  ctx.fillStyle = 'rgba(234,242,251,.5)'; ctx.font = '600 ' + Math.round(11 * k) + 'px "Segoe UI", system-ui, sans-serif';
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillText(type, 4, boxY + 3);
+  ctx.fillText(type, bx + 4 * k, by + 3 * k);
 }
 
 function drawSide() {
   hctx.clearRect(0, 0, holdC.width, holdC.height);
-  if (S) drawPreview(hctx, S.hold, 0, holdC.height);
+  if (S) drawPreview(hctx, S.hold, 0, 0, holdC.width, holdC.height, false);
   if (S && S.holdUsed) { hctx.fillStyle = 'rgba(11,26,43,.55)'; hctx.fillRect(0, 0, holdC.width, holdC.height); }
   nctx.clearRect(0, 0, nextC.width, nextC.height);
   if (!S) return;
-  const n = 3, boxH = nextC.height / n;
-  for (let i = 0; i < n; i++) drawPreview(nctx, S.queue[i], i * boxH, boxH);
+  // Three pieces stacked in order, the first given the most room: it is the one a player actually plans
+  // around, the other two are glanced at. Before, three equal slots in a 37px-wide canvas drew it at 6.7px
+  // a cell on a phone whose board cell is 21px, with 4px letters beside it.
+  const W = nextC.width, H = nextC.height, q = S.queue, a = H * 0.4, b = H * 0.3;
+  drawPreview(nctx, q[0], 0, 0, W, a, true);
+  drawPreview(nctx, q[1], 0, a, W, b, true);
+  drawPreview(nctx, q[2], 0, a + b, W, b, true);
 }
 
 function hud() {
@@ -1036,7 +1061,7 @@ $('startBtn').addEventListener('click', start);
 $('againBtn').addEventListener('click', start);
 $('resumeBtn').addEventListener('click', togglePause);
 $('quitBtn').addEventListener('click', toMenu);
-addEventListener('resize', () => { fitBoard(); draw(); });
+addEventListener('resize', () => { fitBoard(); draw(); drawSide(); });
 
 hs.render($('hiscores'));
 fitBoard(); draw(); drawSide();
