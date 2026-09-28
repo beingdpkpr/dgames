@@ -112,6 +112,58 @@
      so the button sat squarely on the "BA" of BATTLESHIP. Desktop already clears it; only narrow needs
      the gap. Found by looking at a screenshot -- every measurement said this layout was fine. */
   @media (max-width: 700px) { h1 { padding-left: 56px; } }
+  /* A phone turned sideways (844x390, 667x375) got the portrait stack: title, HUD, fleet panel with its
+     help line, and only then the boards -- which started at y=364 of 390, so 95% of both boards was below
+     the fold and every turn meant a 300-500px scroll. A wide, short screen is the one shape where both
+     boards fit side by side, so here the controls become a left column and the boards take the rest at
+     the largest size the height allows. Scoped to placement and battle (body.playing): the setup form is
+     wider than that column and keeps the normal flow.
+     --cv is the canvas edge: half the width left after the column, or the height minus the board's own
+     header (16) + gaps (8) + a two-line ship strip (38) and the message line above the boards (24),
+     whichever is smaller. 844x390 -> 288px (26px cells, height-bound); 667x375 -> 227px (21px cells,
+     width-bound). A 44px cell would need a 481px canvas, taller than the screen, so cells stay below it. */
+  @media (orientation: landscape) and (max-height: 500px) {
+    body.playing { --side: 176px; --vh: 100vh; --cv: min((100vw - var(--side) - 36px) / 2, var(--vh) - 16px - 86px); }
+    @supports (height: 100dvh) { body.playing { --vh: 100dvh; } }
+    body.playing main { width: 100%; height: var(--vh); padding: 8px; position: relative; display: grid; align-content: start;
+      grid-template-columns: minmax(var(--side), 1fr) auto; grid-template-rows: auto auto auto 1fr; gap: 4px 10px; }
+    body.playing main > * { grid-column: 1; }
+    /* The back button is fixed at 8..52px; the title sits on its row, just right of it, instead of under it. */
+    body.playing header { height: 44px; align-items: center; }
+    body.playing h1 { font-size: 18px; letter-spacing: 2px; padding-left: 52px; white-space: nowrap; }
+    body.playing .panel { background: none; border: 0; padding: 0; backdrop-filter: none; border-radius: 0; }
+    body.playing #hud { display: grid; gap: 4px; justify-content: stretch; }
+    /* The column is 374px of 375 at 667x375, so the turn text gets exactly one 18px line. Two-player
+       "Player 1: place your fleet" wrapped at the base 1px letter-spacing and scrolled the page 13px. */
+    body.playing #turn { font-size: 16px; line-height: 18px; letter-spacing: 0; min-width: 0; white-space: nowrap; }
+    body.playing #stats { flex-direction: column; gap: 0; font-size: 12px; }
+    body.playing #hud .btns, body.playing #placeBar .row:first-child { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; justify-content: stretch; }
+    /* Five chips and four buttons as one two-column grid: five 44px rows fit where the wrapped rows plus
+       their panel did not. The help line (three lines at this width) is the part that had to go; the
+       rotate button's title still carries its tip. */
+    body.playing #placeBar .chips, body.playing #placeBar .row:first-child .btns { display: contents; }
+    body.playing #placeBar .row + .row { display: none; }
+    body.playing #random { order: 1; }
+    body.playing #rotate { order: 2; grid-column: span 2; }
+    body.playing #clear, body.playing #confirm { order: 3; }
+    body.playing .btn, body.playing .chip { padding: 0 4px; font-size: 13px; letter-spacing: 0; white-space: nowrap; }
+    /* One line above the boards, not in the column: a two-line placement message there overflowed 375px. */
+    body.playing #msg { position: absolute; top: 8px; right: 8px; width: calc(2 * var(--cv) + 10px); height: 20px; min-height: 0;
+      font-size: 14px; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    body.playing .grids { grid-column: 2; grid-row: 1 / -1; align-self: end; flex-wrap: nowrap; gap: 10px; }
+    /* Both boards, even below 700px wide: the tabs exist because portrait has no room for two, and here
+       there is. Same selectors as the 700px rule so this later one wins. */
+    body.playing #boardTabs { display: none; }
+    body.show-fleet #boardEnemy, body.show-enemy #boardFleet { display: flex; }
+    body.playing .board { flex: none; width: var(--cv); max-width: none; gap: 4px; }
+    body.playing .board h2 { font-size: 12px; line-height: 16px; }
+    body.playing .board canvas { width: var(--cv); }
+    /* Two lines at 227px wide only once the pills shrink to 10px (at 11px the fleet strip needed three and
+       scrolled the page 19px). Clipped rather than allowed to grow: a wider fallback font must not bring
+       the scroll back, and the fleet strip only repeats what your own board already shows. */
+    body.playing .strip { height: 38px; min-height: 0; gap: 2px 4px; align-content: flex-start; overflow: hidden; }
+    body.playing .strip span { font-size: 10px; padding: 1px 5px; gap: 4px; }
+  }
 </style>
 </head>
 <body>
@@ -995,6 +1047,8 @@ function updateHUD() {
 }
 function render() {
   const p = state.phase;
+  // Lets the landscape-phone layout apply to placement and battle only; see the media query.
+  document.body.classList.toggle('playing', p !== 'setup');
   $('setup').hidden = p !== 'setup'; $('hud').hidden = p === 'setup'; $('placeBar').hidden = p !== 'placement';
   // The board switcher only earns its space once there are two boards to switch between. Showing it while
   // you place ships cost ~85px of a phone screen -- the tabs plus their caption -- and pushed rows 8 to 10
