@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="manifest" href="../manifest.webmanifest">
-<meta name="theme-color" content="#0b1a2b">
+<meta name="theme-color" content="#070b1e">
 <link rel="icon" href="../icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,16 +18,24 @@
 </script>
 <meta name="description" content="Tetris with modern guideline rules: SRS rotation and wall kicks, 7-bag, hold, ghost and lock delay.">
 <title>Tetris</title>
+<!-- Orbitron for the logo, labels and callouts only. Offline or blocked, the stack below falls back to a
+     heavy system face and every size still fits: checked with the font request aborted. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0b1a2b; --panel: #10233a; --line: #456f9e; --muted: #8fa9c6; --gold: #ffd54a; --fg: #eaf2fb;
-    --well: #08131f;
+    /* Neon night: an indigo void, the well framed in cyan-to-magenta light, gold kept for the score and
+       the one button that matters. The piece colours stay the guideline ones; everything around them is
+       cool and dark so they are the brightest things on screen. */
+    --bg: #070b1e; --panel: #161c48; --line: #3c4796; --muted: #9aa6d6; --gold: #ffd54a; --fg: #eef1ff;
+    --well: #060a1c; --cyan: #3ee8ff; --pink: #ff4fd8; --violet: #8a5bff;
+    --display: "Orbitron", "Segoe UI Black", "Arial Black", system-ui, sans-serif;
     /* The board must reserve room for the touch pad on a phone, or the pad -- which is fixed to the
        bottom of the viewport -- covers the rows where every decision actually happens. Two games
        shipped this year with controls sitting on top of their own playfield; this is that lesson. */
     --reserve: 200px;
-    --hs-bg: #10233a; --hs-line: #456f9e; --hs-accent: #ffd54a; --hs-fg: #eaf2fb;
-    --tp-bg: rgba(8, 18, 30, .55); --tp-line: rgba(233, 242, 251, .6); --tp-accent: #ffd54a; --tp-fg: #eaf2fb;
+    --hs-bg: #141a3e; --hs-line: #4a55a8; --hs-accent: #ffd54a; --hs-fg: #eaf2fb;
+    --tp-bg: rgba(12, 14, 40, .6); --tp-line: rgba(233, 242, 251, .6); --tp-accent: #ffd54a; --tp-fg: #eaf2fb;
   }
   /* 330px budgeted for the touch pad alone and forgot everything stacked ABOVE the well: the title,
      the rails and the message line. Measured at 390x844 the well ran to y=867 on an 844px screen and the
@@ -48,27 +56,104 @@
     .rails > .rail:last-child { order: 2; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; min-height: 100dvh; background: var(--bg); color: var(--fg);
+  /* --hue steers the backdrop and moves on every level, so a new level looks like one. Registered so the
+     change can be a 1.5s fade rather than a jump; unregistered browsers just jump. */
+  @property --hue { syntax: '<number>'; inherits: true; initial-value: 250; }
+  html { background: var(--bg); }
+  body { margin: 0; min-height: 100vh; min-height: 100dvh; background: transparent; color: var(--fg);
+    --hue: 250; transition: --hue 1.5s ease;
     font-family: "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; align-items: center;
     gap: 10px; padding: 8px 10px max(10px, env(safe-area-inset-bottom)); }
 
+  /* The backdrop is two fixed layers animated by transform only, so the compositor moves them and not
+     one pixel is repainted per frame: the page costs nothing on the main thread the game runs on. Behind
+     the glow, a slow rain of tetromino silhouettes in the piece colours says what game this is before
+     the well has a single block in it. */
+  body::before, body::after { content: ''; position: fixed; z-index: -1; pointer-events: none; }
+  body::before { inset: -15%; will-change: transform;
+    background:
+      radial-gradient(36% 30% at 16% 20%, hsl(var(--hue) 92% 60% / .32), transparent 70%),
+      radial-gradient(32% 28% at 86% 34%, hsl(calc(var(--hue) + 70) 95% 58% / .22), transparent 70%),
+      radial-gradient(50% 34% at 50% 98%, hsl(calc(var(--hue) - 60) 95% 55% / .24), transparent 72%),
+      linear-gradient(180deg, #0c1034, #05071a 72%);
+    animation: aurora 24s ease-in-out infinite alternate; }
+  body::after { inset: -320px 0 0 0; opacity: .6; will-change: transform;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cg stroke-width='1.5' fill-opacity='.07' stroke-opacity='.16'%3E%3Cg fill='%23b164e8' stroke='%23b164e8'%3E%3Crect x='24' y='40' width='16' height='16' rx='3'/%3E%3Crect x='42' y='40' width='16' height='16' rx='3'/%3E%3Crect x='60' y='40' width='16' height='16' rx='3'/%3E%3Crect x='42' y='58' width='16' height='16' rx='3'/%3E%3C/g%3E%3Cg fill='%232ad4e8' stroke='%232ad4e8'%3E%3Crect x='236' y='14' width='16' height='16' rx='3'/%3E%3Crect x='236' y='32' width='16' height='16' rx='3'/%3E%3Crect x='236' y='50' width='16' height='16' rx='3'/%3E%3Crect x='236' y='68' width='16' height='16' rx='3'/%3E%3C/g%3E%3Cg fill='%23f79433' stroke='%23f79433'%3E%3Crect x='136' y='150' width='16' height='16' rx='3'/%3E%3Crect x='136' y='168' width='16' height='16' rx='3'/%3E%3Crect x='136' y='186' width='16' height='16' rx='3'/%3E%3Crect x='154' y='186' width='16' height='16' rx='3'/%3E%3C/g%3E%3Cg fill='%2357c25a' stroke='%2357c25a'%3E%3Crect x='250' y='236' width='16' height='16' rx='3'/%3E%3Crect x='268' y='236' width='16' height='16' rx='3'/%3E%3Crect x='232' y='254' width='16' height='16' rx='3'/%3E%3Crect x='250' y='254' width='16' height='16' rx='3'/%3E%3C/g%3E%3Cg fill='%23f2d648' stroke='%23f2d648'%3E%3Crect x='40' y='240' width='16' height='16' rx='3'/%3E%3Crect x='58' y='240' width='16' height='16' rx='3'/%3E%3Crect x='40' y='258' width='16' height='16' rx='3'/%3E%3Crect x='58' y='258' width='16' height='16' rx='3'/%3E%3C/g%3E%3Cg fill='%23ef5350' stroke='%23ef5350'%3E%3Crect x='120' y='70' width='16' height='16' rx='3'/%3E%3Crect x='138' y='70' width='16' height='16' rx='3'/%3E%3Crect x='138' y='88' width='16' height='16' rx='3'/%3E%3Crect x='156' y='88' width='16' height='16' rx='3'/%3E%3C/g%3E%3Cg fill='%234a7cf0' stroke='%234a7cf0'%3E%3Crect x='20' y='140' width='16' height='16' rx='3'/%3E%3Crect x='20' y='158' width='16' height='16' rx='3'/%3E%3Crect x='38' y='158' width='16' height='16' rx='3'/%3E%3Crect x='56' y='158' width='16' height='16' rx='3'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") 0 0 / 320px 320px;
+    animation: rain 48s linear infinite; }
+  @keyframes aurora { from { transform: translate3d(-3%, -2%, 0) rotate(-2deg); } to { transform: translate3d(3%, 2%, 0) rotate(2deg) scale(1.08); } }
+  @keyframes rain { to { transform: translate3d(0, 320px, 0); } }
+
   /* 56px of left padding keeps the title clear of the 44px back button in the corner. Six of the nine
      existing games have that collision because the button was added and then checked with grep. */
-  h1 { font-size: 22px; letter-spacing: 6px; margin: 4px 0 0; padding: 0 56px; text-align: center; }
-  h1 span { color: var(--gold); }
+  /* One letter per piece colour, each lit by its own glow. The line box is pinned at the 30px the old
+     title measured, so the display font cannot move the well by a pixel on the phones whose height
+     budget (--reserve) was measured against it. */
+  h1 { font: 900 24px/30px var(--display); height: 30px; letter-spacing: 5px; margin: 4px 0 0; padding: 0 56px;
+    text-align: center; white-space: nowrap; }
+  .logo span { text-shadow: 0 0 10px currentColor, 0 0 22px currentColor, 0 2px 0 rgba(0, 0, 0, .55); }
+  .logo span:nth-child(1) { color: #ff6b6b; } .logo span:nth-child(2) { color: #ffa94d; }
+  .logo span:nth-child(3) { color: #ffe066; } .logo span:nth-child(4) { color: #69db7c; }
+  .logo span:nth-child(5) { color: #4ee6ff; } .logo span:nth-child(6) { color: #c77dff; }
 
   #wrap { display: flex; align-items: flex-start; justify-content: center; gap: 12px;
     /* dvh, not vh: on a mobile browser 100vh is the toolbar-hidden height, so the cell comes out too
        big and the board runs off the bottom the moment the toolbar is showing. duck-hunt had the same
        bug today and it cost taps by up to 57px. */
     --cell: min(8.5vw, calc((100dvh - var(--reserve)) / 20), 34px); }
-  #well { position: relative; background: var(--well); border: 2px solid var(--line); border-radius: 8px;
+  /* A 2px frame of light, cyan to magenta: the gradient border is a second background clipped to the
+     border box, so the well keeps exactly the 2px border its size arithmetic assumes. The halo is
+     box-shadow, outside the box, so it costs no layout either. */
+  #well { position: relative; border: 2px solid transparent; border-radius: 10px;
+    background: linear-gradient(var(--well), var(--well)) padding-box,
+      linear-gradient(165deg, var(--cyan), var(--violet) 55%, var(--pink)) border-box;
+    box-shadow: 0 0 16px rgba(62, 232, 255, .30), 0 0 44px rgba(255, 79, 216, .20), 0 20px 44px rgba(0, 0, 0, .6);
     width: calc(var(--cell) * 10 + 4px); height: calc(var(--cell) * 20 + 4px); overflow: hidden; }
-  #board { display: block; width: 100%; height: 100%; }
+  /* Danger (stack in the top five rows) pulses a red rim inside the well. Opacity only, so the pulse runs
+     on the compositor however long a player lives up there. */
+  #well::after { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: 0;
+    box-shadow: inset 0 0 26px 4px rgba(255, 50, 90, .75); transition: opacity .4s; }
+  #well.danger::after { opacity: 1; animation: danger .9s ease-in-out infinite alternate; }
+  @keyframes danger { from { opacity: .35; } to { opacity: 1; } }
+  /* A hard drop lands with weight: the well dips 3px and springs back. */
+  #well.thump { animation: thump .2s ease-out; }
+  @keyframes thump { 30% { transform: translateY(3px); } 100% { transform: none; } }
+  #well.quake { animation: quake .38s ease-out; }
+  @keyframes quake { 15% { transform: translate(-4px, 4px); } 35% { transform: translate(4px, -2px); }
+    55% { transform: translate(-2px, 2px); } 75% { transform: translate(1px, -1px); } 100% { transform: none; } }
+
+  /* Callouts: TETRIS!, T-SPIN, combos, level-ups. DOM text rather than canvas so it gets the real font
+     and the compositor animates it; sized in cells so it fits the well at every size. */
+  #fx { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
+  .pop { position: absolute; left: 0; right: 0; top: 26%; text-align: center; color: #fff;
+    font: 900 calc(var(--cell) * 1.05)/1.1 var(--display); letter-spacing: .04em; white-space: nowrap;
+    text-shadow: 0 0 8px currentColor, 0 0 22px currentColor, 0 3px 0 rgba(0, 0, 0, .6);
+    animation: pop 1.25s cubic-bezier(.2, .8, .3, 1) forwards; }
+  .pop small { display: block; font-size: .46em; letter-spacing: .14em; margin-top: .35em; color: #fff;
+    text-shadow: 0 0 8px rgba(255, 255, 255, .6), 0 2px 0 rgba(0, 0, 0, .7); }
+  .pop.line { font-size: calc(var(--cell) * .85); color: #b9c6ff; }
+  .pop.tetris { font-size: calc(var(--cell) * 1.3); color: var(--cyan); }
+  .pop.tspin { color: var(--pink); }
+  .pop.level { top: 52%; color: var(--gold); font-size: calc(var(--cell) * .9); }
+  @keyframes pop {
+    0% { opacity: 0; transform: scale(.3); }
+    12% { opacity: 1; transform: scale(1.18); }
+    22% { transform: scale(1); }
+    70% { opacity: 1; transform: translateY(-8%); }
+    100% { opacity: 0; transform: translateY(-55%); }
+  }
+  .bump { animation: bump .35s ease-out; }
+  @keyframes bump { 30% { transform: scale(1.22); } 100% { transform: none; } }
+  #board { position: relative; z-index: 1; display: block; width: 100%; height: 100%; }
+  #wellC { position: absolute; inset: 0; width: 100%; height: 100%; }
 
   .rail { display: flex; flex-direction: column; gap: 10px; width: calc(var(--cell) * 4.6); min-width: 76px; }
-  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
-  .box h2 { margin: 0 0 4px; font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; font-weight: 600; }
+  /* Glass panels: a lit top edge and a soft drop shadow lift them off the backdrop. No backdrop-filter:
+     blurring a full-screen animated layer behind three boxes is a real cost on a phone for little gain. */
+  .box { background: linear-gradient(180deg, rgba(40, 48, 112, .82), rgba(16, 20, 54, .92));
+    border: 1px solid rgba(150, 170, 255, .24); border-radius: 12px; padding: 6px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .10), 0 10px 26px rgba(0, 0, 0, .4); }
+  .box h2 { margin: 0 0 4px; font: 700 10px/13px var(--display); letter-spacing: 2px; color: var(--cyan);
+    text-transform: uppercase; text-shadow: 0 0 8px rgba(62, 232, 255, .55); }
   .box canvas { display: block; width: 100%; height: auto; }
   /* The shape comes from here, not from the canvas's own width/height attributes: script now sets those
      to the on-screen size times devicePixelRatio, and letting them also drive the layout would make each
@@ -76,8 +161,14 @@
   #holdC { aspect-ratio: 4 / 3; }
   #nextC { aspect-ratio: 4 / 9; }
   .stat { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); }
-  .stat b { font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; font-weight: 700; }
-  .stat.big b { font-size: 24px; color: var(--gold); }
+  .stat span { text-transform: uppercase; letter-spacing: 1px; }
+  /* Wrap rather than overflow. In a phone's landscape rail (76px) a five-digit score ran 20px out of its
+     box and under the well's frame, before this restyle as well as after; now the number drops to its
+     own line, right-aligned, once it no longer fits beside the label. */
+  .stat { flex-wrap: wrap; }
+  .stat b { margin-left: auto; }
+  .stat b { font-size: 18px; color: var(--fg); font-variant-numeric: tabular-nums; font-weight: 700; display: inline-block; }
+  .stat.big b { font-size: 24px; color: var(--gold); text-shadow: 0 0 12px rgba(255, 213, 74, .45); }
 
   /* The rails sit beside the well on every screen. On a phone they used to be a strip above it, and that
      strip plus the title, message line and touch pad left the well about a third of a short phone's
@@ -100,29 +191,43 @@
     .box h2 { font-size: 9px; letter-spacing: 1px; }
     /* Label above value, not beside it: in a rail this narrow the two cannot share a line. */
     .stat { flex-direction: column; align-items: flex-start; gap: 0; font-size: 10px; }
-    .stat b { font-size: 14px; }
+    .stat b { font-size: 14px; margin-left: 0; }
     .stat.big b { font-size: 15px; }
   }
 
-  #msg { min-height: 20px; font-size: 14px; color: var(--gold); text-align: center; font-weight: 600; letter-spacing: 1px; }
+  #msg { min-height: 20px; font: 700 12px/20px var(--display); color: var(--cyan); text-align: center; letter-spacing: 2px;
+    text-shadow: 0 0 10px rgba(62, 232, 255, .5); }
 
   .overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center;
-    background: rgba(4, 10, 20, .82); padding: 16px; }
+    background: radial-gradient(circle at 50% 40%, rgba(20, 16, 60, .72), rgba(3, 4, 16, .9)); padding: 16px; }
   /* Pair every `hidden` with an explicit rule. A `display` declaration on the element beats the browser's
      own [hidden] { display: none }, which is how Ludo ended up painting tokens it believed were hidden
      while every DOM check reported a clean bill of health. */
   .overlay[hidden] { display: none; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px;
-    width: min(360px, 92vw); text-align: center; }
-  .card h2 { margin: 0 0 6px; font-size: 24px; letter-spacing: 3px; }
+  .card { background: linear-gradient(180deg, rgba(40, 46, 112, .92), rgba(14, 16, 46, .96));
+    border: 1px solid rgba(150, 170, 255, .3); border-radius: 18px; padding: 22px 24px;
+    width: min(360px, 92vw); text-align: center;
+    box-shadow: 0 0 30px rgba(62, 232, 255, .18), 0 0 60px rgba(255, 79, 216, .12), 0 24px 60px rgba(0, 0, 0, .6),
+      inset 0 1px 0 rgba(255, 255, 255, .12); }
+  .card h2 { margin: 0 0 6px; font: 900 24px/1.3 var(--display); letter-spacing: 3px; }
+  .card h2.logo { font-size: 30px; letter-spacing: 4px; }
   .card p { margin: 6px 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
-  .btn { background: var(--gold); color: #0b1a2b; border: 0; border-radius: 10px; padding: 12px 26px;
-    min-height: 44px; font: inherit; font-weight: 700; letter-spacing: 1px; cursor: pointer; margin-top: 10px; }
-  .btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  .btn { background: linear-gradient(180deg, #ffe27a, #ffb938); color: #1a1030; border: 0; border-radius: 12px;
+    padding: 12px 30px; min-height: 44px; font: 900 15px var(--display); letter-spacing: 2px; text-transform: uppercase; cursor: pointer;
+    margin-top: 10px; box-shadow: 0 0 18px rgba(255, 200, 70, .45), inset 0 -3px 0 rgba(0, 0, 0, .18); }
+  .btn.ghost { background: transparent; color: var(--fg); border: 1px solid rgba(150, 170, 255, .45); box-shadow: none; }
   .keys { display: grid; grid-template-columns: auto auto; gap: 4px 14px; text-align: left;
     font-size: 13px; margin: 12px auto 0; width: max-content; max-width: 100%; }
   .keys b { color: var(--gold); font-weight: 600; }
   :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+
+  /* Reduced motion: the backdrop stands still, nothing shakes or zooms. Callouts still appear, as a
+     plain fade, because they carry information (what that clear scored). */
+  @media (prefers-reduced-motion: reduce) {
+    body::before, body::after, #well.thump, #well.quake, .bump, #well.danger::after { animation: none; }
+    .pop { animation-name: fade; }
+    @keyframes fade { 0% { opacity: 0; } 10%, 75% { opacity: 1; } 100% { opacity: 0; } }
+  }
 </style>
 </head>
 <body>
@@ -140,7 +245,7 @@
   .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
 </style>
 <a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
-<h1>TET<span>RIS</span></h1>
+<h1 class="logo" aria-label="Tetris"><span>T</span><span>E</span><span>T</span><span>R</span><span>I</span><span>S</span></h1>
 
 <div id="wrap">
   <div class="rails">
@@ -156,13 +261,13 @@
       <div class="box"><h2>Next</h2><canvas id="nextC" width="96" height="216"></canvas></div>
     </div>
   </div>
-  <div id="well"><canvas id="board"></canvas></div>
+  <div id="well"><canvas id="wellC" aria-hidden="true"></canvas><canvas id="board"></canvas><div id="fx" aria-hidden="true"></div></div>
 </div>
-<div id="msg"></div>
+<div id="msg" role="status"></div>
 
 <div class="overlay" id="startOv">
   <div class="card">
-    <h2>TETRIS</h2>
+    <h2 class="logo" aria-label="Tetris"><span>T</span><span>E</span><span>T</span><span>R</span><span>I</span><span>S</span></h2>
     <p>Guideline rules: SRS rotation with wall kicks, a 7-bag randomiser, hold, ghost piece and lock delay.</p>
     <div class="keys" id="keyHelp">
       <b>Move</b><span>&larr; &rarr;</span>
@@ -797,31 +902,50 @@ function fitBoard() {
 
 function cellRect(ctx, x, y, size, colour, ghost) {
   const p = Math.max(1, size * 0.06);
-  if (ghost) {
-    ctx.strokeStyle = colour; ctx.globalAlpha = 0.55; ctx.lineWidth = Math.max(1.5, size * 0.1);
-    ctx.strokeRect(x + p + ctx.lineWidth / 2, y + p + ctx.lineWidth / 2,
-      size - 2 * p - ctx.lineWidth, size - 2 * p - ctx.lineWidth);
-    ctx.globalAlpha = 1;
-    return;
-  }
   // Every cell of one colour at one size is pixel-identical, so the bevel is painted once into a sprite
   // and stamped from then on. Painting it live cost ten times the old flat renderer: 6.0 ms against
   // 0.6 ms for a full well on a phone-sized canvas at 4x CPU throttle. That fit the 16.7 ms frame, which
   // is exactly why it would never have shown up as a bug -- it would just have eaten a third of a slow
   // phone's frame for nothing. Keyed by size as well as colour, so the Next and Hold previews and a
   // resized well each get their own.
-  const key = colour + '|' + size;
+  // The ghost is a sprite too now, and so is the halo under the falling piece.
+  const kind = ghost === true ? 'g' : ghost || 's';
+  const key = colour + '|' + size + '|' + kind;
   let spr = SPRITES.get(key);
   if (!spr) {
-    if (SPRITES.size > 64) SPRITES.clear();       // resizes mint new sizes; don't let them pile up
+    if (SPRITES.size > 96) SPRITES.clear();       // resizes mint new sizes; don't let them pile up
     spr = document.createElement('canvas');
-    spr.width = spr.height = Math.ceil(size);
-    paintCell(spr.getContext('2d'), size, colour);
+    const g = spr.getContext('2d');
+    if (kind === 'h') { spr.width = spr.height = Math.ceil(size * 2); paintHalo(g, size, colour); }
+    else {
+      spr.width = spr.height = Math.ceil(size);
+      if (kind === 'g') paintGhost(g, size, colour); else paintCell(g, size, colour);
+    }
     SPRITES.set(key, spr);
   }
-  ctx.drawImage(spr, x, y);
+  if (kind === 'h') ctx.drawImage(spr, x - size / 2, y - size / 2); else ctx.drawImage(spr, x, y);
 }
 const SPRITES = new Map();
+
+// The old ghost was a thin outline, which on a busy stack read as grid noise. A faint fill in the piece's
+// colour plus a bright rim and corner ticks reads as "the piece, projected" at a glance.
+function paintGhost(ctx, size, colour) {
+  const p = Math.max(1, size * 0.06), lw = Math.max(1.5, size * 0.08), s = size - 2 * p;
+  ctx.fillStyle = colour; ctx.globalAlpha = 0.3; ctx.fillRect(p, p, s, s);
+  ctx.globalAlpha = 0.8; ctx.strokeStyle = colour; ctx.lineWidth = lw;
+  ctx.strokeRect(p + lw / 2, p + lw / 2, s - lw, s - lw);
+  ctx.globalAlpha = 0.35; ctx.fillStyle = '#fff';
+  ctx.fillRect(p + lw, p + lw, s * 0.3, Math.max(1, lw * 0.6));
+  ctx.globalAlpha = 1;
+}
+
+// A soft light pool under the falling piece, painted once with shadowBlur (which is far too slow to use
+// live: it is a gaussian blur per call) and stamped from then on.
+function paintHalo(ctx, size, colour) {
+  ctx.shadowColor = colour; ctx.shadowBlur = size * 0.7;
+  ctx.fillStyle = colour; ctx.globalAlpha = 0.9;
+  ctx.fillRect(size * 0.5 + 2, size * 0.5 + 2, size - 4, size - 4);
+}
 
 function paintCell(ctx, size, colour) {
   const x = 0, y = 0, p = Math.max(1, size * 0.06);
@@ -862,55 +986,254 @@ function shade(hex, k) {
   return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
 }
 
-function draw() {
-  const w = boardC.width, h = boardC.height, size = w / COLS;
-  bctx.clearRect(0, 0, w, h);
+// The well's empty interior never changes between frames, so it lives on its own canvas underneath the
+// board and is painted only when the size changes; the board canvas is simply cleared each frame. The
+// obvious alternative -- paint it once offscreen and drawImage it every frame -- measured 30 ms a frame
+// at 4x throttle against 1.5 for the whole old renderer: a full-size canvas-to-canvas blit is the one
+// drawImage that is not cheap.
+const wellC = $('wellC'), wctx = wellC.getContext('2d');
+function wellBg(w, h, size) {
+  if (wellC.width === w && wellC.height === h) return;
+  wellC.width = w; wellC.height = h;
+  const g = wctx;
   // The well is drawn as a recessed box, lit from the same top-left as the blocks. For a recess that
   // puts the TOP and LEFT inner walls in shadow (they face away from the light) and lets the RIGHT and
   // BOTTOM ones catch it -- the mirror image of a block's bevel, which is what tells the eye one is a
-  // hole and the other a solid. A first version lit the left wall and shaded the right, i.e. drew the
-  // well as a bump, which is the opposite of what the blocks needed to sit in.
+  // hole and the other a solid.
   //
-  // The interior is painted here rather than left to the CSS --well colour, because that colour is
-  // #08131f = (8,19,31) and a shadow can only ever remove what is there: black at 40% bottoms out at
-  // (5,11,19). Measured against the middle of the well, the right wall came to a difference of 12 and
-  // the floor 14 -- about five levels a channel, which is nothing. The lit left wall managed 35 only
-  // because adding light has the whole range to work with. So the floor of the box is the CSS colour
-  // and the top is lifted well clear of it, which both gives the shadows something to bite into and
-  // makes the well itself recede.
-  const base = bctx.createLinearGradient(0, 0, 0, h);
-  base.addColorStop(0, '#13253c');
-  base.addColorStop(1, '#08131f');
-  bctx.fillStyle = base; bctx.fillRect(0, 0, w, h);
-  // Shadow goes where the base gradient above is lightest (the top) and light where it is darkest (the
-  // bottom), so each has room to show. That is not a trick layered on the physics; it is the physics.
+  // The interior is lifted well clear of black at the top: a shadow can only remove what is there, and
+  // on the old near-black well the shaded walls measured a difference of 12-14 levels, i.e. nothing.
+  const base = g.createLinearGradient(0, 0, 0, h);
+  base.addColorStop(0, '#171d4a');
+  base.addColorStop(1, '#070a1e');
+  g.fillStyle = base; g.fillRect(0, 0, w, h);
+  // Column lanes instead of a line grid: every other column a shade lighter. It marks the ten columns
+  // as well as the grid did, without drawing lines through the middle of every empty cell.
+  g.fillStyle = 'rgba(140,160,255,.045)';
+  for (let x = 1; x < COLS; x += 2) g.fillRect(Math.round(x * size), 0, Math.round(size), h);
+  // ...and a dot at each cell corner, so rows can still be counted.
+  g.fillStyle = 'rgba(170,190,255,.22)';
+  const d = Math.max(1.5, size * 0.07);
+  for (let x = 1; x < COLS; x++) for (let y = 1; y < VISIBLE; y++) g.fillRect(x * size - d / 2, y * size - d / 2, d, d);
+  // Light spilling in from the top of the shaft and a cyan glow off the floor.
+  const top = g.createRadialGradient(w / 2, 0, 0, w / 2, 0, w * 0.9);
+  top.addColorStop(0, 'rgba(138,91,255,.22)'); top.addColorStop(1, 'rgba(138,91,255,0)');
+  g.fillStyle = top; g.fillRect(0, 0, w, h * 0.5);
+  const floor = g.createLinearGradient(0, h, 0, h - size * 4);
+  floor.addColorStop(0, 'rgba(62,232,255,.12)'); floor.addColorStop(1, 'rgba(62,232,255,0)');
+  g.fillStyle = floor; g.fillRect(0, h - size * 4, w, size * 4);
   const wall = Math.max(3, size * 0.2);
   const edge = (x0, y0, x1, y1, rx, ry, rw, rh, rgb, a) => {
-    const g = bctx.createLinearGradient(x0, y0, x1, y1);
-    g.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
-    bctx.fillStyle = g; bctx.fillRect(rx, ry, rw, rh);
+    const e = g.createLinearGradient(x0, y0, x1, y1);
+    e.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); e.addColorStop(1, 'rgba(' + rgb + ',0)');
+    g.fillStyle = e; g.fillRect(rx, ry, rw, rh);
   };
   edge(0, 0, 0, wall * 1.5, 0, 0, w, wall * 1.5, '0,0,0', .55);           // top: deepest shadow
   edge(0, 0, wall, 0, 0, 0, wall, h, '0,0,0', .45);                        // left: shadow
-  edge(w, 0, w - wall, 0, w - wall, 0, wall, h, '150,190,230', .13);       // right: catches the light
-  edge(0, h, 0, h - wall, 0, h - wall, w, wall, '150,190,230', .15);       // bottom: catches the light
+  edge(w, 0, w - wall, 0, w - wall, 0, wall, h, '160,180,255', .14);       // right: catches the light
+  edge(0, h, 0, h - wall, 0, h - wall, w, wall, '160,180,255', .16);       // bottom: catches the light
+}
 
-  // faint grid so an empty well still reads as ten columns rather than a void
-  bctx.strokeStyle = 'rgba(122,163,204,.10)'; bctx.lineWidth = 1;
-  for (let x = 1; x < COLS; x++) { bctx.beginPath(); bctx.moveTo(Math.round(x * size) + .5, 0); bctx.lineTo(Math.round(x * size) + .5, h); bctx.stroke(); }
-  for (let y = 1; y < VISIBLE; y++) { bctx.beginPath(); bctx.moveTo(0, Math.round(y * size) + .5); bctx.lineTo(w, Math.round(y * size) + .5); bctx.stroke(); }
-  if (!S) return;
-  for (let y = BUFFER; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    const v = S.board[y][x];
-    if (v) cellRect(bctx, x * size, (y - BUFFER) * size, size, COLOURS[v], false);
+// ---- effects ----
+// Purely cosmetic and purely time-based. They are started from a before/after look at the state around
+// a lock -- the engine never knows they exist -- and they never hold anything up: the next piece is
+// already falling, and live, while the last clear is still flashing out.
+const FX = { clear: null, locks: [], streaks: [], parts: [], rings: [], flash: 0, last: 0 };
+const RM = matchMedia('(prefers-reduced-motion: reduce)');
+const FLASH_MS = 130, COLLAPSE_MS = 170;      // cleared rows burn white, then the stack drops onto them
+const wellEl = $('well'), fxEl = $('fx');
+let danger = false;
+
+// What the board looked like just before anything could lock. Cheap: the rows are shared, not copied.
+// clearLines builds a new row array from the SURVIVING row objects, so a row missing from the new board
+// is exactly a cleared row, and the old array still holds it -- with the locked piece already in it.
+function snap() {
+  if (!S || !S.piece) return null;
+  return { board: S.board, piece: { ...S.piece }, gy: ghostY(S), level: S.level, b2b: S.b2b, pieces: S.pieces };
+}
+
+function restart(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+
+function pop(cls, big, subs) {
+  const d = document.createElement('div');
+  d.className = 'pop ' + cls; d.textContent = big;
+  for (const t of subs) { const s = document.createElement('small'); s.textContent = t; d.appendChild(s); }
+  d.addEventListener('animationend', () => d.remove());
+  fxEl.appendChild(d);
+  while (fxEl.children.length > 3) fxEl.firstChild.remove();
+}
+
+function burst(x, y, colour, n, speed, now) {
+  for (let i = 0; i < n && FX.parts.length < 260; i++) {
+    const a = Math.random() * Math.PI * 2, v = speed * (0.35 + Math.random());
+    FX.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - speed * 0.6, life: 0.55 + Math.random() * 0.5,
+      age: 0, s: 0.1 + Math.random() * 0.18, c: Math.random() < 0.3 ? '#ffffff' : colour });
   }
+}
+
+function lockFx(pre, hard) {
+  if (!pre || !S || S.pieces === pre.pieces) return;          // nothing locked (a hold, or lock-out)
+  const now = performance.now(), calm = RM.matches;
+  const col = COLOURS[TYPES.indexOf(pre.piece.type) + 1];
+  const cells = cellsOf(pre.piece.type, pre.piece.rot, pre.piece.x, pre.gy);
+  const cleared = [];
+  for (let y = 0; y < ROWS; y++) if (!S.board.includes(pre.board[y])) cleared.push(y);
+  const below = (y) => cleared.reduce((n, c) => n + (c > y), 0);
+  FX.locks.push({ t0: now, cells: cells.filter(([, y]) => y >= BUFFER && !cleared.includes(y)).map(([x, y]) => [x, y + below(y)]) });
+
+  if (hard && pre.gy > pre.piece.y) {
+    const cols = new Map();
+    for (const [x, y] of cellsOf(pre.piece.type, pre.piece.rot, pre.piece.x, pre.piece.y)) cols.set(x, Math.min(cols.has(x) ? cols.get(x) : 99, y));
+    FX.streaks.push({ t0: now, col, cols: [...cols].map(([x, y]) => [x, y, y + pre.gy - pre.piece.y]) });
+    if (!calm) {
+      for (const [x, y] of cells) if (!cleared.length) burst(x + 0.5, y + 1 - BUFFER, col, 2, 3, now);
+      restart(wellEl, 'thump');
+    }
+  }
+
+  const c = S.lastClear;
+  if (cleared.length) {
+    const off = S.board.map((row, r) => { const o = pre.board.indexOf(row); return o < 0 ? 0 : r - o; });
+    FX.clear = { t0: now, rows: cleared.map((y) => ({ y, cells: pre.board[y].slice() })), off };
+    if (!calm) for (const { y, cells: rc } of FX.clear.rows) for (let x = 0; x < COLS; x++)
+      burst(x + 0.5, y - BUFFER + 0.5, COLOURS[rc[x]] || '#fff', cleared.length === 4 ? 4 : 3, 7, now);
+    if (cleared.length === 4) { FX.flash = now; if (!calm) restart(wellEl, 'quake'); }
+    restart($('score'), 'bump'); restart($('lines'), 'bump');
+  }
+  if (c && (c.lines || c.tspin)) {
+    const names = { 1: 'SINGLE', 2: 'DOUBLE', 3: 'TRIPLE', 4: 'TETRIS!' };
+    const subs = [];
+    let big, cls;
+    if (c.tspin) { big = 'T-SPIN'; cls = 'tspin'; const n = (c.tspin === 'mini' ? 'MINI ' : '') + (names[c.lines] || ''); if (n.trim()) subs.push(n.trim()); }
+    else { big = names[c.lines]; cls = c.lines === 4 ? 'tetris' : 'line'; }
+    if (c.lines && pre.b2b && (c.lines === 4 || c.tspin)) subs.push('BACK-TO-BACK');
+    if (c.combo > 0) subs.push('COMBO \u00d7' + c.combo);
+    subs.push('+' + c.gained);
+    pop(cls, big, subs);
+  }
+  if (S.level > pre.level) {
+    pop('level', 'LEVEL ' + S.level, []);
+    FX.rings.push({ t0: now });
+    restart($('level'), 'bump');
+    setHue();
+  }
+}
+
+// Each level turns the backdrop a step round the colour wheel.
+function setHue() { document.body.style.setProperty('--hue', String(250 + ((S ? S.level : 1) - 1) * 41)); }
+
+const ease = (t) => 1 - Math.pow(1 - t, 3);
+
+function draw() {
+  const w = boardC.width, h = boardC.height, size = w / COLS, now = performance.now();
+  wellBg(w, h, size);
+  bctx.clearRect(0, 0, w, h);
+  if (!S) return;
+
+  // Danger: anything in the top five visible rows. The class only flips on change.
+  let hot = false;
+  for (let y = BUFFER; y < BUFFER + 5 && !hot; y++) hot = S.board[y].some((v) => v);
+  if (hot !== danger) { danger = hot; wellEl.classList.toggle('danger', hot); }
+
+  // The stack. During a clear, each surviving row is drawn part way between where it was and where it
+  // now is; off[r] is how many rows row r fell.
+  const clr = FX.clear;
+  let fall = 0, age = 0;
+  if (clr) {
+    age = now - clr.t0;
+    if (age > FLASH_MS + COLLAPSE_MS) FX.clear = null;
+    else fall = age < FLASH_MS ? 1 : RM.matches ? 0 : 1 - ease((age - FLASH_MS) / COLLAPSE_MS);
+  }
+  for (let y = BUFFER; y < ROWS; y++) {
+    const row = S.board[y];
+    const py = Math.round((y - BUFFER - (FX.clear ? clr.off[y] * fall : 0)) * size);
+    for (let x = 0; x < COLS; x++) if (row[x]) cellRect(bctx, x * size, py, size, COLOURS[row[x]], false);
+  }
+  // Cleared rows: the blocks burn to white, then the white band pinches shut as the stack lands on it.
+  if (FX.clear) {
+    bctx.save(); bctx.globalCompositeOperation = 'lighter';
+    for (const r of clr.rows) {
+      const ry = (r.y - BUFFER) * size;
+      if (age < FLASH_MS) {
+        for (let x = 0; x < COLS; x++) if (r.cells[x]) cellRect(bctx, x * size, ry, size, COLOURS[r.cells[x]], false);
+        bctx.fillStyle = 'rgba(255,255,255,' + (0.85 * age / FLASH_MS) + ')';
+        bctx.fillRect(0, ry, w, size);
+      } else {
+        const k = (age - FLASH_MS) / COLLAPSE_MS, bh = size * (1 - k);
+        bctx.fillStyle = 'rgba(190,240,255,' + (0.9 * (1 - k)) + ')';
+        bctx.fillRect(0, ry + (size - bh) / 2, w, bh);
+        bctx.fillStyle = 'rgba(62,232,255,' + (0.35 * (1 - k)) + ')';
+        bctx.fillRect(0, ry - size * 0.4, w, size * 1.8);
+      }
+    }
+    bctx.restore();
+  }
+
+  // Hard-drop streaks: a comet tail in the piece's colour from where it was to where it landed.
+  for (let i = FX.streaks.length - 1; i >= 0; i--) {
+    const st = FX.streaks[i], k = (now - st.t0) / 260;
+    if (k >= 1) { FX.streaks.splice(i, 1); continue; }
+    for (const [x, y0, y1] of st.cols) {
+      const top = (y0 - BUFFER) * size, bot = (y1 - BUFFER) * size;
+      if (bot <= 0) continue;
+      const g = bctx.createLinearGradient(0, top, 0, bot);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, st.col);
+      bctx.globalAlpha = 0.55 * (1 - k); bctx.fillStyle = g;
+      bctx.fillRect(x * size + size * 0.15, top, size * 0.7, bot - top);
+    }
+    bctx.globalAlpha = 1;
+  }
+  // Lock flash: the cells that just set glint white and fade.
+  for (let i = FX.locks.length - 1; i >= 0; i--) {
+    const lk = FX.locks[i], k = (now - lk.t0) / 220;
+    if (k >= 1) { FX.locks.splice(i, 1); continue; }
+    bctx.fillStyle = 'rgba(255,255,255,' + (0.7 * (1 - k)) + ')';
+    for (const [x, y] of lk.cells) bctx.fillRect(x * size + 1, (y - BUFFER) * size + 1, size - 2, size - 2);
+  }
+
   if (S.piece) {
     const col = COLOURS[TYPES.indexOf(S.piece.type) + 1];
     const gy = ghostY(S);
     for (const [cx, cy] of cellsOf(S.piece.type, S.piece.rot, S.piece.x, gy))
       if (cy >= BUFFER) cellRect(bctx, cx * size, (cy - BUFFER) * size, size, col, true);
-    for (const [cx, cy] of cellsOf(S.piece.type, S.piece.rot, S.piece.x, S.piece.y))
+    const pc = cellsOf(S.piece.type, S.piece.rot, S.piece.x, S.piece.y);
+    bctx.globalAlpha = 0.5;
+    for (const [cx, cy] of pc) if (cy >= BUFFER) cellRect(bctx, cx * size, (cy - BUFFER) * size, size, col, 'h');
+    bctx.globalAlpha = 1;
+    for (const [cx, cy] of pc)
       if (cy >= BUFFER) cellRect(bctx, cx * size, (cy - BUFFER) * size, size, col, false);
+  }
+
+  // Particles, in cell units, with gravity. Additive, so a dense burst blooms instead of muddying.
+  const dt = Math.min(0.05, Math.max(0, (now - (FX.last || now)) / 1000));
+  FX.last = now;
+  if (FX.parts.length) {
+    bctx.save(); bctx.globalCompositeOperation = 'lighter';
+    let n = 0;
+    for (const p of FX.parts) {
+      p.age += dt;
+      if (p.age >= p.life) continue;
+      p.vy += 22 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      bctx.globalAlpha = 1 - p.age / p.life; bctx.fillStyle = p.c;
+      const s = p.s * size;
+      bctx.fillRect(p.x * size - s / 2, p.y * size - s / 2, s, s);
+      FX.parts[n++] = p;
+    }
+    FX.parts.length = n;
+    bctx.restore();
+  }
+  // Level-up: a gold shockwave out of the middle of the well.
+  for (let i = FX.rings.length - 1; i >= 0; i--) {
+    const k = (now - FX.rings[i].t0) / 700;
+    if (k >= 1) { FX.rings.splice(i, 1); continue; }
+    bctx.strokeStyle = 'rgba(255,213,74,' + (1 - k) + ')'; bctx.lineWidth = size * 0.35 * (1 - k) + 1;
+    bctx.beginPath(); bctx.arc(w / 2, h / 2, ease(k) * h * 0.6, 0, Math.PI * 2); bctx.stroke();
+  }
+  // A Tetris lights the whole well for a moment.
+  if (FX.flash) {
+    const k = (now - FX.flash) / 320;
+    if (k >= 1) FX.flash = 0;
+    else { bctx.fillStyle = 'rgba(150,235,255,' + (0.32 * (1 - k)) + ')'; bctx.fillRect(0, 0, w, h); }
   }
 }
 
@@ -937,7 +1260,7 @@ function drawPreview(ctx, type, bx, by, bw, bh, label) {
 function drawSide() {
   hctx.clearRect(0, 0, holdC.width, holdC.height);
   if (S) drawPreview(hctx, S.hold, 0, 0, holdC.width, holdC.height, false);
-  if (S && S.holdUsed) { hctx.fillStyle = 'rgba(11,26,43,.55)'; hctx.fillRect(0, 0, holdC.width, holdC.height); }
+  if (S && S.holdUsed) { hctx.fillStyle = 'rgba(16,20,54,.62)'; hctx.fillRect(0, 0, holdC.width, holdC.height); }
   nctx.clearRect(0, 0, nextC.width, nextC.height);
   if (!S) return;
   // Three pieces stacked in order, the first given the most room: it is the one a player actually plans
@@ -977,7 +1300,7 @@ function act(a) {
   else if (a === 'right') { tryMove(S, 1, 0); das.right.t = 0; das.right.charged = false; }
   else if (a === 'cw') tryRotate(S, 1);
   else if (a === 'ccw') tryRotate(S, -1);
-  else if (a === 'drop') { hardDrop(S); afterLock(); }
+  else if (a === 'drop') { const pre = snap(); hardDrop(S); lockFx(pre, true); afterLock(); }
   else if (a === 'hold') holdPiece(S);
 }
 
@@ -1024,16 +1347,21 @@ function afterLock() {
 
 function loop(t) {
   raf = requestAnimationFrame(loop);
-  if (!running || paused || !S) { lastT = t; return; }
+  if (!running || paused || !S) {
+    lastT = t;
+    // Let the last clear's sparks finish falling behind the game-over card instead of freezing mid-air.
+    if (!paused && S && (FX.parts.length || FX.clear || FX.locks.length)) draw();
+    return;
+  }
   const dt = Math.min(0.1, (t - lastT) / 1000 || 0);
   lastT = t;
   for (const side of ['left', 'right']) {
     const n = stepDas(das[side], dt, held[side]);
     for (let i = 0; i < n; i++) tryMove(S, side === 'left' ? -1 : 1, 0);
   }
-  const before = S.pieces;
+  const before = S.pieces, pre = snap();
   tick(S, dt, held.soft);
-  if (S.pieces !== before || S.over) afterLock();
+  if (S.pieces !== before || S.over) { lockFx(pre, false); afterLock(); }
   hud(); draw(); drawSide();
 }
 
@@ -1042,6 +1370,8 @@ function start() {
   running = true; paused = false; lastT = performance.now();
   held.left = held.right = held.soft = false;
   $('msg').textContent = '';
+  FX.clear = null; FX.locks.length = FX.streaks.length = FX.parts.length = FX.rings.length = 0; FX.flash = 0;
+  fxEl.textContent = ''; setHue();
   $('startOv').hidden = true; $('overOv').hidden = true; $('pauseOv').hidden = true;
   pad.show();
   fitBoard(); hud(); draw(); drawSide();
