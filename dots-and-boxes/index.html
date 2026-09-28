@@ -81,6 +81,33 @@
      top of it. Reserve the space rather than moving the button — it is the same control in all nine
      games and that is worth more than any one layout. */
   @media (max-width: 700px) { .top h1 { padding-left: 56px; } }
+  /* A phone on its side. Stacked, the HUD took ~250px of a 390px screen, so the board fell to its 240px
+     floor with 39-45% of it below the fold and the page scrolled ~150px -- a 6x6 grid had 38px between
+     dots, and the lines you need to tap were partly off screen. Here the HUD becomes a column on the
+     left and the board takes the full height on the right (374px at 844x390, 359px at 667x375: on
+     the default 6x6 the dots are 60px / 57px apart, were 38px). The board is sticky, so when four
+     or five seats make the column taller than the screen, it is the column that scrolls and the board
+     never moves. layout() sizes the canvas from the same query; keep the two in step. */
+  @media (orientation: landscape) and (max-height: 500px) {
+    /* height:auto, not the 100% above: Chrome bounds a sticky grid item by the grid container's box, so
+       a body held at screen height let the board scroll away with the column instead of staying put. */
+    body { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-auto-rows: min-content; align-items: start; column-gap: 12px; padding: 8px; height: auto; min-height: 100%; }
+    #hud, .hint, #hiscores { grid-column: 1; width: auto; }
+    #hud { grid-row: 1; padding: 0 0 8px; gap: 8px; }
+    .hint { grid-row: 2; padding-bottom: 0; }
+    #hiscores { grid-row: 3; margin: 0; }
+    #wrap { grid-column: 2; grid-row: 1 / span 3; position: sticky; top: 8px; margin: 0; }
+    /* The title goes and whose turn it is takes its row, beside the back button (which sits over the
+       column's top-left corner at every landscape width, not only <700px). The title row was 52px of a
+       375px screen spent on a name the launcher already showed; with it, three players overflowed the
+       column by 39px at 667x375, without it they fit. */
+    .top { display: none; }
+    .turn { min-height: 44px; padding-left: 56px; justify-content: flex-start; }
+    /* Score chips two to a row instead of one: five players took five 30px rows of a 375px screen. */
+    .scores { gap: 4px 10px; }
+    .score { font-size: 13px; gap: 6px; padding: 0 6px; }
+    .score b { font-size: 18px; min-width: 18px; }
+  }
 </style>
 </head>
 <body>
@@ -555,9 +582,16 @@ function init() {
   if (isAiTurn()) scheduleAi();
 }
 
+// Must match the landscape media query in the stylesheet.
+const LANDSCAPE = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
+// Narrowest the HUD column may get beside the board: the grid and player pickers plus New game side by
+// side. Height is what limits the board on every phone measured, so this only bites on odd shapes.
+const SIDE_MIN = 260;
 function layout() {
   const hud = $('hud');
-  size = Math.max(240, Math.floor(Math.min(560, window.innerWidth * 0.94, window.innerHeight - hud.offsetHeight - 60)));
+  // Landscape: the full height less the 8px body padding top and bottom; the HUD is beside it, not above.
+  if (LANDSCAPE.matches) size = Math.max(200, Math.floor(Math.min(560, window.innerHeight - 16, window.innerWidth - 16 - 12 - SIDE_MIN)));
+  else size = Math.max(240, Math.floor(Math.min(560, window.innerWidth * 0.94, window.innerHeight - hud.offsetHeight - 60)));
   const dpr = window.devicePixelRatio || 1;
   canvas.width = size * dpr; canvas.height = size * dpr;
   canvas.style.width = canvas.style.height = size + 'px';
