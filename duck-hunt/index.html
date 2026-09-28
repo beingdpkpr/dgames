@@ -85,10 +85,27 @@
      390px screen, and the back button (fixed, 44px, top-left) covered the leftmost plate completely.
      Shrink the plates and start the row clear of the button; the mute button holds the right end. */
   @media (max-width: 700px) {
-    #hud { justify-content: flex-start; padding-left: 54px; padding-right: 50px; }
+    #hud { justify-content: flex-start; padding-left: 56px; padding-right: 50px; }
     .plate { min-width: 0; padding: 4px 7px 5px; }
     .plate span { font-size: 9px; letter-spacing: 1.2px; }
+    /* That still did not fit: five plates needed ~312px of the 286 left between the two buttons, and the
+       row cannot shrink, so the sign ran on under the mute button and covered BEST. It also hung 113px
+       deep, 13-18% of a phone's sky, which is where ducks fly. Mute moves down over the grass, where no
+       duck ever goes; the sign gets the whole row, tighter plates and one row of shells, and hangs higher. */
+    #mute { top: auto; bottom: max(14px, env(safe-area-inset-bottom)); }
+    #hud { padding-right: 8px; }
+    .sign { margin-top: 10px; padding: 6px 7px 8px; gap: 5px; }
+    .sign::before, .sign::after { top: -11px; height: 10px; }
+    .plate b { font-size: 18px; }
+    /* Rows of twelve, and always room for two: ammo climbs from 9 shells in round 1 to 24 from round 11,
+       and one row of 24 ran the sign off a 360px screen. Reserving both rows keeps the sign the same
+       height every round, so the ducks' ceiling (measured from it) does not move under them. */
+    #ammo { gap: 2px; margin-top: 3px; min-height: 26px; max-width: 84px; align-content: flex-start; }
+    .shell { width: 5px; height: 12px; }
   }
+  /* At phone width (400px and under) even the tighter row runs out; BEST is the plate to drop, since the table on the
+     menu already shows it. */
+  @media (max-width: 400px) { .sign .plate:last-child { display: none; } }
 </style>
 </head>
 <body>
@@ -290,7 +307,12 @@ const ROUND_SCALING = {
 const TAU = Math.PI * 2;
 
 // ---------- STATE ----------
-const view = { w: 1280, h: 720, groundY: 576, scale: 1 };
+// ceil: the bottom edge of the HUD sign, in view px. The UI measures it; the engine only reads it, and at
+// 0 (the tests, or before layout) nothing changes. Ducks used to be kept below 10% of the screen height,
+// which ignores the sign entirely: on a phone the sign covers the top 13-18% of the sky, so a diving duck
+// bouncing off that 10% line, or one flushed out of the reeds to 20% on a phone held sideways, flew in
+// behind the sign where the player could neither see it nor aim at it.
+const view = { w: 1280, h: 720, groundY: 576, scale: 1, ceil: 0 };
 const S = {
   phase: 'title',          // title | intro | play | clear | fail | over
   ducks: [], particles: [], grass: [], reeds: [],
@@ -372,6 +394,14 @@ function pickPattern(round) {
   return r < 0.14 ? 'glide' : r < 0.28 ? 'swoop' : r < 0.54 ? 'dart' : r < 0.8 ? 'erratic' : 'dive';
 }
 
+// Highest a cruising duck's centre line may go: clear of the sign by the duck's size plus the height of
+// its own wave, so the top of the wave clears it too. Never past 10% of the screen (the old rule), and
+// never so low it pinches the band shut on a short, wide screen.
+function duckCeiling(d) {
+  const hi = view.h * 0.62;
+  return Math.min(Math.max(view.h * 0.1, view.ceil + d.size * 1.3 + d.amp), hi - d.size);
+}
+
 function spawnDuck() {
   const sc = view.scale, size = DUCK_SIZE * sc, cfg = S.cfg, h = view.h;
   const pattern = pickPattern(S.round);
@@ -393,8 +423,9 @@ function spawnDuck() {
   else if (pattern === 'dart') { d.amp = rand(8, 20) * sc; d.freq = rand(1.5, 2.5); d.spdTarget = 1.5; }
   else if (pattern === 'erratic') { d.amp = rand(15, 40) * sc; d.freq = rand(0.8, 1.4); }
   else if (pattern === 'dive') { d.amp = rand(10, 25) * sc; d.freq = rand(1.0, 1.4); d.baseY = h * rand(0.12, 0.22); d.vy = d.cruiseVy = rand(150, 230) * sc * (Math.random() < 0.5 ? 1 : -1); }
+  if (!flush) d.baseY = Math.max(d.baseY, duckCeiling(d));
   if (flush) {
-    d.targetY = h * rand(0.2, 0.5); d.baseY = view.groundY + 10 * sc; d.vy = -rand(300, 400) * sc;
+    d.targetY = Math.max(h * rand(0.2, 0.5), duckCeiling(d)); d.baseY = view.groundY + 10 * sc; d.vy = -rand(300, 400) * sc;
     d.spd = 0.45; d.vx = dir * speed * d.spd; d.turns = 0;
   }
   d.y = d.baseY;
@@ -419,7 +450,7 @@ function updateDucks(dt) {
       else if (d.flush) { d.baseY += d.vy * dt; if (d.baseY <= d.targetY) { d.flush = false; d.vy = d.cruiseVy; if (d.pattern === 'dart') d.spdTarget = 1.6; } }
       else {
         d.baseY += d.vy * dt;
-        const lo = view.h * 0.1, hi = view.h * 0.62, k = d.pattern === 'dive' ? 1 : 0.5;   // divers bounce hard off the band edges
+        const lo = duckCeiling(d), hi = view.h * 0.62, k = d.pattern === 'dive' ? 1 : 0.5;   // divers bounce hard off the band edges
         if (d.baseY < lo) { d.baseY = lo; d.vy = Math.abs(d.vy) * k; } else if (d.baseY > hi) { d.baseY = hi; d.vy = -Math.abs(d.vy) * k; }
       }
       const py = d.y;
@@ -615,9 +646,18 @@ if (typeof document !== 'undefined') (function () {
   }
 
   // ---- layers built on resize / round change ----
+  // The sign is DOM over the canvas, and the canvas fills the viewport from (0,0), so its bottom edge in
+  // CSS px is already in view px.
+  function measureCeiling() {
+    const sign = document.querySelector('.sign');
+    view.ceil = sign ? sign.getBoundingClientRect().bottom : 0;
+  }
+  // The plates' height depends on the web font, which can land after the first layout.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measureCeiling);
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     setView(window.innerWidth, window.innerHeight);
+    measureCeiling();
     canvas.width = Math.round(view.w * dpr); canvas.height = Math.round(view.h * dpr);
     buildScenery();
   }
@@ -993,6 +1033,7 @@ if (typeof document !== 'undefined') (function () {
   on('phase', () => { if (S.phase === 'over') showOver(); });
   on('round', () => { pal = paletteFor(S.round); hills = buildHills(); treeFar = buildTrees(0); treeNear = buildTrees(1); });
   on('hud', drawHUD);
+  on('hud', measureCeiling);   // cheap (one rect read per HUD change), and catches any late change to the sign's height
 
   // ---- persistence ----
   const KEY = 'duckhunt.highscore', MKEY = 'duckhunt.muted';
