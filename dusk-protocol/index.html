@@ -58,6 +58,10 @@
   #alarm { position: absolute; left: 50%; top: max(52px, calc(env(safe-area-inset-top) + 46px)); transform: translateX(-50%); padding: 3px 14px;
     background: rgba(160, 20, 12, .7); border: 1px solid var(--red); font-weight: 700; letter-spacing: 4px; font-size: 13px; animation: blink 1s steps(2) infinite; }
   #alarm[hidden] { display: none; }
+  #timer { position: absolute; left: 50%; top: max(80px, calc(env(safe-area-inset-top) + 74px)); transform: translateX(-50%); padding: 2px 12px;
+    background: var(--panel); border: 1px solid var(--amber); color: var(--amber); font-weight: 700; letter-spacing: 3px; font-size: 13px; white-space: nowrap; }
+  #timer.low { color: var(--red); border-color: var(--red); }
+  #timer[hidden] { display: none; }
   @keyframes blink { 50% { opacity: .35; } }
   #toast { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); font-size: 20px; font-weight: 700; letter-spacing: 3px; text-align: center;
     opacity: 0; transition: opacity .4s; white-space: nowrap; }
@@ -98,6 +102,38 @@
   .btn:hover, .btn:focus-visible { filter: brightness(1.12); outline: 2px solid #fff; outline-offset: 2px; }
   .stats { display: grid; grid-template-columns: 1fr auto; gap: 4px 20px; font-size: 15px; margin: 14px 0; }
   .stats span:nth-child(even) { text-align: right; font-weight: 700; }
+  /* The campaign screen: missions on the left, the selected one's briefing on the right. */
+  .card.camp { width: min(900px, 100%); }
+  .camp-grid { display: grid; grid-template-columns: minmax(170px, .75fr) 1.5fr; gap: 18px; margin-top: 14px; align-items: start; }
+  .mlist { display: flex; flex-direction: column; gap: 6px; }
+  .mitem { appearance: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer; min-height: 50px; padding: 6px 12px;
+    display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center;
+    background: rgba(233,239,220,.05); border: 1px solid rgba(233,239,220,.18); }
+  .mitem b { grid-row: span 2; font-size: 20px; color: var(--amber); }
+  .mitem .mn { font-weight: 700; letter-spacing: 2px; font-size: 14px; }
+  .mitem small { font-size: 11px; letter-spacing: 1px; color: var(--dim); }
+  .mitem.sel { border-color: var(--amber); background: rgba(255,179,71,.13); }
+  .mitem:disabled { cursor: default; opacity: .45; }
+  .mitem:not(:disabled):hover, .mitem:focus-visible { border-color: var(--amber); outline: none; }
+  .bmeta { font-size: 11px; letter-spacing: 2px; color: var(--cool); }
+  .brief h3 { margin: 4px 0 0; font-size: 24px; letter-spacing: 5px; }
+  .camp .brief p { margin: 8px 0; }
+  .bobj { margin: 6px 0 8px; padding-left: 20px; font-size: 13px; line-height: 1.45; color: #cfd6c2; }
+  .bbest { font-size: 12px; letter-spacing: 2px; color: var(--amber); }
+  .camp .keys { margin-top: 14px; }
+  @media (max-height: 480px) {
+    .card.camp { padding: 12px 16px; }
+    .card.camp h1 { font-size: 24px; letter-spacing: 4px; }
+    .card.camp h2 { font-size: 11px; }
+    .camp-grid { gap: 12px; margin-top: 8px; grid-template-columns: minmax(150px, .7fr) 1.6fr; }
+    .mitem { min-height: 46px; padding: 4px 10px; }
+    .mitem b { font-size: 17px; }
+    .brief h3 { font-size: 18px; }
+    .camp .brief p { font-size: 12px; line-height: 1.4; margin: 4px 0; max-height: 86px; overflow-y: auto; }
+    .bobj { display: none; }
+    .brief .btn { margin-top: 6px; padding: 11px 18px; }
+    .tnote { display: none !important; }
+  }
   #rotate { position: fixed; inset: 0; z-index: 60; display: none; place-items: center; text-align: center; padding: 24px;
     background: #0d0f16; font-size: 18px; letter-spacing: 1px; }
   #rotate i { display: block; font-style: normal; font-size: 54px; margin-bottom: 12px; animation: tilt 2.2s ease-in-out infinite; }
@@ -142,30 +178,36 @@
 <div id="hud" hidden>
   <div id="obj"><b>OBJECTIVE</b><span id="objText">Reach the command post terminal</span></div>
   <div id="alarm" hidden>ALARM</div>
+  <div id="timer" hidden></div>
   <div id="toast"></div>
-  <div id="hack" hidden>UPLOADING <span id="hackPct">0%</span><div class="bar"><i id="hackBar"></i></div></div>
+  <div id="hack" hidden><span id="hackLbl">UPLOADING</span> <span id="hackPct">0%</span><div class="bar"><i id="hackBar"></i></div></div>
   <div id="prompt" hidden></div>
   <div id="vitals"><div class="lbl"><span>HEALTH</span><span id="stance">STANDING</span></div><div id="hpbar"><i id="hp"></i></div></div>
   <div id="ammo"><b id="mag">30</b><span id="res">/ 120</span><em id="reloading" hidden>RELOADING</em></div>
 </div>
 
 <section id="title" class="screen">
-  <div class="card">
+  <div class="card camp">
     <h2>OPERATION // SOLO INFILTRATION</h2>
     <h1>DUSK <span>PROTOCOL</span></h1>
-    <p>A relay station in the hills is passing the codes. Get inside the wire, upload the intercept at the
-      <b>command post terminal</b>, then get out to the <b>landing zone west of the gate</b>. Eight guards, two towers,
-      one of you. They are slow to be sure and quick to shoot once they are: stay low, stay out of the lamplight,
-      and keep crates between you and them.</p>
+    <div class="camp-grid">
+      <div class="mlist" id="mlist" aria-label="Missions"></div>
+      <div class="brief">
+        <div class="bmeta" id="bMeta"></div>
+        <h3 id="bName"></h3>
+        <p id="bText"></p>
+        <ol class="bobj" id="bObj"></ol>
+        <div class="bbest" id="bBest"></div>
+        <button class="btn" id="btnStart" type="button">BEGIN MISSION</button>
+      </div>
+    </div>
     <div class="keys deskonly">
       <b>WASD</b><span>move</span><b>Mouse</b><span>look</span>
       <b>Left click</b><span>fire</span><b>Right click / V</b><span>scope</span>
       <b>C / Ctrl</b><span>crouch</span><b>Shift</b><span>sprint</span>
-      <b>R</b><span>reload</span><b>Hold E</b><span>hack</span>
+      <b>R</b><span>reload</span><b>Hold E</b><span>use</span>
     </div>
-    <p class="touchonly">Left stick moves. Drag anywhere on the right half to look, including from the FIRE button.
-      SCOPE and CROUCH toggle; hold USE at the terminal.</p>
-    <button class="btn" id="btnStart" type="button">BEGIN MISSION</button>
+    <p class="touchonly tnote">Left stick moves. Drag on the right half to look, including from FIRE. SCOPE, CROUCH and SPRINT toggle; hold USE at an objective.</p>
   </div>
 </section>
 
@@ -175,8 +217,9 @@
     <h1 id="endTitle">MISSION <span>COMPLETE</span></h1>
     <p id="endLine"></p>
     <div class="stats" id="endStats"></div>
+    <button class="btn" id="btnNext" type="button" hidden>NEXT MISSION</button>
     <button class="btn" id="btnRetry" type="button">RETRY</button>
-    <button class="btn ghost" id="btnTitle" type="button">BRIEFING</button>
+    <button class="btn ghost" id="btnTitle" type="button">MISSIONS</button>
   </div>
 </section>
 
@@ -248,6 +291,11 @@ const KIND = {
   lamp: { m: 1, s: 0, b: 0 },
   // Tall brush: hides a crouched body (1.0 m eye, 1.1 m tops), not a standing one, and stops nothing.
   brush: { m: 0, s: 1, b: 0 },
+  // Mission props. A generator and a fuel tank are solid; a lattice mast or dish tower is legs you can
+  // see and shoot between. A door is a wall until a keycard opens it. A cliff is the mountain; an edge is
+  // the rail at a drop: you cannot walk off the plateau, but you can see and shoot across it.
+  generator: { m: 1, s: 1, b: 1 }, tank: { m: 1, s: 1, b: 1 }, mast: { m: 1, s: 0, b: 0 },
+  door: { m: 1, s: 1, b: 1 }, cliff: { m: 1, s: 1, b: 1 }, edge: { m: 1, s: 0, b: 0 },
 };
 
 function addBox(L, kind, cx, cz, w, d, y0, h, extra) {
@@ -309,14 +357,30 @@ function addTower(L, x, z) {
 
 function emptyLevel() {
   return { boxes: [], buildings: [], fences: [], towers: [], trees: [], rocks: [], brush: [], lamps: [], medkits: [], ambient: 0.18,
-    terminal: null, extraction: null, start: { x: 0, z: 0, yaw: 0 }, guards: [] };
+    terminal: null, extraction: null, start: { x: 0, z: 0, yaw: 0 }, guards: [],
+    map: 'compound', objectives: [], doors: [], props: [], captive: null };
+}
+
+// The per-flag box lists. Rebuilt whenever the box list changes (a door opening), with the nav grid.
+function indexBoxes(L) {
+  L.moveBoxes = L.boxes.filter((b) => b.m && b.y0 < 1.75);
+  L.sightBoxes = L.boxes.filter((b) => b.s);
+  L.shotBoxes = L.boxes.filter((b) => b.b);
+}
+// A door is a box in the level while it is shut and out of it while it is open: walking, sight, bullets
+// and the nav grid all follow, with no special case anywhere else.
+function setDoor(L, id, open) {
+  const d = L.doors.find((q) => q.id === id);
+  if (!d || d.open === open) return;
+  d.open = open;
+  if (open) L.boxes.splice(L.boxes.indexOf(d.box), 1); else L.boxes.push(d.box);
+  indexBoxes(L);
+  L.nav = buildNav(L);
 }
 
 // Precompute per-flag lists, cover points and the nav grid. Tests call this on hand-built levels too.
 function finishLevel(L) {
-  L.moveBoxes = L.boxes.filter((b) => b.m && b.y0 < 1.75);
-  L.sightBoxes = L.boxes.filter((b) => b.s);
-  L.shotBoxes = L.boxes.filter((b) => b.b);
+  indexBoxes(L);
   // Cover: the middle of each face of anything waist-high or taller that a guard can crouch behind.
   L.cover = [];
   for (const b of L.boxes) {
@@ -331,10 +395,13 @@ function finishLevel(L) {
   return L;
 }
 
-function buildLevel() {
-  const L = emptyLevel();
+// ---- maps ----
+// A map is the ground a mission is played on: wire, buildings, props, trees and lamps. The mission on top
+// brings the garrison, the objective chain, the start and the landing zone. `o.clear` lists [x, z, r]
+// clearings the trees keep out of (the start and the LZ, from the mission).
+function compoundMap(L, o) {
   // Perimeter wire, 64 x 52 m. The west gate is the front door; a cut in the south wire is the quiet one.
-  addFence(L, -32, -26, 32, -26);
+  addFence(L, -32, -26, 32, -26, o.northGaps);
   addFence(L, -32, 26, 32, 26, [[13.5, 15.7]]);
   addFence(L, -32, -26, -32, 26, [[-4, 4]]);
   addFence(L, 32, -26, 32, 26);
@@ -378,8 +445,7 @@ function buildLevel() {
   while (L.trees.length < 70 && tries++ < 5000) {
     const x = (trng() * 2 - 1) * 64, z = (trng() * 2 - 1) * 64;
     if (Math.abs(x) < 37 && Math.abs(z) < 31) continue;            // a clear strip around the wire
-    if (Math.hypot(x - 20, z - 56) < 6) continue;                   // the start clearing
-    if (Math.hypot(x + 48, z + 18) < 10) continue;                  // the helipad
+    if (o.clear.some((c) => Math.hypot(x - c[0], z - c[1]) < c[2])) continue;   // the start, the LZ
     if (x < -30 && Math.abs(z) < 6) continue;                       // the road west from the gate
     if (L.trees.some((t) => Math.hypot(t.x - x, t.z - z) < 3.2)) continue;
     const h = 5 + trng() * 4;
@@ -395,26 +461,266 @@ function buildLevel() {
   for (const [x, z, w, d] of [[15.6, 30.6, 3.2, 4.4], [17.2, 36.5, 3, 3.4], [11.2, 29.2, 2.6, 2], [20.2, 29.6, 2.4, 2.2], [-12, 29.5, 4, 2.4], [26, 30.5, 3, 2.4]]) {
     addBox(L, 'brush', x, z, w, d, 0, 1.1); L.brush.push({ x, z, w, d });
   }
+}
 
-  L.medkits = [{ x: -16.5, z: -15.5 }, { x: -3.5, z: 11 }, { x: 24, z: 20 }];
-  L.extraction = { x: -48, z: -18, r: 3.5 };
-  L.start = { x: 20, z: 56, yaw: yawTo(-6, -30) };
+// A lattice radio mast: three legs on a 1.6 m footprint, 20 m tall, held up by guy wires. The sim only
+// knows its legs (you see and shoot between them); the renderer draws the rest from the prop.
+function addMast(L, id, x, z, h) {
+  addBox(L, 'mast', x, z, 1.6, 1.6, 0, 3);
+  L.props.push({ kind: 'mast', id, x, z, h });
+}
+function addGenerator(L, id, x, z) {
+  addBox(L, 'generator', x, z, 3.4, 1.7, 0, 2.1);
+  L.props.push({ kind: 'generator', id, x, z });
+}
 
-  // The garrison. route: a loop of waypoints; dwell: seconds at each; tower/post: stays put and scans.
-  L.guards = [
-    { name: 'gate post', x: -35.5, z: 2.5, yaw: Math.PI / 2, post: true, scan: 0.9 },
-    { name: 'gate patrol', x: -26, z: -9, route: [[-26, -9], [-26, 9], [-21, 9], [-21, -9]], dwell: 2 },
-    { name: 'NE tower', x: 27, z: -21, tower: 0, yaw: yawTo(-27, 31), scan: 1.25 },
-    { name: 'SW tower', x: -27, z: 21, tower: 1, yaw: yawTo(40, 12), scan: 1.3 },
-    // The wire patrol turns back 9 m short of the cut: when his loop walked right past it, the quiet way
-    // in was never quiet (the scripted sneak in test/sim.js was found there in 14 of 16 runs).
-    { name: 'wire patrol', x: 29.5, z: 22.5, route: [[29.5, 22.5], [29.5, -6], [29.5, 22.5], [24, 22.5]], dwell: 2.5 },
-    { name: 'yard patrol', x: -14, z: -7.5, route: [[-14, -7.5], [4, -7.5], [4, 6.5], [-14, 6.5]], dwell: 1.5 },
-    { name: 'command guard', x: 13, z: -11.5, route: [[13, -11.5], [12, -5.5], [19, -6.5], [15.5, -12]], dwell: 4 },
-    { name: 'store patrol', x: 0.5, z: 7.5, route: [[0.5, 7.5], [-16, 7.5], [-16, 20], [0.5, 20]], dwell: 2 },
-  ];
+// The outpost: a radar station on a plateau under a north-facing wall of rock, 2,400 m up. The cliff is
+// the whole north edge; the south edge drops into the valley. Inside a fence: HQ, the radar dome, a
+// barracks, a detention block, fuel, trucks. The west half of the plateau is open ground and boulders,
+// which is the long approach: the ground rewards looking through the scope before crossing it.
+function outpostMap(L, o) {
+  addBox(L, 'cliff', 0, -54, 140, 8, 0, 16);
+  addBox(L, 'edge', 0, 52.5, 140, 1, 0, 1.1);
+  // The wire, 72 x 70 m: the gate on the road (east), a collapsed panel (west), a washed-out culvert
+  // under the south run, and a rockfall that flattened the north run behind the dish.
+  addFence(L, -20, -46, 52, -46, [[35.5, 38]]);
+  addFence(L, -20, 24, 52, 24, [[1.8, 4]]);
+  addFence(L, -20, -46, -20, 24, [[-8.5, -5]]);
+  addFence(L, 52, -46, 52, 24, [[14.5, 21.5]]);
+  L.gate = { x: 52, z: 18, w: 7 };
+  L.hole = { x: 2.9, z: 24 };
+  L.road = { x0: 52, x1: 70, z: 18, w: 7 };
+
+  addBuilding(L, 'hq', 6, -22, 12, 8, 3.4, [{ side: 's', at: 6, w: 1.8 }, { side: 'w', at: -21, w: 1.8 }]);
+  addBuilding(L, 'radar', 28, -34, 12, 10, 4.4, [{ side: 's', at: 28, w: 2.4, h: 2.8 }]);
+  addBuilding(L, 'barracks', 34, -8, 14, 6, 3.2, [{ side: 'w', at: -8, w: 1.8 }, { side: 's', at: 30, w: 1.8 }]);
+  addBuilding(L, 'cells', -8, -36, 8, 6, 3, [{ side: 'e', at: -36, w: 1.8 }]);
+  addBuilding(L, 'mess', -6, 6, 10, 7, 3.2, [{ side: 'e', at: 5, w: 1.8 }, { side: 'n', at: -8, w: 1.8 }]);
+  L.dome = { x: 28, z: -34, y: 4.65, r: 5.2 };
+  // HQ: the duty desk, a map table, a radio set against the north wall, a locker
+  addBox(L, 'desk', 3, -24.4, 2, 1, 0, 0.8);
+  addBox(L, 'desk', 8.5, -21.5, 1.8, 1.2, 0, 0.9);
+  addBox(L, 'terminal', 10.5, -25.5, 1.4, 0.7, 0, 1.05);
+  addBox(L, 'crate', 1, -19.2, 1, 0.8, 0, 1.9, { locker: true });
+  L.lamps.push({ x: 9, z: -23, r: 6, i: 0.5, inside: true });
+  // The cells: a cot and a bucket, and a steel door on the east side (M4 locks it).
+  addBox(L, 'desk', -10.5, -38, 2, 0.9, 0, 0.5);
+  if (o.lockCells) {
+    const b = addBox(L, 'door', -4, -36, 0.3, 1.8, 0, 2.2, { door: 'cells' });
+    L.doors.push({ id: 'cells', box: b, x: -4, z: -36, open: false });
+  }
+
+  addTower(L, 58, 30);
+  addTower(L, -15.5, -41.5);
+  // The dish: a lattice tower with a rotating antenna on top; its four legs are all the sim needs.
+  for (const [ox, oz] of [[-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5]]) addBox(L, 'leg', 44 + ox, -38 + oz, 0.3, 0.3, 0, 9);
+  L.props.push({ kind: 'dish', x: 44, z: -38, h: 9 });
+  addMast(L, 'aerial', -2, -44, 16);
+
+  // Fuel: two horizontal tanks on cradles, drums beside them.
+  addBox(L, 'tank', 16, 10, 6, 2.2, 0, 2.3); addBox(L, 'tank', 16, 13.6, 6, 2.2, 0, 2.3);
+  addBox(L, 'truck', 25, 3, 6.2, 2.4, 0, 2.7, { along: 'x' });
+  addBox(L, 'truck', 5, 16, 2.4, 6.2, 0, 2.7);
+  // Sandbag nests: covering the gate, the yard, and the west gap.
+  addBox(L, 'sandbag', 48.5, 11, 0.9, 3.4, 0, 1.05); addBox(L, 'sandbag', 13, -4, 3.4, 0.9, 0, 1.05);
+  addBox(L, 'sandbag', -16.5, -2, 0.9, 3.2, 0, 1.05); addBox(L, 'sandbag', -14, 16, 3.2, 0.9, 0, 1.05);
+  // The checkpoint outside the gate: a hut and a sandbag wall on the road.
+  addBox(L, 'hut', 57, 11.5, 2.4, 2.4, 0, 2.6);
+  addBox(L, 'sandbag', 58, 24, 3.2, 0.9, 0, 1.05);
+
+  const crate = (x, z, s = 1.2, y0 = 0) => addBox(L, 'crate', x, z, s, s, y0, s);
+  crate(2, -8); crate(3.3, -8); crate(2.6, -8, 1.1, 1.2); crate(22, -18); crate(23.3, -18.2); crate(38, -22);
+  crate(-10, -20); crate(-11.25, -20.2); crate(-10.6, -20.1, 1.0, 1.2); crate(30, 14); crate(31.3, 14.2); crate(-2, 18);
+  crate(44, -14); crate(12, -32); crate(40, 19.5); crate(-15, -28); crate(20, -44); crate(34, -44.2);
+  const barrel = (x, z) => addBox(L, 'barrel', x, z, 0.62, 0.62, 0, 0.95);
+  barrel(20, -2); barrel(20.7, -1.4); barrel(20.1, -0.7); barrel(-14, 0); barrel(21, 8); barrel(21, 11.8);
+  barrel(12.2, -30.5); barrel(-2, -39); barrel(47, -26); barrel(47.6, -25.4);
+
+  // Floodlights on poles. At dawn they are still burning; the pools matter less against the sky.
+  const lamp = (x, z, r = 12, i = 0.85) => { L.lamps.push({ x, z, r, i }); addBox(L, 'lamp', x, z, 0.2, 0.2, 0, 5.5); };
+  lamp(49, 16); lamp(14, -14); lamp(-11, -30); lamp(30, -22); lamp(10, 1); lamp(40, 4);
+
+  // Boulders: the cover on the open ground. Big ones, because a man crossing 60 m of plateau needs them.
+  for (const [x, z, s, h] of [
+    [-56, 32, 4.2, 2.4], [-47, 23, 3.4, 1.9], [-39, 37, 5, 2.8], [-52, 9, 3.8, 2.2], [-35, 13, 2.8, 1.5], [-45, -3, 4.6, 2.7],
+    [-31, -15, 3.2, 1.8], [-57, -14, 3.6, 2.1], [-37, -27, 5.2, 3.1], [-28, 31, 3, 1.6], [-22, 43, 4, 2.1], [-44, -40, 3, 1.7],
+    [-63, 4, 3, 2], [-29, 2, 2.4, 1.3], [-60, 46, 3, 1.4],
+    [9, 36, 3.4, 1.8], [24, 41, 4, 2.2], [39, 34, 3, 1.6], [-8, 33, 3.6, 2], [51, 44, 3, 1.5], [-2, 46, 2.6, 1.2], [30, 30, 2.4, 1.2],
+    [-44, 50, 3.6, 1.3], [-18, 51, 3, 1.1], [14, 50.5, 4, 1.3], [44, 51, 3, 1.1],
+    [61, -10, 4, 2.4], [62, -32, 3.2, 2], [58, 0, 2.6, 1.4], [63, 40, 2.6, 1.4], [59, -44, 4, 2.6],
+  ]) { addBox(L, 'rock', x, z, s, s * 0.8, 0, h); L.rocks.push({ x, z, s, h }); }
+
+  // Stunted pines, outside the wire only, and not on the road, the rim, or in the clearings.
+  const trng = mulberry32(4471);
+  let tries = 0;
+  while (L.trees.length < 34 && tries++ < 5000) {
+    const x = (trng() * 2 - 1) * 66, z = -48 + trng() * 96;
+    if (x > -24 && x < 56 && z > -49 && z < 28) continue;
+    if (z > 47) continue;
+    if (x > 48 && Math.abs(z - 18) < 7) continue;
+    if (o.clear.some((c) => Math.hypot(x - c[0], z - c[1]) < c[2])) continue;
+    if (L.rocks.some((r) => Math.hypot(r.x - x, r.z - z) < r.s / 2 + 2)) continue;
+    if (L.trees.some((t) => Math.hypot(t.x - x, t.z - z) < 3.6)) continue;
+    const h = 3.8 + trng() * 3;
+    L.trees.push({ x, z, h, r: 1.3 + trng() * 0.6, rot: trng() * 6.28 });
+    addBox(L, 'trunk', x, z, 0.4, 0.4, 0, h);
+    addBox(L, 'canopy', x, z, 1.9, 1.9, 1.5, h - 1.2);
+  }
+  // Dwarf pine scrub: crouch-height cover on the approaches.
+  for (const [x, z, w, d] of [[-50, 28, 3.4, 2.6], [-42, 16, 3, 2.4], [-33, 22, 2.6, 3], [-49, -9, 3.2, 2.4], [-26, -6, 2.4, 3.4],
+    [-34, -36, 3, 2.4], [-24, 36, 3.4, 2.4], [2, 29, 3, 2.6], [5, 31.5, 2.4, 2], [18, 34, 3, 2.2], [46, 38, 3.2, 2.4], [-26, -40, 2.6, 2.2]]) {
+    addBox(L, 'brush', x, z, w, d, 0, 1.1); L.brush.push({ x, z, w, d });
+  }
+}
+const MAPS = { compound: compoundMap, outpost: outpostMap };
+
+// ---- missions ----
+// A mission is data: a map and its options, the light (the sim needs only the ambient level; the colours
+// are the renderer's), the garrison, the objective chain, the start and the medkits. `setup` adds the
+// props only this mission has. Objectives run in order, and only the current one can be done:
+//   hack      hold interact `time` s within r of (x, z)
+//   plant     hold interact at (x, z) to set a charge on prop `id`; it blows `fuse` s later; `timer`
+//             starts the clock to the LZ with the first charge
+//   eliminate `target` is a guard's name; he is marked once seen through the scope (or within 12 m)
+//   pickup    hold interact at (x, z), or at the body of guard `from`; `unlocks` a door by id
+//   rescue    hold interact at the captive; he follows you from then on
+//   extract   reach (x, z) within r; `withCaptive` means he has to be there too
+const MISSIONS = [
+  {
+    id: 'relay', code: '01', name: 'RELAY', when: '18:40 // DUSK', place: 'Relay station, the hills', map: 'compound', preset: 'dusk', ambient: 0.18,
+    brief: 'A relay station in the hills is passing the codes. Get inside the wire, upload the intercept at the command post terminal, then get out to the landing zone west of the gate. Eight guards, two towers, one of you. They are slow to be sure and quick to shoot once they are: stay low, stay out of the lamplight, and keep crates between you and them.',
+    intro: ['INFILTRATE', 'Find the command post. The wire is cut on the south side.'],
+    start: { x: 20, z: 56, yaw: yawTo(-6, -30) },
+    medkits: [{ x: -16.5, z: -15.5 }, { x: -3.5, z: 11 }, { x: 24, z: 20 }],
+    objectives: [
+      { type: 'hack', x: 16.5, z: -15.3, r: 1.7, time: HACK_TIME, label: 'TERMINAL', text: 'Reach the command post terminal', prompt: 'upload the intercept', bar: 'UPLOADING',
+        toast: ['UPLOAD COMPLETE', 'Get to the landing zone, west of the gate.'] },
+      { type: 'extract', x: -48, z: -18, r: 3.5, label: 'LZ', text: 'Reach the landing zone west of the gate' },
+    ],
+    // The garrison. route: a loop of waypoints; dwell: seconds at each; tower/post: stays put and scans.
+    guards: [
+      { name: 'gate post', x: -35.5, z: 2.5, yaw: Math.PI / 2, post: true, scan: 0.9 },
+      { name: 'gate patrol', x: -26, z: -9, route: [[-26, -9], [-26, 9], [-21, 9], [-21, -9]], dwell: 2 },
+      { name: 'NE tower', x: 27, z: -21, tower: 0, yaw: yawTo(-27, 31), scan: 1.25 },
+      { name: 'SW tower', x: -27, z: 21, tower: 1, yaw: yawTo(40, 12), scan: 1.3 },
+      // The wire patrol turns back 9 m short of the cut: when his loop walked right past it, the quiet way
+      // in was never quiet (the scripted sneak in test/sim.js was found there in 14 of 16 runs).
+      { name: 'wire patrol', x: 29.5, z: 22.5, route: [[29.5, 22.5], [29.5, -6], [29.5, 22.5], [24, 22.5]], dwell: 2.5 },
+      { name: 'yard patrol', x: -14, z: -7.5, route: [[-14, -7.5], [4, -7.5], [4, 6.5], [-14, 6.5]], dwell: 1.5 },
+      { name: 'command guard', x: 13, z: -11.5, route: [[13, -11.5], [12, -5.5], [19, -6.5], [15.5, -12]], dwell: 4 },
+      { name: 'store patrol', x: 0.5, z: 7.5, route: [[0.5, 7.5], [-16, 7.5], [-16, 20], [0.5, 20]], dwell: 2 },
+    ],
+  },
+  {
+    id: 'blackout', code: '02', name: 'BLACKOUT', when: '02:10 // NIGHT', place: 'Relay station, the hills', map: 'compound', preset: 'night', ambient: 0.07,
+    mapOpts: { northGaps: [[-17.6, -15.6]] },
+    brief: 'Same compound, two nights later. They have moved the posts and put lamps on the objectives. Set charges on the radio mast in the north-west corner, then on the generator by the east wire, and get out to the clearing south-east of the compound. A charge blows twenty seconds after you set it: be somewhere else. The first one starts the clock. The valley garrison is two and a half minutes out once the mast goes quiet.',
+    intro: ['BLACKOUT', 'Someone has cut the north wire for you. The mast is in the north-west corner.'],
+    start: { x: -17, z: -56, yaw: Math.PI },
+    medkits: [{ x: -16.5, z: -15.5 }, { x: 8, z: 18 }, { x: 25.5, z: -9 }],
+    setup(L) {
+      addMast(L, 'mast', -26.5, -21.5, 20);
+      addGenerator(L, 'generator', 21, 17);
+      addBox(L, 'barrel', 23.3, 18.6, 0.62, 0.62, 0, 0.95); addBox(L, 'barrel', 24.1, 18.1, 0.62, 0.62, 0, 0.95);
+      addBox(L, 'sandbag', -22.5, -18.5, 3.2, 0.9, 0, 1.05);
+      // lamps on both objectives: the dark is your friend everywhere else
+      L.lamps.unshift({ x: -23, z: -23.5, r: 11, i: 0.8 }, { x: 18.5, z: 20.5, r: 11, i: 0.8 });
+      addBox(L, 'lamp', -23, -23.5, 0.2, 0.2, 0, 5.5); addBox(L, 'lamp', 18.5, 20.5, 0.2, 0.2, 0, 5.5);
+    },
+    objectives: [
+      { type: 'plant', id: 'mast', x: -25.2, z: -20.3, r: 1.8, time: 2.5, fuse: 20, timer: 150, label: 'MAST', text: 'Set a charge on the radio mast (north-west corner)', prompt: 'set the charge', bar: 'SETTING CHARGE',
+        toast: ['CHARGE SET', 'Twenty seconds. The clock has started. Now the generator.'] },
+      { type: 'plant', id: 'generator', x: 21, z: 15.4, r: 1.8, time: 2.5, fuse: 20, label: 'GENERATOR', text: 'Set a charge on the generator (east wire)', prompt: 'set the charge', bar: 'SETTING CHARGE',
+        toast: ['CHARGE SET', 'Out through the south wire to the clearing.'] },
+      { type: 'extract', x: 44, z: 45, r: 4, label: 'LZ', text: 'Reach the clearing south-east of the compound' },
+    ],
+    guards: [
+      { name: 'gate post', x: -29.5, z: -3, yaw: -Math.PI / 2, post: true, scan: 1.1 },
+      { name: 'NE tower', x: 27, z: -21, tower: 0, yaw: yawTo(-30, 26), scan: 1.3 },
+      { name: 'SW tower', x: -27, z: 21, tower: 1, yaw: yawTo(34, -14), scan: 1.2 },
+      { name: 'mast sentry', x: -24.5, z: -11, route: [[-24.5, -11], [-24.5, -16.5], [-18, -16.5], [-24.5, -16.5]], dwell: 3 },
+      { name: 'north wire', x: 21, z: -23.5, route: [[21, -23.5], [3, -23.5]], dwell: 3.5 },
+      { name: 'yard patrol', x: 4, z: 6.5, route: [[4, 6.5], [4, -7.5], [-14, -7.5], [-14, 6.5]], dwell: 1.5 },
+      { name: 'generator watch', x: 26, z: 21.5, route: [[26, 21.5], [26, 11], [12, 11], [12, 21.5]], dwell: 2.5 },
+      { name: 'command guard', x: 12, z: -7.5, yaw: Math.PI * 0.8, post: true, scan: 1.2 },
+    ],
+  },
+  {
+    id: 'highground', code: '03', name: 'HIGH GROUND', when: '06:05 // DAWN', place: 'Radar outpost, 2,400 m', map: 'outpost', preset: 'dawn', ambient: 0.3,
+    brief: 'A radar outpost on a shelf under the north wall. Colonel Varga runs the border sector from here, and he carries the sector codebook. Find him through the scope -- officer\'s cap, no helmet -- and take him down. Recover the codebook from the body and reach the helipad under the north-west cliff. It is getting light: open ground, long lines of sight, a tower over the west field. Look before you cross.',
+    intro: ['HIGH GROUND', 'Varga keeps to HQ and walks the wire. Glass him from the boulders.'],
+    start: { x: -58, z: 41, yaw: yawTo(58, -50) },
+    medkits: [{ x: -47, z: 20 }, { x: 11, z: -20 }, { x: 36, z: -13.5 }],
+    objectives: [
+      { type: 'eliminate', target: 'Colonel Varga', label: 'VARGA', hint: { x: 6, z: -22 }, text: 'Identify Colonel Varga through the scope and take him down',
+        toast: ['TARGET DOWN', 'Take the codebook from the body.'] },
+      { type: 'pickup', from: 'Colonel Varga', item: 'codebook', r: 1.6, time: 1.2, label: 'CODEBOOK', text: 'Recover the codebook from Varga\'s body', prompt: 'take the codebook', bar: 'SEARCHING',
+        toast: ['CODEBOOK SECURED', 'Helipad under the north-west cliff.'] },
+      { type: 'extract', x: -54, z: -38, r: 4, label: 'LZ', text: 'Reach the helipad under the north-west cliff' },
+    ],
+    guards: [
+      { name: 'Colonel Varga', officer: true, x: 6, z: -21, route: [[6, -21], [6, -15], [-16.5, -11], [6, -15], [28, -26.5], [6, -15]], dwell: 6 },
+      { name: 'escort', x: 8, z: -20, route: [[8, -20], [8.5, -14.5], [-14.5, -10], [8.5, -14.5], [30, -26], [8.5, -14.5]], dwell: 6 },
+      { name: 'gate post', x: 50, z: 12.5, yaw: -Math.PI / 2, post: true, scan: 0.9 },
+      { name: 'SE tower', x: 58, z: 30, tower: 0, yaw: yawTo(-30, 10), scan: 1.2 },
+      { name: 'NW tower', x: -15.5, z: -41.5, tower: 1, yaw: yawTo(-30, 30), scan: 1.1 },
+      { name: 'west wire', x: -23.5, z: 20, route: [[-23.5, 20], [-23.5, -30], [-28, -30], [-28, 20]], dwell: 2.5 },
+      { name: 'radar door', x: 28, z: -27.5, yaw: Math.PI, post: true, scan: 1.1 },
+      { name: 'yard patrol', x: -2, z: -4, route: [[-2, -4], [30, -3], [30, 9], [8, 8], [-2, 12]], dwell: 2 },
+      { name: 'south slope', x: 44, z: 30, route: [[44, 30], [16, 30], [-10, 40], [16, 30]], dwell: 3 },
+    ],
+  },
+  {
+    id: 'nightingale', code: '04', name: 'NIGHTINGALE', when: '17:30 // SNOW', place: 'Radar outpost, 2,400 m', map: 'outpost', preset: 'snow', ambient: 0.14,
+    mapOpts: { lockCells: true },
+    brief: 'They brought a downed pilot up to the outpost this morning. He is in the detention block by the north fence, behind a steel door. The duty officer\'s keycard is on the desk in HQ. Take it, open the block, cut him loose, and bring him to the ledge south-west of the wire. He is unarmed and will follow you; he keeps low when you do, and they can see him as well as you. They want him alive. You they want dead.',
+    intro: ['NIGHTINGALE', 'Keycard first: the duty desk in HQ. The snow will cover you.'],
+    start: { x: 62, z: 44, yaw: yawTo(-40, -30) },
+    captive: { x: -8.3, z: -37.3, yaw: -Math.PI / 2 },
+    medkits: [{ x: 33, z: 0 }, { x: -12, z: 10 }, { x: 11, z: -20 }],
+    objectives: [
+      { type: 'pickup', x: 3, z: -23.4, r: 1.6, time: 1, item: 'keycard', unlocks: 'cells', label: 'KEYCARD', text: 'Take the duty keycard from the desk in HQ', prompt: 'take the keycard', bar: 'TAKING',
+        toast: ['KEYCARD', 'The detention block door will open for it.'] },
+      { type: 'rescue', r: 1.7, time: 2, label: 'PILOT', text: 'Free the pilot in the detention block', prompt: 'cut the pilot loose', bar: 'CUTTING LOOSE',
+        toast: ['PILOT FREED', 'He follows you. Keep low and he will too.'] },
+      { type: 'extract', x: -56, z: 40, r: 4, withCaptive: true, label: 'LZ', text: 'Bring the pilot to the ledge south-west of the wire' },
+    ],
+    guards: [
+      { name: 'gate post', x: 55, z: 15, yaw: -Math.PI / 2, post: true, scan: 1 },
+      { name: 'SE tower', x: 58, z: 30, tower: 0, yaw: yawTo(-34, -6), scan: 1.3 },
+      { name: 'NW tower', x: -15.5, z: -41.5, tower: 1, yaw: yawTo(30, 24), scan: 1.2 },
+      { name: 'cells sentry', x: -1.5, z: -33, route: [[-1.5, -33], [-1.5, -27], [-13, -26], [-1.5, -27]], dwell: 3 },
+      { name: 'HQ patrol', x: -1.5, z: -16.5, route: [[-1.5, -16.5], [13.5, -16.5], [13.5, -27.5], [13.5, -16.5]], dwell: 2.5 },
+      { name: 'yard patrol', x: 30, z: -3, route: [[30, -3], [-2, -4], [-2, 12], [30, 9]], dwell: 2 },
+      { name: 'south wire', x: 46, z: 21, route: [[46, 21], [-16, 21]], dwell: 3 },
+      { name: 'barracks door', x: 25.5, z: -8, yaw: Math.PI / 2, post: true, scan: 1.2 },
+      { name: 'west wire', x: -23.5, z: -30, route: [[-23.5, -30], [-23.5, 20]], dwell: 3 },
+    ],
+  },
+];
+
+// Build a mission's level: its map, its props, then everything the sim precomputes.
+function buildMission(m) {
+  const L = emptyLevel();
+  L.map = m.map; L.ambient = m.ambient;
+  const ext = m.objectives.find((q) => q.type === 'extract');
+  const clear = [[m.start.x, m.start.z, 6], [ext.x, ext.z, 10]];
+  MAPS[m.map](L, Object.assign({ clear }, m.mapOpts || {}));
+  if (m.setup) m.setup(L);
+  L.medkits = m.medkits.map((q) => ({ x: q.x, z: q.z }));
+  L.extraction = { x: ext.x, z: ext.z, r: ext.r };
+  const hack = m.objectives.find((q) => q.type === 'hack');
+  if (hack) L.terminal = { x: hack.x, z: hack.z };
+  L.start = { x: m.start.x, z: m.start.z, yaw: m.start.yaw };
+  L.guards = m.guards;
+  L.objectives = m.objectives;
+  if (m.captive) L.captive = { x: m.captive.x, z: m.captive.z, yaw: m.captive.yaw };
+  L.mission = m.id;
   return finishLevel(L);
 }
+const missionById = (id) => MISSIONS.find((m) => m.id === id);
+// The first mission's level: the compound at dusk. Tests and the old API build it with no arguments.
+function buildLevel() { return buildMission(MISSIONS[0]); }
 
 // ---- nav grid + A* ----
 function buildNav(L) {
@@ -655,14 +961,27 @@ function makeGuard(def, id, L) {
     lastSeenT: -99, seeT: 0, lostT: 0, lastKnown: null, reactT: 0, decideT: 0,
     fireCd: 0, burstLeft: 0, mag: 30, reloadT: 0, cover: null,
     searchT: 0, searchLeft: 0, searchTarget: null, searchSpeed: 2.4, lookBase: 0,
-    bodyCheckT: 0, deathDir: 0, found: false,
+    bodyCheckT: 0, deathDir: 0, found: false, officer: !!def.officer,
   };
+}
+
+// The objective chain for one run: a copy of the level's, with guard names resolved to indices.
+function resolveObjectives(L, defs) {
+  return (L.objectives || []).map((o) => {
+    const q = Object.assign({}, o);
+    const who = o.target != null ? o.target : o.from;
+    if (who != null) q.gi = defs.findIndex((d) => d.name === who);
+    return q;
+  });
 }
 
 function createState(seed, opts = {}) {
   const L = opts.level || buildLevel();
   const defs = opts.guards || L.guards;
   const st = opts.start || L.start;
+  for (const d of L.doors) setDoor(L, d.id, false);      // a retry starts with every door locked again
+  const objs = resolveObjectives(L, defs);
+  const cp = L.captive;
   return {
     t: 0, rng: mulberry32(seed >>> 0), level: L, events: [],
     player: { x: st.x, z: st.z, yaw: st.yaw || 0, pitch: 0, vx: 0, vz: 0, eye: EYE_STAND, crouch: false, scope: false,
@@ -670,7 +989,11 @@ function createState(seed, opts = {}) {
       sprinting: false, walkDist: 0 },
     guards: defs.map((d, i) => makeGuard(d, i, L)),
     medkits: L.medkits.map((m) => ({ x: m.x, z: m.z, taken: false })),
-    mission: { phase: 'infiltrate', hackT: 0, alarm: false, alarmT: -99, kills: 0, shots: 0, hits: 0, heads: 0, spotted: 0, time: 0 },
+    captive: cp ? { x: cp.x, z: cp.z, y: 0, yaw: cp.yaw || 0, state: 'held', crouch: true, eye: EYE_CROUCH, vx: 0, vz: 0,
+      path: null, pi: 0, repathT: 0, speedNow: 0, walkPhase: 0 } : null,
+    mission: { phase: objs.length && objs[0].type === 'extract' ? 'extract' : 'infiltrate', hackT: 0, alarm: false, alarmT: -99,
+      kills: 0, shots: 0, hits: 0, heads: 0, spotted: 0, time: 0,
+      obj: 0, objs, charges: [], deadline: null, marked: false, keys: [], failReason: null },
   };
 }
 
@@ -681,7 +1004,7 @@ function damagePlayer(S, dmg, fromX, fromZ) {
   if (p.dead) return;
   p.hp -= dmg; p.lastHitT = S.t;
   emit(S, { type: 'hurt', dmg, fromX, fromZ });
-  if (p.hp <= 0) { p.hp = 0; p.dead = true; S.mission.phase = 'failed'; emit(S, { type: 'died' }); }
+  if (p.hp <= 0) { p.hp = 0; p.dead = true; S.mission.phase = 'failed'; S.mission.failReason = 'killed'; emit(S, { type: 'died' }); }
 }
 
 function alertGuard(S, g, shout) {
@@ -885,6 +1208,10 @@ function updateGuard(S, g, dt) {
   if (seen) { g.lastSeenT = S.t; g.seeT += dt; } else g.seeT = 0;
   const pd = Math.hypot(p.x - g.x, p.z - g.z);
   const heard = !p.dead && !g.tower && p.noise > 0 && pd < p.noise;
+  // A freed captive walking with you can give you away: he is seen the way you are, by his own stance
+  // and pace, and a guard who notices him comes to look where he is. Suspicion only: they shoot at you.
+  const cap = S.captive;
+  const capD = !seen && cap && cap.state === 'follow' && g.state !== 'alert' && g.state !== 'dead' ? guardSees(L, g, cap) : -1;
 
   // Bodies: a guard who sees a dead comrade (dead at least a second) goes to look, primed.
   g.bodyCheckT -= dt;
@@ -904,6 +1231,7 @@ function updateGuard(S, g, dt) {
 
   if (g.state === 'patrol' || g.state === 'suspicious' || g.state === 'search') {
     if (seen) { g.sus += detectRate(L, g, p, d) * dt * (g.state === 'patrol' ? 1 : 1.4); g.notice = { x: p.x, z: p.z }; }
+    else if (capD >= 0) { g.sus += detectRate(L, g, cap, capD) * dt * (g.state === 'patrol' ? 1 : 1.4); g.notice = { x: cap.x, z: cap.z }; g.lastSeenT = S.t; }
     else if (heard) { g.sus += 0.8 * dt; g.notice = { x: p.x, z: p.z }; }
     else if (S.t - g.lastSeenT > 1.5) g.sus = Math.max(0, g.sus - 0.09 * dt);
     if (g.sus >= 1) alertGuard(S, g, true);
@@ -1033,21 +1361,140 @@ function updatePlayer(S, inp, dt) {
     else { p.fireCd = 0.3; emit(S, { type: 'dry' }); }
   }
 
-  if (M.phase === 'infiltrate') {
-    const t = L.terminal;
-    if (t && inp.interact && Math.hypot(p.x - t.x, p.z - t.z) < 1.7) {
-      M.hackT += dt;
-      if (M.hackT >= HACK_TIME) { M.phase = 'extract'; M.hackT = HACK_TIME; emit(S, { type: 'hacked' }); }
-    } else M.hackT = 0;
-  } else if (M.phase === 'extract') {
-    const e = L.extraction;
-    if (Math.hypot(p.x - e.x, p.z - e.z) < e.r) { M.phase = 'done'; emit(S, { type: 'extracted' }); }
-  }
+  updateObjective(S, inp, dt);
   for (const m of S.medkits) {
     if (!m.taken && p.hp < 100 && Math.hypot(p.x - m.x, p.z - m.z) < 1.2) { m.taken = true; p.hp = Math.min(100, p.hp + 50); emit(S, { type: 'medkit' }); }
   }
   // Out of combat for 7 s, health creeps back at 4/s. A medkit is 50 at once.
   if (S.t - p.lastHitT > 7 && p.hp < 100) p.hp = Math.min(100, p.hp + 4 * dt);
+}
+
+// ---- the objective chain ----
+const BLAST_R = 9;                 // a charge kills inside 5.4 m and hurts you inside 9 m
+const BOOM_HEAR_R = 90;            // every guard on the map hears a demolition charge
+const HOLD_TYPES = new Set(['hack', 'plant', 'pickup', 'rescue']);
+function currentObjective(S) { return S.mission.objs[S.mission.obj] || null; }
+// Where an objective is right now: a fixed point, a guard (alive or his body), or the captive. For an
+// unidentified target it is the area he was reported in, so the HUD has somewhere to point.
+function objectivePos(S, o) {
+  if (!o) return null;
+  if (o.type === 'eliminate' || (o.type === 'pickup' && o.gi != null)) {
+    const g = S.guards[o.gi];
+    if (!g) return o.hint || null;
+    if (o.type === 'eliminate' && !S.mission.marked && g.state !== 'dead') return o.hint || { x: g.x, z: g.z };
+    return { x: g.x, z: g.z };
+  }
+  if (o.type === 'rescue') return S.captive ? { x: S.captive.x, z: S.captive.z } : null;
+  return { x: o.x, z: o.z };
+}
+// Can the current hold-objective be worked on from where the player stands?
+function objectiveInReach(S, o) {
+  if (!o || !HOLD_TYPES.has(o.type)) return false;
+  if (o.type === 'pickup' && o.gi != null) { const g = S.guards[o.gi]; if (g && g.state !== 'dead') return false; }
+  const q = objectivePos(S, o), p = S.player;
+  return !!q && Math.hypot(p.x - q.x, p.z - q.z) < (o.r || 1.7);
+}
+function completeObjective(S, o) {
+  const M = S.mission;
+  if (o.type === 'hack') emit(S, { type: 'hacked' });
+  else if (o.type === 'plant') {
+    M.charges.push({ id: o.id, x: o.x, z: o.z, t: o.fuse || 20, blown: false });
+    emit(S, { type: 'planted', id: o.id, x: o.x, z: o.z });
+    if (o.timer && M.deadline == null) M.deadline = S.t + o.timer;
+  } else if (o.type === 'pickup') {
+    if (o.unlocks) M.keys.push(o.unlocks);
+    emit(S, { type: 'picked', item: o.item });
+  } else if (o.type === 'rescue') { S.captive.state = 'follow'; S.captive.crouch = S.player.crouch; emit(S, { type: 'freed' }); }
+  else if (o.type === 'eliminate') emit(S, { type: 'eliminated', id: o.gi });
+  else if (o.type === 'extract') emit(S, { type: 'extracted' });
+  emit(S, { type: 'objective', index: M.obj, kind: o.type });
+  M.obj++;
+  const next = M.objs[M.obj];
+  if (!next) M.phase = 'done';
+  else M.phase = next.type === 'extract' ? 'extract' : 'infiltrate';
+}
+function updateObjective(S, inp, dt) {
+  const M = S.mission, p = S.player, L = S.level;
+  const o = currentObjective(S);
+  if (!o || M.phase === 'done' || M.phase === 'failed') return;
+  if (HOLD_TYPES.has(o.type)) {
+    if (inp.interact && objectiveInReach(S, o)) {
+      M.hackT += dt;
+      if (M.hackT >= (o.time || HACK_TIME)) { M.hackT = 0; completeObjective(S, o); }
+    } else M.hackT = 0;
+  } else if (o.type === 'eliminate') {
+    const g = S.guards[o.gi];
+    if (!g || g.state === 'dead') { completeObjective(S, o); return; }
+    // Identified: seen through the scope near the crosshair, or close enough to know the face.
+    if (!M.marked) {
+      const dx = g.x - p.x, dz = g.z - p.z, d = Math.hypot(dx, dz), hy = g.y + 1.6;
+      if (d < 130 && !segBlocked(L.sightBoxes, p.x, p.eye, p.z, g.x, hy, g.z)) {
+        const err = Math.hypot(angWrap(yawTo(dx, dz) - p.yaw), Math.atan2(hy - p.eye, d) - p.pitch);
+        if (d < 12 || (p.scope && err < 0.06)) { M.marked = true; emit(S, { type: 'identified', id: g.id }); }
+      }
+    }
+  } else if (o.type === 'extract') {
+    const c = S.captive;
+    const inZone = Math.hypot(p.x - o.x, p.z - o.z) < o.r;
+    const withHim = !o.withCaptive || (c && c.state === 'follow' && Math.hypot(c.x - o.x, c.z - o.z) < o.r + 3);
+    // A charge still ticking holds the helicopter: you watch it go from the LZ.
+    const quiet = M.charges.every((q) => q.blown);
+    if (inZone && withHim && quiet) completeObjective(S, o);
+  }
+}
+
+// A charge going off: everyone near it dies, you get hurt if you are close, and every guard on the map
+// hears it and goes to look (searching, not alerted: a bang is not a sighting).
+function detonate(S, c) {
+  const p = S.player;
+  c.blown = true;
+  emit(S, { type: 'boom', id: c.id, x: c.x, z: c.z });
+  const dp = Math.hypot(p.x - c.x, p.z - c.z);
+  if (dp < BLAST_R) damagePlayer(S, Math.round(130 * (1 - dp / BLAST_R)), c.x, c.z);
+  for (const g of S.guards) {
+    if (g.state === 'dead') continue;
+    const d = Math.hypot(g.x - c.x, g.z - c.z);
+    if (d < BLAST_R * 0.6) { damageGuard(S, g, 999, 'body', c.x, c.z); continue; }
+    if (d < BOOM_HEAR_R && g.state !== 'alert') startSearch(S, g, c.x + gauss(S.rng) * 3, c.z + gauss(S.rng) * 3, 0.85, 3.0);
+  }
+}
+// Timers the mission runs whatever the player does: fuses, the extraction deadline, keycard doors.
+function tickMission(S, dt) {
+  const M = S.mission, p = S.player, L = S.level;
+  for (const c of M.charges) if (!c.blown && (c.t -= dt) <= 0) detonate(S, c);
+  for (const id of M.keys) {
+    const d = L.doors.find((q) => q.id === id);
+    if (d && !d.open && Math.hypot(p.x - d.x, p.z - d.z) < 2.6) { setDoor(L, id, true); emit(S, { type: 'door', id }); }
+  }
+  if (M.deadline != null && S.t >= M.deadline && M.phase !== 'done' && M.phase !== 'failed') {
+    M.phase = 'failed'; M.failReason = 'time'; emit(S, { type: 'timeout' });
+  }
+}
+
+// The freed captive: follows you along the nav grid, stops 2.2 m short, keeps pace (a little faster when
+// he has fallen behind), and crouches when you do. Repaths twice a second so a corner never holds him.
+function updateCaptive(S, dt) {
+  const c = S.captive, p = S.player, L = S.level;
+  if (!c) return;
+  c.speedNow = 0;
+  if (c.state !== 'follow') { c.vx = c.vz = 0; return; }
+  c.crouch = p.crouch; c.eye += ((c.crouch ? EYE_CROUCH : EYE_STAND) - c.eye) * Math.min(1, dt * 8);
+  const d = Math.hypot(p.x - c.x, p.z - c.z), ox = c.x, oz = c.z;
+  if (d > 2.2) {
+    const sp = Math.min(6.6, Math.max(c.crouch ? 2.0 : 3.2, speedOf(p) * (d > 5 ? 1.2 : 1.0)));
+    c.repathT -= dt;
+    if (!c.path || c.repathT <= 0) { c.path = findPath(L, c.x, c.z, p.x, p.z) || [{ x: p.x, z: p.z }]; c.pi = 0; c.repathT = 0.5; }
+    let wp = c.path[c.pi];
+    while (wp && Math.hypot(wp.x - c.x, wp.z - c.z) < 0.35) { c.pi++; wp = c.path[c.pi]; }
+    if (wp) {
+      const dx = wp.x - c.x, dz = wp.z - c.z, dd = Math.hypot(dx, dz), stp = Math.min(dd, sp * dt);
+      [c.x, c.z] = collide(L, c.x + (dx / dd) * stp, c.z + (dz / dd) * stp, G_RADIUS);
+      c.yaw = turnToward(c.yaw, yawTo(dx, dz), 6 * dt);
+    }
+  } else c.yaw = turnToward(c.yaw, p.yaw, 2 * dt);
+  c.vx = (c.x - ox) / dt; c.vz = (c.z - oz) / dt;
+  c.speedNow = Math.hypot(c.vx, c.vz);
+  c.walkPhase += c.speedNow * dt * 2.7;
 }
 
 // Advance the world by dt seconds. `inp` is the player's intent for this tick:
@@ -1059,7 +1506,9 @@ function step(S, inp, dt) {
   if (M.phase === 'done' || M.phase === 'failed') return S;
   S.t += dt; M.time += dt;
   updatePlayer(S, inp || {}, dt);
+  updateCaptive(S, dt);
   for (const g of S.guards) updateGuard(S, g, dt);
+  tickMission(S, dt);
   if (M.alarm && S.guards.every((g) => g.state !== 'alert')) M.alarm = false;
   return S;
 }
@@ -1227,7 +1676,7 @@ function makeTouchPad({ stick = null, dpad = null, buttons = [], target = window
 const $ = (id) => document.getElementById(id);
 const touchMode = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) || /[?&]touch=1/.test(location.search);
 if (touchMode) document.body.classList.add('touch');
-const vrng = mulberry32(7);            // visual-only randomness: textures and scatter look the same every load
+let vrng = mulberry32(7);              // visual-only randomness: textures and scatter look the same every load
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGLRenderer({ antialias: !touchMode, powerPreference: 'high-performance' });
@@ -1245,7 +1694,7 @@ const BASE_FOV = 72, SCOPE_FOV = 15;
 const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth / innerHeight, 0.05, 700);
 scene.add(camera);
 
-scene.add(new THREE.HemisphereLight(0x9a90c8, 0x3b3226, 0.62));
+const hemi = new THREE.HemisphereLight(0x9a90c8, 0x3b3226, 0.62); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffa06a, 0.78);
 sun.position.set(-100, 22, -35);
 scene.add(sun);
@@ -1269,7 +1718,7 @@ function aimSun(x, z) {
   sun.position.set(x + SUN_DIR.x * 110, SUN_DIR.y * 110, z + SUN_DIR.z * 110);
   sun.target.position.set(x, 0, z); sun.target.updateMatrixWorld();
 }
-scene.add(new THREE.AmbientLight(0x2a2438, 0.35));
+const ambLight = new THREE.AmbientLight(0x2a2438, 0.35); scene.add(ambLight);
 
 // ---------------------------------------------------------------- textures (all drawn at runtime)
 function canvasTex(w, h, draw, rx = 1, ry = 1) {
@@ -1426,6 +1875,30 @@ function iconTex(ch, col) {
   });
 }
 TEX.qmark = iconTex('?', '#ffd54a'); TEX.bang = iconTex('!', '#ff4d3d');
+// The mountain map: frozen scree and dry grass (tinted to rock, snow or valley by vertex colour), wind-
+// packed snow, and the radome's panels.
+TEX.alpine = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#77726a'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 46; i++) { g.fillStyle = ['rgba(130,118,84,.45)', 'rgba(60,56,52,.35)', 'rgba(150,146,138,.35)'][i % 3]; g.beginPath(); g.ellipse(vrng() * w, vrng() * h, 8 + vrng() * 30, 5 + vrng() * 18, vrng() * 3, 0, 7); g.fill(); }
+  speckle(g, w, h, 3200, ['#8a857b', '#5e5a53', '#9c968a', '#4c4944', '#8c7f5c'], 1, 3);
+  g.strokeStyle = 'rgba(150,136,92,.55)';
+  for (let i = 0; i < 260; i++) { const x = vrng() * w, y = vrng() * h; g.beginPath(); g.moveTo(x, y); g.lineTo(x + vrng() * 3 - 1.5, y - 2 - vrng() * 4); g.stroke(); }
+});
+TEX.snow = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#dfe5ee'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 40; i++) { g.fillStyle = vrng() < 0.5 ? 'rgba(170,184,206,.25)' : 'rgba(255,255,255,.4)'; g.beginPath(); g.ellipse(vrng() * w, vrng() * h, 10 + vrng() * 40, 4 + vrng() * 12, vrng() * 0.4, 0, 7); g.fill(); }
+  speckle(g, w, h, 1200, ['#f4f7fb', '#c8d2e0', '#e9eef5'], 1, 2);
+});
+TEX.panel = canvasTex(128, 128, (g, w, h) => {
+  g.fillStyle = '#d9dcd8'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(90,96,100,.55)'; g.lineWidth = 2;
+  for (let y = 0; y <= h; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+  for (let y = 0; y < h; y += 32) for (let x = (y / 32) % 2 * 16; x <= w; x += 32) { g.beginPath(); g.moveTo(x, y); g.lineTo(x + 16, y + 32); g.moveTo(x, y); g.lineTo(x - 16, y + 32); g.stroke(); }
+  for (let i = 0; i < 14; i++) { g.fillStyle = 'rgba(120,100,70,.12)'; g.fillRect(vrng() * w, vrng() * h, 3 + vrng() * 6, 10 + vrng() * 30); }
+});
+TEX.hazard = canvasTex(64, 16, (g, w, h) => {
+  for (let x = -16; x < w + 16; x += 16) { g.fillStyle = (x / 16) % 2 ? '#1c1c1c' : '#d8b21e'; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 8, 0); g.lineTo(x + 16, h); g.lineTo(x + 8, h); g.fill(); }
+});
 
 const lambert = (map, extra = {}) => new THREE.MeshLambertMaterial({ map, vertexColors: true, ...extra });
 const MAT = {
@@ -1440,6 +1913,7 @@ const MAT = {
   tuft: new THREE.MeshLambertMaterial({ map: TEX.grassTuft, alphaTest: 0.4, side: THREE.DoubleSide }),
   bulb: new THREE.MeshBasicMaterial({ color: 0xffe0a0, vertexColors: true }),
   soldier: lambert(TEX.camo),
+  alpine: lambert(TEX.alpine), snow: lambert(TEX.snow), dome: lambert(TEX.panel), hazard: lambert(TEX.hazard),
 };
 
 // ---------------------------------------------------------------- merged static geometry
@@ -1488,7 +1962,7 @@ function pushGeom(key, geom, matrix, col = WHITE, uvScale = 1) {
     if (vc) B.col.push(col[0] * vc[i * 3], col[1] * vc[i * 3 + 1], col[2] * vc[i * 3 + 2]); else B.col.push(...col);
   }
 }
-const NO_SHADOW = new Set(['fence', 'tuft', 'window', 'screen', 'helipad', 'bulb']);
+const NO_SHADOW = new Set(['fence', 'tuft', 'window', 'screen', 'helipad', 'bulb', 'terrain']);
 function flushBuckets(target) {
   for (const key of Object.keys(buckets)) {
     const B = buckets[key]; if (!B.pos.length) continue;
@@ -1498,7 +1972,7 @@ function flushBuckets(target) {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(B.uv, 2));
     g.setAttribute('color', new THREE.Float32BufferAttribute(B.col, 3));
     g.computeBoundingSphere();
-    const m = new THREE.Mesh(g, MAT[key]); m.matrixAutoUpdate = false;
+    const m = new THREE.Mesh(g, MAT[key.split(':')[0]]); m.matrixAutoUpdate = false;
     // Everything solid casts and takes shadows. Cut-out and glowing things do not: the fence and grass
     // tufts would cast their whole quads without a custom depth material, and lamps and windows are lights.
     if (!NO_SHADOW.has(key)) { m.castShadow = true; m.receiveShadow = true; }
@@ -1511,184 +1985,289 @@ const M4 = (x, y, z, ry = 0, sx = 1, sy = 1, sz = 1, rx = 0, rz = 0) => new THRE
 const shade = (k) => [k, k, k];
 const tint = (r, g, b) => [r, g, b];
 
-// ---------------------------------------------------------------- the world, built from the sim's level
-const LEVEL = buildLevel();
-const world = new THREE.Group(); scene.add(world);
+// ---------------------------------------------------------------- light presets: time of day and weather
+// The sim needs only the ambient level (mission.ambient, which lightAt() uses); everything the eye sees is
+// here: the sky gradient, sun or moon, fog, the three scene lights, how bright the lamps read, snowfall.
+const PRESETS = {
+  dusk: {
+    zen: [0.10, 0.12, 0.25], mid: [0.36, 0.28, 0.44], hor: [0.62, 0.42, 0.42], below: [0.29, 0.26, 0.37],
+    glow: [1.0, 0.55, 0.25], glowK: 0.55, disc: [1.0, 0.8, 0.55], discK: 1.2, sunDir: [-0.93, 0.09, -0.34], moonK: 0, stars: 0,
+    fog: 0x4b4260, fogD: 0.0125, hemi: [0x9a90c8, 0x3b3226, 0.62], sun: [0xffa06a, 0.78], amb: [0x2a2438, 0.35],
+    vmHemi: [0xa59bd0, 0x3b3226, 0.75], vmSun: [0xffa06a, 0.7], lampK: 1, snow: 0,
+  },
+  night: {
+    zen: [0.006, 0.01, 0.03], mid: [0.025, 0.035, 0.075], hor: [0.075, 0.085, 0.13], below: [0.03, 0.035, 0.06],
+    glow: [0.5, 0.6, 0.9], glowK: 0.0, disc: [0.9, 0.93, 1.0], discK: 0, sunDir: [0.42, 0.5, -0.76], moonK: 1, stars: 1,
+    fog: 0x0e1320, fogD: 0.019, hemi: [0x5b6c9c, 0x0b0c12, 0.36], sun: [0x9fb6ff, 0.26], amb: [0x161c34, 0.5],
+    vmHemi: [0x5a6894, 0x0e1014, 0.3], vmSun: [0x9fb6ff, 0.2], lampK: 1.25, snow: 0, tuftK: 0.4,
+  },
+  dawn: {
+    zen: [0.26, 0.40, 0.66], mid: [0.58, 0.62, 0.76], hor: [0.96, 0.74, 0.64], below: [0.62, 0.62, 0.68],
+    glow: [1.0, 0.64, 0.38], glowK: 0.75, disc: [1.0, 0.92, 0.75], discK: 1.5, sunDir: [0.8, 0.13, 0.58], moonK: 0, stars: 0,
+    fog: 0x9c9fb3, fogD: 0.0046, hemi: [0xbccdf0, 0x6a6058, 0.86], sun: [0xffc49a, 0.9], amb: [0x3a4050, 0.35],
+    vmHemi: [0xbcc8e8, 0x4a4440, 0.85], vmSun: [0xffc49a, 0.7], lampK: 0.45, snow: 0, tuftK: 0.8,
+  },
+  snow: {
+    zen: [0.22, 0.25, 0.31], mid: [0.36, 0.38, 0.44], hor: [0.47, 0.48, 0.53], below: [0.4, 0.41, 0.46],
+    glow: [0.8, 0.8, 0.85], glowK: 0.08, disc: [1, 1, 1], discK: 0, sunDir: [-0.5, 0.35, -0.8], moonK: 0, stars: 0,
+    fog: 0x5a606d, fogD: 0.024, hemi: [0x98a4c0, 0x383a42, 0.64], sun: [0xaabbdd, 0.3], amb: [0x2c3444, 0.45],
+    vmHemi: [0x98a4c0, 0x383a42, 0.72], vmSun: [0xaabbdd, 0.35], lampK: 1.1, snow: 1, tuftK: 0.8,
+  },
+};
 
-// Sky: a gradient dome with the sun just down in the west. Follows the camera, so it never parallaxes.
+// Sky: a gradient dome, with the sun's glow, or a moon and stars. Follows the camera, so it never parallaxes.
 const sunDir = new THREE.Vector3(-0.93, 0.09, -0.34).normalize();
+const skyU = {
+  sunDir: { value: sunDir }, zen: { value: new THREE.Vector3() }, mid: { value: new THREE.Vector3() }, hor: { value: new THREE.Vector3() },
+  below: { value: new THREE.Vector3() }, glow: { value: new THREE.Vector3() }, disc: { value: new THREE.Vector3() },
+  glowK: { value: 0 }, discK: { value: 0 }, moonK: { value: 0 }, stars: { value: 0 },
+};
 const sky = new THREE.Mesh(new THREE.SphereGeometry(600, 32, 16), new THREE.ShaderMaterial({
-  side: THREE.BackSide, depthWrite: false, fog: false,
-  uniforms: { sunDir: { value: sunDir } },
+  side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyU,
   vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: [
-    'uniform vec3 sunDir; varying vec3 vDir;',
+    'uniform vec3 sunDir, zen, mid, hor, below, glow, disc; uniform float glowK, discK, moonK, stars; varying vec3 vDir;',
+    'float hash(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,45.164))) * 43758.5453); }',
     'void main(){',
-    ' float h = clamp(vDir.y, -0.2, 1.0);',
-    ' vec3 zen = vec3(0.10,0.12,0.25), mid = vec3(0.36,0.28,0.44), hor = vec3(0.62,0.42,0.42);',
-    ' float s = max(dot(normalize(vDir), sunDir), 0.0);',
+    ' vec3 d = normalize(vDir); float h = clamp(d.y, -0.2, 1.0);',
+    ' float s = max(dot(d, sunDir), 0.0);',
     ' vec3 c = mix(hor, mid, smoothstep(0.0, 0.18, h)); c = mix(c, zen, smoothstep(0.15, 0.75, h));',
-    ' c += vec3(1.0,0.55,0.25) * pow(s, 6.0) * 0.55 * (1.0 - smoothstep(0.0,0.5,h));',
-    ' c += vec3(1.0,0.8,0.55) * pow(s, 180.0) * 1.2;',
-    ' c = mix(c, vec3(0.29,0.26,0.37), smoothstep(0.0,-0.2,h));',
+    ' c += glow * pow(s, 6.0) * glowK * (1.0 - smoothstep(0.0,0.5,h));',
+    ' c += disc * pow(s, 180.0) * discK;',
+    // the moon: a disc with a faint halo, and a sky full of stars that fade toward the horizon haze
+    ' c += vec3(0.95,0.97,1.0) * smoothstep(0.99955, 0.99975, s) * moonK + vec3(0.25,0.3,0.45) * pow(s, 60.0) * 0.35 * moonK;',
+    ' vec3 q = floor(d * 380.0); float st = hash(q); float tw = step(0.9975, st) * (0.35 + 0.65 * hash(q + 7.0));',
+    ' c += vec3(0.85,0.9,1.0) * tw * stars * smoothstep(0.05, 0.35, h);',
+    ' c = mix(c, below, smoothstep(0.0,-0.2,h));',
     ' gl_FragColor = vec4(c,1.0);',
     '}'].join('\n'),
 }));
 sky.renderOrder = -10; scene.add(sky);
 
-// Terrain: flat where anyone can walk (the sim's ground is y = 0), rising into hills past the 68 m edge.
+// A fixed pool of point lights, repositioned per mission: five lamp pools, one interior, two for fire and
+// explosions. Fixed so switching missions never changes the light count, which would recompile every
+// Lambert shader in the scene.
+const LAMP_LIGHTS = [];
+for (let i = 0; i < 6; i++) { const pl = new THREE.PointLight(0xffb865, 0, 16, 2); scene.add(pl); LAMP_LIGHTS.push(pl); }
+const FX_LIGHTS = [];
+for (let i = 0; i < 2; i++) { const pl = new THREE.PointLight(0xff9a40, 0, 30, 2); scene.add(pl); FX_LIGHTS.push(pl); }
+
+// Snowfall: 1600 flakes in a box that travels with the camera, one draw call.
+const SNOW_N = 1600, snowGeo = new THREE.BufferGeometry(), snowPos = new Float32Array(SNOW_N * 3);
+for (let i = 0; i < SNOW_N; i++) { snowPos[i * 3] = (Math.random() - 0.5) * 50; snowPos[i * 3 + 1] = Math.random() * 22; snowPos[i * 3 + 2] = (Math.random() - 0.5) * 50; }
+snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+const snowFx = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: 0xeef3ff, size: 0.075, map: TEX.glow, transparent: true, depthWrite: false, opacity: 0.9 }));
+snowFx.frustumCulled = false; snowFx.visible = false; scene.add(snowFx);
+function updateSnow(dt) {
+  if (!snowFx.visible) return;
+  const cx = camera.position.x, cz = camera.position.z, t = performance.now() / 1000;
+  for (let i = 0; i < SNOW_N; i++) {
+    let x = snowPos[i * 3], y = snowPos[i * 3 + 1], z = snowPos[i * 3 + 2];
+    y -= dt * (1.4 + (i % 7) * 0.12); x += dt * (1.6 + Math.sin(t * 0.7 + i) * 0.6); z += dt * Math.cos(t * 0.5 + i * 0.3) * 0.5;
+    if (y < 0) y += 22;
+    // wrap into the 50 m box around the camera
+    const rx = x - cx, rz = z - cz;
+    if (rx > 25) x -= 50; else if (rx < -25) x += 50;
+    if (rz > 25) z -= 50; else if (rz < -25) z += 50;
+    snowPos[i * 3] = x; snowPos[i * 3 + 1] = y; snowPos[i * 3 + 2] = z;
+  }
+  snowGeo.attributes.position.needsUpdate = true;
+}
+
+const glowMat = new THREE.SpriteMaterial({ map: TEX.glow, color: 0xffc070, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+const poolMat = new THREE.MeshBasicMaterial({ map: TEX.glow, color: 0x6a4a22, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4 });
+let PRESET = PRESETS.dusk;
+function applyPreset(P) {
+  PRESET = P;
+  const v3 = (u, a) => u.value.set(a[0], a[1], a[2]);
+  for (const k of ['zen', 'mid', 'hor', 'below', 'glow', 'disc']) v3(skyU[k], P[k]);
+  skyU.glowK.value = P.glowK; skyU.discK.value = P.discK; skyU.moonK.value = P.moonK; skyU.stars.value = P.stars;
+  sunDir.set(P.sunDir[0], P.sunDir[1], P.sunDir[2]).normalize();
+  SUN_DIR.copy(sunDir);
+  scene.fog.color.setHex(P.fog); scene.fog.density = P.fogD;
+  hemi.color.setHex(P.hemi[0]); hemi.groundColor.setHex(P.hemi[1]); hemi.intensity = P.hemi[2];
+  sun.color.setHex(P.sun[0]); sun.intensity = P.sun[1];
+  ambLight.color.setHex(P.amb[0]); ambLight.intensity = P.amb[1];
+  vmHemi.color.setHex(P.vmHemi[0]); vmHemi.groundColor.setHex(P.vmHemi[1]); vmHemi.intensity = P.vmHemi[2];
+  vmSun.color.setHex(P.vmSun[0]); vmSun.intensity = P.vmSun[1];
+  glowMat.opacity = Math.min(1, 0.35 + 0.65 * P.lampK);
+  poolMat.color.setHex(0x6a4a22).multiplyScalar(P.lampK);
+  snowFx.visible = !!P.snow;
+  MAT.tuft.color.setScalar(P.tuftK || 1);
+}
+
+// ---------------------------------------------------------------- the world, built from the sim's level
+// Everything static for one mission lives in `world` and is rebuilt when the mission changes: terrain,
+// the merged buckets, lamp sprites and pools, props, medkits. loadMission() disposes the old one first.
+let LEVEL = null, MISSION = null, world = null;
+let WV = {};              // the world's live views: props that animate, charges, the door, the captive, pickups
+const cyl6 = new THREE.CylinderGeometry(1, 1, 1, 12, 1);
+const cyl4 = new THREE.CylinderGeometry(1, 1, 1, 5, 1);
+const ico1 = new THREE.IcosahedronGeometry(1, 0), ico2 = new THREE.IcosahedronGeometry(1, 1), dodeca = new THREE.DodecahedronGeometry(1, 0);
+
+// Terrain for the compound: flat where anyone can walk (the sim's ground is y = 0), hills past the 68 m edge.
 function hillHeight(x, z) {
   const r = Math.max(Math.abs(x), Math.abs(z));
   const k = THREE.MathUtils.smoothstep(r, 74, 120);
   const n = Math.sin(x * 0.045) * Math.cos(z * 0.052) + 0.5 * Math.sin(x * 0.11 + z * 0.07) + 0.35 * Math.cos(z * 0.13 - x * 0.05);
   return k * (10 + 9 * n) + THREE.MathUtils.smoothstep(r, 140, 300) * 40;
 }
-{
-  const g = new THREE.PlaneGeometry(600, 600, 120, 120); g.rotateX(-Math.PI / 2);
-  const p = g.attributes.position, cols = [];
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), z = p.getZ(i), h = hillHeight(x, z);
-    p.setY(i, h);
-    const k = 1 - Math.min(0.45, h / 60); cols.push(k * 0.95, k, k * 0.9);
+// Terrain for the outpost: the plateau is flat, the north edge is a wall of rock straight up into the
+// massif, the south edge drops ninety metres into the valley, and shoulders rise east and west (lower
+// where the road climbs out to the east).
+function outpostHeight(x, z) {
+  const n1 = Math.sin(x * 0.05 + 1.3) * Math.cos(z * 0.043), n2 = Math.sin(x * 0.13 - z * 0.09), n3 = Math.cos(x * 0.021 + z * 0.017);
+  let h = 0;
+  const zn = -50 - z;
+  if (zn > 0) {
+    // buttresses and gullies down the face, broken ledges across it, and summits further back
+    const rib = Math.abs(Math.sin(x * 0.085 + Math.sin(z * 0.06) * 1.6)), crag = Math.sin(x * 0.37 + z * 0.29) * Math.sin(x * 0.23 - z * 0.41);
+    h += Math.min(1, zn / 5) * (16 + 3 * n2) + Math.max(0, zn - 5) * (1.25 + 0.45 * n1) + Math.max(0, zn - 45) * 0.8 * (1 + 0.6 * n2)
+      + Math.min(1, zn / 12) * (rib * 7 + crag * 2.2) + Math.max(0, Math.sin(zn * 0.22 + x * 0.03)) * Math.min(4, zn * 0.15);
   }
-  g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-  g.computeVertexNormals();
-  const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 120, uv.getY(i) * 120);
-  const m = new THREE.Mesh(g, MAT.grass); world.add(m);
+  const zs = z - 53.5;
+  if (zs > 0) h -= 90 * Math.pow(Math.min(1, zs / 15), 0.55) * (1 + 0.04 * n2) - Math.max(0, zs - 140) * (0.8 + 0.3 * n3);
+  const xe = Math.abs(x) - 69;
+  if (xe > 0) {
+    const notch = x > 0 ? 1 - 0.85 * Math.exp(-Math.pow((z - 18) / 10, 2)) : 1;
+    h += (Math.min(1, xe / 22) * (20 + 10 * n1) + Math.max(0, xe - 22) * (0.45 + 0.2 * n2)) * notch * (1 - THREE.MathUtils.smoothstep(z, 50, 66));
+  }
+  // ridged roughness everywhere off the plateau, growing with distance from it: spurs, gullies, crags
+  const off = Math.max(zn, xe, z - 60);
+  if (off > 0) {
+    const rg = Math.abs(Math.sin(x * 0.13 + Math.sin(z * 0.07) * 2)) + Math.abs(Math.sin(z * 0.11 + Math.sin(x * 0.09) * 2)) - 1;
+    h += rg * Math.min(9, off * 0.25) + Math.sin(x * 0.51 + z * 0.33) * Math.min(1.2, off * 0.05);
+  }
+  return h;
 }
-// The yard inside the wire is packed gravel, 1 m quads so lamp pools show on it.
-{
-  const g = new THREE.PlaneGeometry(64, 52, 64, 52); g.rotateX(-Math.PI / 2); g.translate(0, 0.02, 0);
-  const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 8, uv.getY(i) * 6.5);
+// A terrain mesh on a grid that is fine (2.5 m) near the playfield and coarse (16 m) far away.
+function terrainGrid(heightFn, colourFn) {
+  const axis = [];
+  for (let v = -320; v < -100; v += 16) axis.push(v);
+  for (let v = -100; v <= 100; v += 2.5) axis.push(v);
+  for (let v = 116; v <= 320; v += 16) axis.push(v);
+  const n = axis.length, pos = new Float32Array(n * n * 3), uv = new Float32Array(n * n * 2), idx = [];
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const k = j * n + i, x = axis[i], z = axis[j];
+    pos[k * 3] = x; pos[k * 3 + 1] = heightFn(x, z); pos[k * 3 + 2] = z; uv[k * 2] = x / 5; uv[k * 2 + 1] = z / 5;
+    if (i < n - 1 && j < n - 1) idx.push(k, k + n, k + 1, k + 1, k + n, k + n + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  const nor = g.attributes.normal, col = new Float32Array(n * n * 3);
+  for (let k = 0; k < n * n; k++) { const c = colourFn(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2], nor.getY(k)); col[k * 3] = c[0]; col[k * 3 + 1] = c[1]; col[k * 3 + 2] = c[2]; }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+const flatPlane = (w, d, sx, sz, cx, cz, y, ru, rv) => {
+  const g = new THREE.PlaneGeometry(w, d, sx, sz); g.rotateX(-Math.PI / 2); g.translate(cx, y, cz);
+  const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * ru, uv.getY(i) * rv);
   g.setAttribute('color', new THREE.Float32BufferAttribute(new Array(g.attributes.position.count * 3).fill(1), 3));
-  world.add(new THREE.Mesh(g, MAT.gravel));
-  const r = new THREE.PlaneGeometry(40, 7, 20, 2); r.rotateX(-Math.PI / 2); r.rotateY(Math.PI / 2); r.translate(-52, 0.03, 0);
-  const ru = r.attributes.uv; for (let i = 0; i < ru.count; i++) ru.setXY(i, ru.getX(i), ru.getY(i) * 6);
-  r.setAttribute('color', new THREE.Float32BufferAttribute(new Array(r.attributes.position.count * 3).fill(1), 3));
-  world.add(new THREE.Mesh(r, MAT.road));
-  const hp = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), MAT.helipad); hp.rotation.x = -Math.PI / 2;
-  hp.geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Array(12).fill(1), 3));
-  hp.position.set(LEVEL.extraction.x, 0.04, LEVEL.extraction.z); world.add(hp);
+  return g;
+};
+// One bucket key drawn into its own mesh (a prop that moves or swaps), instead of into the world.
+function bucketMesh(key) {
+  const B = buckets[key]; delete buckets[key];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(B.pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(B.nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(B.uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(B.col, 3));
+  g.computeBoundingSphere();
+  const m = new THREE.Mesh(g, MAT[key.split(':')[0]]); m.castShadow = true; m.receiveShadow = true;
+  return m;
+}
+const smoothNoise = (x, z) => Math.sin(x * 0.19 + 1.7) * Math.cos(z * 0.23) + 0.6 * Math.sin(x * 0.07 - z * 0.11 + 2) + 0.35 * Math.sin(x * 0.41 + z * 0.37);
+
+function buildGround(L, P) {
+  if (L.map === 'compound') {
+    const g = new THREE.PlaneGeometry(600, 600, 120, 120); g.rotateX(-Math.PI / 2);
+    const p = g.attributes.position, cols = [];
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), z = p.getZ(i), h = hillHeight(x, z);
+      p.setY(i, h);
+      const k = 1 - Math.min(0.45, h / 60); cols.push(k * 0.95, k, k * 0.9);
+    }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+    g.computeVertexNormals();
+    const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 120, uv.getY(i) * 120);
+    const m = new THREE.Mesh(g, MAT.grass); m.receiveShadow = true; world.add(m);
+    // The yard inside the wire is packed gravel, 1 m quads so lamp pools show on it.
+    world.add(new THREE.Mesh(flatPlane(64, 52, 64, 52, 0, 0, 0.02, 8, 6.5), MAT.gravel));
+    const r = new THREE.PlaneGeometry(40, 7, 20, 2); r.rotateX(-Math.PI / 2); r.rotateY(Math.PI / 2); r.translate(-52, 0.03, 0);
+    const ru = r.attributes.uv; for (let i = 0; i < ru.count; i++) ru.setXY(i, ru.getX(i), ru.getY(i) * 6);
+    r.setAttribute('color', new THREE.Float32BufferAttribute(new Array(r.attributes.position.count * 3).fill(1), 3));
+    world.add(new THREE.Mesh(r, MAT.road));
+    return;
+  }
+  // The outpost. Snow lies above 14 m and on the flatter faces; on the plateau it is patchy, and deeper in
+  // the snow preset. Steep faces are rock, the valley floor is forest-dark.
+  const cover = P.snow ? 0.95 : 0.32;
+  const g = terrainGrid(outpostHeight, (x, h, z, ny) => {
+    if (h < -40) { const k = 0.5 + 0.1 * smoothNoise(x, z); return [k * 0.78, k * 0.95, k * 0.8]; }
+    const rock = 1 - THREE.MathUtils.smoothstep(ny, 0.5, 0.8);
+    let snow = h > 8 ? THREE.MathUtils.smoothstep(h, 8, 30) * THREE.MathUtils.smoothstep(ny, 0.5, 0.78) : 0;
+    if (Math.abs(h) < 1) snow = Math.max(snow, THREE.MathUtils.smoothstep(smoothNoise(x, z), 1.1 - cover * 1.6, 1.5 - cover * 1.4));
+    // rock in strata: dark and light bands that follow height, broken up along the face
+    const band = 0.5 + 0.13 * Math.sin(h * 0.42 + Math.sin(x * 0.05) * 2) + 0.08 * smoothNoise(x * 2.1, z * 2.1);
+    // In the snow preset the ground is drawn in the snow material, and bare earth and rock are the tints.
+    const k = P.snow ? 0.5 : 1;
+    const base = P.snow ? [0.62, 0.6, 0.57] : [1.22, 1.19, 1.12], rk = [band * 0.92 * k, band * 0.9 * k, band * 0.9 * k], sn = P.snow ? [1, 1, 1] : [1.62, 1.68, 1.8];
+    const c = base.map((v, i) => v + (rk[i] - v) * rock);
+    return c.map((v, i) => v + (sn[i] - v) * snow * (1 - rock * 0.8));
+  });
+  const m = new THREE.Mesh(g, P.snow ? MAT.snow : MAT.alpine); m.receiveShadow = true; world.add(m);
+  // the yard inside the wire: gravel, dusted in the snow preset
+  const yard = flatPlane(72, 70, 72, 70, 16, -11, 0.02, 9, 8.75);
+  if (P.snow) { const c = yard.attributes.color; for (let i = 0; i < c.count; i++) { const k = 1.25 + 0.2 * smoothNoise(yard.attributes.position.getX(i), yard.attributes.position.getZ(i)); c.setXYZ(i, k, k * 1.02, k * 1.08); } }
+  world.add(new THREE.Mesh(yard, MAT.gravel));
+  // the road: from the gate out through the notch, following the ground down
+  const R = L.road, n = 60, pos = [], uv = [], col = [], idx = [];
+  for (let i = 0; i <= n; i++) {
+    const x = 36 + (i / n) * 120, y = Math.max(0.03, outpostHeight(x, R.z) + 0.06);
+    for (const s of [-1, 1]) { pos.push(x, y, R.z + s * R.w / 2); uv.push(s < 0 ? 0 : 1, x / 7); col.push(1, 1, 1); }
+    if (i < n) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+  }
+  const rg = new THREE.BufferGeometry();
+  rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); rg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  rg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); rg.setIndex(idx); rg.computeVertexNormals();
+  world.add(new THREE.Mesh(rg, MAT.road));
 }
 
-// Boxes from the level list. Anything the sim collides with or looks through comes from here, so what
-// you see is exactly what blocks a guard's eyes.
-const cyl6 = new THREE.CylinderGeometry(1, 1, 1, 12, 1);
-for (const b of LEVEL.boxes) {
-  const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, w = b.x1 - b.x0, d = b.z1 - b.z0, h = b.y1 - b.y0;
-  switch (b.kind) {
-    case 'wall': case 'lintel': {
-      // The face looking into the room is drawn apart and dark. Lit only per vertex and without shadows,
-      // a wall's inner face took the same sky and sun as its outer one, so rooms looked like the yard.
-      const B = b.bld && LEVEL.buildings.find((q) => q.name === b.bld);
-      if (!B) { pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.6, skip: 'ny' }); break; }
-      const alongX = b.x1 - b.x0 > b.z1 - b.z0;
-      const inner = alongX ? ((b.z0 + b.z1) / 2 < B.cz ? 'pz' : 'nz') : ((b.x0 + b.x1) / 2 < B.cx ? 'px' : 'nx');
-      pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.6, skip: ['ny', inner].join(',') });
-      pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.6, col: shade(0.38),
-        skip: ['px', 'nx', 'pz', 'nz', 'py', 'ny'].filter((k) => k !== inner).join(',') });
-      break;
-    }
-    case 'hut': pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.2, skip: 'ny' });
-      pushBox('roof', b.x0 - 0.2, b.y1, b.z0 - 0.2, b.x1 + 0.2, b.y1 + 0.12, b.z1 + 0.2, { tile: 2 }); break;
-    case 'roof': case 'towerroof': pushBox('roof', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 2.5, seg: 2 }); break;
-    case 'crate': {
-      if (b.locker) { pushBox('metal', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { uv: 'face', col: tint(0.55, 0.62, 0.66) }); break; }
-      const k = 0.8 + vrng() * 0.25;
-      pushBox('crate', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { uv: 'face', col: tint(k, k * (0.95 + vrng() * 0.08), k * 0.9), skip: b.y0 < 0.01 ? 'ny' : '' });
-      break;
-    }
-    case 'barrel': {
-      const c = [tint(0.75, 0.2, 0.15), tint(0.35, 0.42, 0.25), tint(0.25, 0.35, 0.55), tint(0.6, 0.6, 0.55)][(vrng() * 4) | 0];
-      pushGeom('barrel', cyl6, M4(cx, h / 2, cz, vrng() * 6, w / 2, h, d / 2), c);
-      break;
-    }
-    case 'sandbag': pushBox('sandbag', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 1.6, skip: 'ny' }); break;
-    case 'terminal':
-      pushBox('metal', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { uv: 'face', col: tint(0.35, 0.38, 0.4) });
-      pushBox('metal', b.x0 + 0.1, b.y1, b.z0 + 0.05, b.x1 - 0.1, b.y1 + 0.55, b.z0 + 0.25, { uv: 'face', col: tint(0.2, 0.22, 0.24) });
-      break;
-    case 'desk': pushBox('plank', b.x0, b.y1 - 0.06, b.z0, b.x1, b.y1, b.z1, { tile: 1 });
-      for (const [x, z] of [[b.x0 + 0.05, b.z0 + 0.05], [b.x1 - 0.1, b.z0 + 0.05], [b.x0 + 0.05, b.z1 - 0.1], [b.x1 - 0.1, b.z1 - 0.1]]) pushBox('metal', x, 0, z, x + 0.05, b.y1 - 0.06, z + 0.05, { uv: 'solid' });
-      break;
-    case 'leg': pushBox('plank', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 1.5 }); break;
-    case 'platform': case 'rail': pushBox('plank', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 1.5 }); break;
-    case 'rock': pushGeom('rock', new THREE.DodecahedronGeometry(1, 0), M4(cx, h * 0.35, cz, vrng() * 6, w * 0.6, h * 0.9, d * 0.6), WHITE, 1); break;
-    default: break;   // trunk/canopy (trees), fence, lamp and truck are drawn below with their own shapes
-  }
-}
-// Truck: cab, canvas-covered bed and wheels on the sim's single 2.4 x 6.2 box.
-{
-  const t = LEVEL.boxes.find((b) => b.kind === 'truck'), cx = (t.x0 + t.x1) / 2, z0 = t.z0, z1 = t.z1;
+// The truck on any 'truck' box, cab to the front: -z for a box along z, -x for one along x.
+function drawTruck(t) {
+  const ax = t.along === 'x';
+  const a0 = ax ? t.z0 : t.x0, a1 = ax ? t.z1 : t.x1, f = ax ? t.x0 : t.z0, r = ax ? t.x1 : t.z1, ac = (a0 + a1) / 2;
+  const bx = (key, A0, y0, F0, A1, y1, F1, o) => (ax ? pushBox(key, F0, y0, A0, F1, y1, A1, o) : pushBox(key, A0, y0, F0, A1, y1, F1, o));
   const olive = tint(0.42, 0.46, 0.3), dark = shade(0.18);
-  pushBox('metal', t.x0, 0.5, z0, t.x1, 1.1, z1, { uv: 'solid', col: olive });
-  pushBox('metal', t.x0 + 0.05, 1.1, z0, t.x1 - 0.05, 2.35, z0 + 1.7, { uv: 'face', col: olive });
-  pushBox('window', t.x0 + 0.2, 1.65, z0 - 0.01, t.x1 - 0.2, 2.2, z0 + 0.02, { uv: 'face' });
-  pushBox('sandbag', t.x0 + 0.02, 1.1, z0 + 1.8, t.x1 - 0.02, 2.7, z1, { tile: 3, col: tint(0.62, 0.62, 0.45) });
-  for (const [x, z] of [[t.x0 + 0.05, z0 + 1.0], [t.x1 - 0.05, z0 + 1.0], [t.x0 + 0.05, z1 - 1.3], [t.x1 - 0.05, z1 - 1.3], [t.x0 + 0.05, z1 - 2.3], [t.x1 - 0.05, z1 - 2.3]])
-    pushGeom('metal', cyl6, M4(x, 0.5, z, 0, 0.5, 0.35, 0.5, 0, Math.PI / 2), dark);
-  pushBox('bulb', cx - 0.9, 0.8, z0 - 0.02, cx - 0.6, 0.95, z0, { uv: 'solid' }); pushBox('bulb', cx + 0.6, 0.8, z0 - 0.02, cx + 0.9, 0.95, z0, { uv: 'solid' });
+  bx('metal', a0, 0.5, f, a1, 1.1, r, { uv: 'solid', col: olive });
+  bx('metal', a0 + 0.05, 1.1, f, a1 - 0.05, 2.35, f + 1.7, { uv: 'face', col: olive });
+  bx('window', a0 + 0.2, 1.65, f - 0.01, a1 - 0.2, 2.2, f + 0.02, { uv: 'face' });
+  bx('sandbag', a0 + 0.02, 1.1, f + 1.8, a1 - 0.02, 2.7, r, { tile: 3, col: tint(0.62, 0.62, 0.45) });
+  if (LEVEL.map === 'outpost') bx('snow', a0 + 0.02, 2.7, f + 1.8, a1 - 0.02, 2.78, r, { tile: 2 });
+  for (const [a, l] of [[a0 + 0.05, f + 1.0], [a1 - 0.05, f + 1.0], [a0 + 0.05, r - 1.3], [a1 - 0.05, r - 1.3], [a0 + 0.05, r - 2.3], [a1 - 0.05, r - 2.3]])
+    pushGeom('metal', cyl6, ax ? M4(l, 0.5, a, 0, 0.5, 0.35, 0.5, Math.PI / 2, 0) : M4(a, 0.5, l, 0, 0.5, 0.35, 0.5, 0, Math.PI / 2), dark);
+  bx('bulb', ac - 0.9, 0.8, f - 0.02, ac - 0.6, 0.95, f, { uv: 'solid' }); bx('bulb', ac + 0.6, 0.8, f - 0.02, ac + 0.9, 0.95, f, { uv: 'solid' });
 }
-// Buildings: lit windows (someone is home), door frames, a sill of grime. Windows sit 1 cm proud of
-// the wall on its outside face, avoiding doors.
-for (const B of LEVEL.buildings) {
-  const x0 = B.cx - B.w / 2, x1 = B.cx + B.w / 2, z0 = B.cz - B.d / 2, z1 = B.cz + B.d / 2;
-  const sides = [['n', x0, x1, z0 - 0.16, 'x'], ['s', x0, x1, z1 + 0.16, 'x'], ['w', z0, z1, x0 - 0.16, 'z'], ['e', z0, z1, x1 + 0.16, 'z']];
-  for (const [s, a, b, f, along] of sides) {
-    const doors = B.doors.filter((o) => o.side === s);
-    for (let p = a + 1.6; p < b - 1.2; p += 3.2) {
-      if (doors.some((o) => Math.abs(o.at - p) < o.w / 2 + 0.9)) continue;
-      if (vrng() < 0.3) continue;
-      const lit = B.name !== 'warehouse' && vrng() < 0.75;
-      const k = lit ? 1 : 0.18;
-      if (along === 'x') pushBox('window', p - 0.55, 1.2, f - 0.01, p + 0.55, 2.0, f + 0.01, { uv: 'face', col: shade(k) });
-      else pushBox('window', f - 0.01, 1.2, p - 0.55, f + 0.01, 2.0, p + 0.55, { uv: 'face', col: shade(k) });
-    }
-    for (const o of doors) {
-      const hw = o.w / 2, top = o.h || 2.2, dk = shade(0.25);
-      if (along === 'x') { pushBox('metal', o.at - hw - 0.1, 0, f - 0.04, o.at - hw, top, f + 0.04, { uv: 'solid', col: dk }); pushBox('metal', o.at + hw, 0, f - 0.04, o.at + hw + 0.1, top, f + 0.04, { uv: 'solid', col: dk }); pushBox('metal', o.at - hw - 0.1, top, f - 0.04, o.at + hw + 0.1, top + 0.1, f + 0.04, { uv: 'solid', col: dk }); }
-      else { pushBox('metal', f - 0.04, 0, o.at - hw - 0.1, f + 0.04, top, o.at - hw, { uv: 'solid', col: dk }); pushBox('metal', f - 0.04, 0, o.at + hw, f + 0.04, top, o.at + hw + 0.1, { uv: 'solid', col: dk }); pushBox('metal', f - 0.04, top, o.at - hw - 0.1, f + 0.04, top + 0.1, o.at + hw + 0.1, { uv: 'solid', col: dk }); }
-    }
-  }
-  // interior floor, darker than the yard, and a ceiling so the roof does not read as a sheet from inside
-  pushBox('concrete', x0 + 0.15, 0.03, z0 + 0.15, x1 - 0.15, 0.05, z1 - 0.15, { tile: 3, seg: 2, col: shade(0.32), skip: 'ny' });
-  pushBox('concrete', x0 + 0.15, B.h - 0.05, z0 + 0.15, x1 - 0.15, B.h, z1 - 0.15, { tile: 3, seg: 2, col: shade(0.22) });
-}
-// Towers: ladders and a crossbrace, on top of the sim's legs and deck.
-for (const T of LEVEL.towers) {
-  for (let y = 0.4; y < 4.4; y += 0.4) pushBox('plank', T.x - 0.3, y, T.z + 1.35, T.x + 0.3, y + 0.06, T.z + 1.42, { tile: 1 });
-  pushBox('plank', T.x - 0.34, 0, T.z + 1.36, T.x - 0.28, 4.6, T.z + 1.42, { tile: 1 }); pushBox('plank', T.x + 0.28, 0, T.z + 1.36, T.x + 0.34, 4.6, T.z + 1.42, { tile: 1 });
-  for (const [ox, oz] of [[-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2], [1.2, 1.2]]) pushBox('plank', T.x + ox - 0.05, 4.6, T.z + oz - 0.05, T.x + ox + 0.05, 7.0, T.z + oz + 0.05, { tile: 1 });
-  pushBox('plank', T.x - 1.25, 2.1, T.z - 1.25, T.x + 1.25, 2.25, T.z - 1.15, { tile: 1 }); pushBox('plank', T.x - 1.25, 2.1, T.z + 1.15, T.x + 1.25, 2.25, T.z + 1.25, { tile: 1 });
-}
-// Fence: chain-link panels, a post every 3 m, a top rail and a barbed strand.
-for (const f of LEVEL.fences) {
-  const alongX = f.z0 === f.z1, len = alongX ? f.x1 - f.x0 : f.z1 - f.z0;
-  const B = bucket('fence');
-  const quad = (ax, az, bx, bz, y0, y1) => {
-    const n = alongX ? [0, 0, 1] : [1, 0, 0];
-    const u0 = (alongX ? ax : az) / 1.2, u1 = (alongX ? bx : bz) / 1.2, v0 = y0 / 1.2, v1 = y1 / 1.2;
-    const A = [ax, y0, az], Bv = [bx, y0, bz], C = [bx, y1, bz], D = [ax, y1, az];
-    for (const [p, t] of [[A, [u0, v0]], [Bv, [u1, v0]], [C, [u1, v1]], [A, [u0, v0]], [C, [u1, v1]], [D, [u0, v1]]]) { B.pos.push(...p); B.nor.push(...n); B.uv.push(...t); B.col.push(1, 1, 1); }
+// A lattice: legs from the corners of a polygon of radius r, tapering to rTop at h, braced in zigzags.
+function pushLattice(key, x, z, h, r, rTop, legs, col) {
+  const pts = (y) => { const k = r + (rTop - r) * (y / h); return Array.from({ length: legs }, (_, i) => { const a = (i / legs) * Math.PI * 2 + 0.3; return [x + Math.cos(a) * k, y, z + Math.sin(a) * k]; }); };
+  const rod = (A, B, w) => {
+    const d = new THREE.Vector3(B[0] - A[0], B[1] - A[1], B[2] - A[2]), len = d.length();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize());
+    const m = new THREE.Matrix4().compose(new THREE.Vector3((A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (A[2] + B[2]) / 2), q, new THREE.Vector3(w, len, w));
+    pushGeom(key, cyl4, m, col);
   };
-  quad(f.x0, f.z0, f.x1, f.z1, 0.05, 2.45);
-  const posts = Math.max(1, Math.round(len / 3));
-  for (let i = 0; i <= posts; i++) {
-    const t = i / posts, x = f.x0 + (f.x1 - f.x0) * t, z = f.z0 + (f.z1 - f.z0) * t;
-    pushGeom('metal', cyl6, M4(x, 1.35, z, 0, 0.05, 2.7, 0.05), shade(0.7));
-    // barbed-wire outrigger leaning outward at the top
-    const out = alongX ? [0, Math.sign(f.z0) * 0.25] : [Math.sign(f.x0) * 0.25, 0];
-    pushGeom('metal', cyl6, M4(x + out[0] / 2, 2.85, z + out[1] / 2, 0, 0.02, 0.5, 0.02, alongX ? Math.sign(f.z0) * 0.5 : 0, alongX ? 0 : -Math.sign(f.x0) * 0.5), shade(0.5));
+  const lo = pts(0), hi = pts(h);
+  for (let i = 0; i < legs; i++) rod(lo[i], hi[i], 0.07);
+  const step = 1.6;
+  for (let y = 0; y < h - 0.1; y += step) {
+    const a = pts(y), b = pts(Math.min(h, y + step));
+    for (let i = 0; i < legs; i++) { const j = (i + 1) % legs; rod(a[i], b[j], 0.025); rod(b[i], b[j], 0.03); }
   }
-  if (alongX) { pushBox('metal', f.x0, 2.52, f.z0 - 0.03, f.x1, 2.58, f.z0 + 0.03, { uv: 'solid', col: shade(0.6) }); pushBox('metal', f.x0, 3.02, f.z0 + Math.sign(f.z0) * 0.22, f.x1, 3.04, f.z0 + Math.sign(f.z0) * 0.24, { uv: 'solid', col: shade(0.35) }); }
-  else { pushBox('metal', f.x0 - 0.03, 2.52, f.z0, f.x0 + 0.03, 2.58, f.z1, { uv: 'solid', col: shade(0.6) }); pushBox('metal', f.x0 + Math.sign(f.x0) * 0.22, 3.02, f.z0, f.x0 + Math.sign(f.x0) * 0.24, 3.04, f.z1, { uv: 'solid', col: shade(0.35) }); }
 }
-// The cut in the south wire: a flap of mesh peeled back, so the quiet way in is findable by eye.
-{
-  const B = bucket('fence'), hx = LEVEL.hole.x, hz = LEVEL.hole.z;
-  const pts = [[hx - 1.1, 0.05, hz], [hx - 0.1, 0.05, hz + 0.9], [hx - 0.2, 1.3, hz + 0.8], [hx - 1.1, 1.4, hz]];
-  for (const i of [0, 1, 2, 0, 2, 3]) { B.pos.push(...pts[i]); B.nor.push(0, 0, 1); B.uv.push(pts[i][0] / 1.2, pts[i][1] / 1.2); B.col.push(1, 1, 1); }
-}
+
 // Pines outside the wire. Each crown is seven or eight tiers of branches: a ring of alternating long and
 // short boughs with drooping tips, a convex upper surface and an underside, and shading baked into vertex
 // colours -- light, green tips and a dark core near the trunk -- so a tree reads as layered foliage with
@@ -1728,73 +2307,402 @@ function makePineGeom(v) {
   g.setIndex(idx); g.computeVertexNormals();
   return g;
 }
-{
-  const PINES = [0, 1, 2, 3].map(makePineGeom);
-  for (let n = 0; n < LEVEL.trees.length; n++) {
-    const T = LEVEL.trees[n];
-    pushGeom('bark', cyl6, M4(T.x, T.h * 0.3, T.z, 0, 0.17, T.h * 0.6, 0.17), WHITE, 1);
-    const base = 1.3, H = T.h - base + 0.4, c = 0.82 + vrng() * 0.28;
-    pushGeom('pine', PINES[n % 4], M4(T.x, base, T.z, T.rot, T.r * 1.08, H, T.r * 1.08, (vrng() - 0.5) * 0.06, (vrng() - 0.5) * 0.06),
-      tint(c * 0.92, c, c * 0.86), 3);
+const PINES = [0, 1, 2, 3].map(makePineGeom);
+const DRIFT = new THREE.SphereGeometry(1, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2);   // a soft mound of snow, 48 triangles
+// Snow lying on the boughs: the same crowns, keeping only the upper faces of each tier (the cap, and for a
+// heavy fall the outer bough tops too), drawn a hair above the green in the snow material.
+function pineSnowGeom(g, heavy) {
+  const src = g.index.array, keep = [];
+  for (let t = 0; t < src.length / 3; t++) { const k = t % 5; if (k === 0 || (heavy && (k === 1 || k === 2))) keep.push(src[t * 3], src[t * 3 + 1], src[t * 3 + 2]); }
+  const s = g.clone(); s.setIndex(keep);
+  const p = s.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, p.getY(i) + 0.012);
+  s.computeVertexNormals();
+  return s;
+}
+const PINE_SNOW = [PINES.map((g) => pineSnowGeom(g, false)), PINES.map((g) => pineSnowGeom(g, true))];
+// Boulders for the mountain: icospheres with every vertex pushed in or out, four seeded shapes.
+function makeBoulder(v) {
+  const g = new THREE.IcosahedronGeometry(1, 1), p = g.attributes.position, r = mulberry32(300 + v), seen = new Map();
+  for (let i = 0; i < p.count; i++) {
+    const key = [p.getX(i), p.getY(i), p.getZ(i)].map((q) => q.toFixed(3)).join(',');
+    if (!seen.has(key)) seen.set(key, 0.78 + r() * 0.4);
+    const k = seen.get(key); p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * (p.getY(i) > 0 ? 0.9 : 1), p.getZ(i) * k);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+const BOULDERS = [0, 1, 2, 3].map(makeBoulder);
+
+// Soldier looks: the garrison in camo and helmets, the officer in a dark uniform and peaked cap, the pilot
+// in a sage flight suit with no weapon. Geometry is built once; missions only choose.
+function snowLumps(x0, z0, x1, z1, n, y = 0) {
+  for (let i = 0; i < n; i++) {
+    const x = x0 + vrng() * (x1 - x0), z = z0 + vrng() * (z1 - z0), r = 0.35 + vrng() * 0.5;
+    pushGeom('snow', DRIFT, M4(x, y, z, vrng() * 6, r * 1.7, r * 0.42, r * 1.2), shade(0.92 + vrng() * 0.1), 0.6);
   }
 }
-// Brush: the sim's crouch-height sight blockers, drawn as a thicket of low leafy lumps so what hides
-// you reads as something you could hide in.
-{
-  const ico = new THREE.IcosahedronGeometry(1, 0);
-  for (const B of LEVEL.brush) {
+
+function buildWorld(L, mission) {
+  const P = PRESETS[mission.preset];
+  vrng = mulberry32(7 + MISSIONS.indexOf(mission) * 1013);
+  world = new THREE.Group(); scene.add(world);
+  WV = { charges: [], fires: [], masts: {}, gens: {}, pickups: [], dish: null, door: null, lzSmoke: true };
+  const snowy = L.map === 'outpost';
+  buildGround(L, P);
+  const hp = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), MAT.helipad); hp.rotation.x = -Math.PI / 2;
+  hp.geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Array(12).fill(1), 3));
+  hp.position.set(L.extraction.x, 0.04, L.extraction.z); world.add(hp);
+
+  // Boxes from the level list. Anything the sim collides with or looks through comes from here, so what
+  // you see is exactly what blocks a guard's eyes.
+  for (const b of L.boxes) {
+    const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, w = b.x1 - b.x0, d = b.z1 - b.z0, h = b.y1 - b.y0;
+    switch (b.kind) {
+      case 'wall': case 'lintel': {
+        // The face looking into the room is drawn apart and dark. Lit only per vertex and without shadows,
+        // a wall's inner face took the same sky and sun as its outer one, so rooms looked like the yard.
+        const B = b.bld && L.buildings.find((q) => q.name === b.bld);
+        if (!B) { pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.6, skip: 'ny' }); break; }
+        const alongX = b.x1 - b.x0 > b.z1 - b.z0;
+        const inner = alongX ? ((b.z0 + b.z1) / 2 < B.cz ? 'pz' : 'nz') : ((b.x0 + b.x1) / 2 < B.cx ? 'px' : 'nx');
+        pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.6, skip: ['ny', inner].join(',') });
+        pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.6, col: shade(0.38),
+          skip: ['px', 'nx', 'pz', 'nz', 'py', 'ny'].filter((k) => k !== inner).join(',') });
+        break;
+      }
+      case 'hut': pushBox('concrete', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 3.2, seg: 1.2, skip: 'ny' });
+        pushBox('roof', b.x0 - 0.2, b.y1, b.z0 - 0.2, b.x1 + 0.2, b.y1 + 0.12, b.z1 + 0.2, { tile: 2 });
+        if (snowy) pushBox('snow', b.x0 - 0.15, b.y1 + 0.12, b.z0 - 0.15, b.x1 + 0.15, b.y1 + 0.26, b.z1 + 0.15, { tile: 3 });
+        break;
+      case 'roof': case 'towerroof': pushBox('roof', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 2.5, seg: 2 });
+        if (snowy) pushBox('snow', b.x0 + 0.1, b.y1, b.z0 + 0.1, b.x1 - 0.1, b.y1 + 0.18, b.z1 - 0.1, { tile: 4, seg: 3 });
+        break;
+      case 'crate': {
+        if (b.locker) { pushBox('metal', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { uv: 'face', col: tint(0.55, 0.62, 0.66) }); break; }
+        const k = 0.8 + vrng() * 0.25;
+        pushBox('crate', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { uv: 'face', col: tint(k, k * (0.95 + vrng() * 0.08), k * 0.9), skip: b.y0 < 0.01 ? 'ny' : '' });
+        if (snowy && !L.buildings.some((B) => Math.abs(cx - B.cx) < B.w / 2 && Math.abs(cz - B.cz) < B.d / 2))
+          pushBox('snow', b.x0 + 0.03, b.y1, b.z0 + 0.03, b.x1 - 0.03, b.y1 + 0.07, b.z1 - 0.03, { tile: 2 });
+        break;
+      }
+      case 'barrel': {
+        const c = [tint(0.75, 0.2, 0.15), tint(0.35, 0.42, 0.25), tint(0.25, 0.35, 0.55), tint(0.6, 0.6, 0.55)][(vrng() * 4) | 0];
+        pushGeom('barrel', cyl6, M4(cx, h / 2, cz, vrng() * 6, w / 2, h, d / 2), c);
+        break;
+      }
+      case 'sandbag': pushBox('sandbag', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 1.6, skip: 'ny' });
+        if (snowy) pushBox('snow', b.x0 + 0.05, b.y1, b.z0 + 0.05, b.x1 - 0.05, b.y1 + 0.08, b.z1 - 0.05, { tile: 2 });
+        break;
+      case 'terminal':
+        pushBox('metal', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { uv: 'face', col: tint(0.35, 0.38, 0.4) });
+        pushBox('metal', b.x0 + 0.1, b.y1, b.z0 + 0.05, b.x1 - 0.1, b.y1 + 0.55, b.z0 + 0.25, { uv: 'face', col: tint(0.2, 0.22, 0.24) });
+        { const sm = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.45), MAT.screen); sm.position.set(cx, 1.36, b.z1 - 0.09); world.add(sm); }
+        break;
+      case 'desk': pushBox('plank', b.x0, b.y1 - 0.06, b.z0, b.x1, b.y1, b.z1, { tile: 1 });
+        for (const [x, z] of [[b.x0 + 0.05, b.z0 + 0.05], [b.x1 - 0.1, b.z0 + 0.05], [b.x0 + 0.05, b.z1 - 0.1], [b.x1 - 0.1, b.z1 - 0.1]]) pushBox('metal', x, 0, z, x + 0.05, b.y1 - 0.06, z + 0.05, { uv: 'solid' });
+        break;
+      case 'leg':
+        if (h > 5) { pushGeom('metal', cyl6, M4(cx, h / 2, cz, 0, 0.13, h, 0.13), shade(0.55)); break; }   // the dish tower
+        pushBox('plank', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 1.5 }); break;
+      case 'platform': case 'rail': pushBox('plank', b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, { tile: 1.5 }); break;
+      case 'rock': {
+        const rot = vrng() * 6;
+        if (!snowy) { pushGeom('rock', dodeca, M4(cx, h * 0.35, cz, rot, w * 0.6, h * 0.9, d * 0.6), WHITE, 1); break; }
+        const bv = BOULDERS[(vrng() * 4) | 0];
+        pushGeom('rock', bv, M4(cx, h * 0.42, cz, rot, w * 0.62, h * 0.72, d * 0.62), shade(0.78 + vrng() * 0.15), 1);
+        pushGeom('snow', ico1, M4(cx, h * 0.98, cz, rot, w * 0.36, h * 0.16, d * 0.34), WHITE, 0.6);
+        break;
+      }
+      case 'tank': {
+        const alongX = w > d, len = alongX ? w : d, rad = Math.min(w, d) / 2;
+        pushGeom('metal', cyl6, alongX ? M4(cx, h - rad, cz, 0, rad, len - 0.3, rad, 0, Math.PI / 2) : M4(cx, h - rad, cz, 0, rad, len - 0.3, rad, Math.PI / 2, 0), tint(0.72, 0.74, 0.68));
+        for (const s of [-1, 1]) {
+          const o = s * (len / 2 - 0.9);
+          if (alongX) pushBox('metal', cx + o - 0.2, 0, b.z0 + 0.15, cx + o + 0.2, h - rad, b.z1 - 0.15, { uv: 'solid', col: shade(0.3) });
+          else pushBox('metal', b.x0 + 0.15, 0, cz + o - 0.2, b.x1 - 0.15, h - rad, cz + o + 0.2, { uv: 'solid', col: shade(0.3) });
+        }
+        pushBox('hazard', alongX ? cx - 1 : b.x0 - 0.01, h - rad - 0.25, alongX ? b.z1 - 0.02 : cz - 1, alongX ? cx + 1 : b.x0, h - rad + 0.05, alongX ? b.z1 - 0.01 : cz + 1, { tile: 0.5 });
+        if (snowy) pushGeom('snow', cyl6, alongX ? M4(cx, h - 0.05, cz, 0, rad * 0.7, len - 0.6, 0.12, 0, Math.PI / 2) : M4(cx, h - 0.05, cz, 0, 0.12, len - 0.6, rad * 0.7, Math.PI / 2, 0), WHITE, 0.5);
+        break;
+      }
+      case 'truck': drawTruck(b); break;
+      default: break;   // trunk/canopy (trees), fence, lamp, mast, generator, door, cliff, edge: drawn below or not at all
+    }
+  }
+  // Buildings: lit windows (someone is home), door frames, a sill of grime. Windows sit 1 cm proud of
+  // the wall on its outside face, avoiding doors.
+  for (const B of L.buildings) {
+    const x0 = B.cx - B.w / 2, x1 = B.cx + B.w / 2, z0 = B.cz - B.d / 2, z1 = B.cz + B.d / 2;
+    const sides = [['n', x0, x1, z0 - 0.16, 'x'], ['s', x0, x1, z1 + 0.16, 'x'], ['w', z0, z1, x0 - 0.16, 'z'], ['e', z0, z1, x1 + 0.16, 'z']];
+    for (const [s, a, b, f, along] of sides) {
+      const doors = B.doors.filter((o) => o.side === s);
+      for (let p = a + 1.6; p < b - 1.2; p += 3.2) {
+        if (doors.some((o) => Math.abs(o.at - p) < o.w / 2 + 0.9)) continue;
+        if (vrng() < 0.3) continue;
+        if (B.name === 'cells' || B.name === 'radar') continue;          // no windows in the cells or the radar hall
+        const lit = B.name !== 'warehouse' && vrng() < 0.75;
+        const k = lit ? 1 : 0.18;
+        if (along === 'x') pushBox('window', p - 0.55, 1.2, f - 0.01, p + 0.55, 2.0, f + 0.01, { uv: 'face', col: shade(k) });
+        else pushBox('window', f - 0.01, 1.2, p - 0.55, f + 0.01, 2.0, p + 0.55, { uv: 'face', col: shade(k) });
+      }
+      for (const o of doors) {
+        const hw = o.w / 2, top = o.h || 2.2, dk = shade(0.25);
+        if (along === 'x') { pushBox('metal', o.at - hw - 0.1, 0, f - 0.04, o.at - hw, top, f + 0.04, { uv: 'solid', col: dk }); pushBox('metal', o.at + hw, 0, f - 0.04, o.at + hw + 0.1, top, f + 0.04, { uv: 'solid', col: dk }); pushBox('metal', o.at - hw - 0.1, top, f - 0.04, o.at + hw + 0.1, top + 0.1, f + 0.04, { uv: 'solid', col: dk }); }
+        else { pushBox('metal', f - 0.04, 0, o.at - hw - 0.1, f + 0.04, top, o.at - hw, { uv: 'solid', col: dk }); pushBox('metal', f - 0.04, 0, o.at + hw, f + 0.04, top, o.at + hw + 0.1, { uv: 'solid', col: dk }); pushBox('metal', f - 0.04, top, o.at - hw - 0.1, f + 0.04, top + 0.1, o.at + hw + 0.1, { uv: 'solid', col: dk }); }
+      }
+    }
+    // interior floor, darker than the yard, and a ceiling so the roof does not read as a sheet from inside
+    pushBox('concrete', x0 + 0.15, 0.03, z0 + 0.15, x1 - 0.15, 0.05, z1 - 0.15, { tile: 3, seg: 2, col: shade(0.32), skip: 'ny' });
+    pushBox('concrete', x0 + 0.15, B.h - 0.05, z0 + 0.15, x1 - 0.15, B.h, z1 - 0.15, { tile: 3, seg: 2, col: shade(0.22) });
+    if (snowy) {   // drifts against the walls, deeper on the north (windward) side
+      snowLumps(x0 - 0.6, z0 - 1.9, x1 + 0.6, z0 - 1.25, Math.round(B.w * 0.9));
+      snowLumps(x0 - 1.9, z0 + 0.5, x0 - 1.25, z1 - 0.5, Math.round(B.d * 0.4));
+    }
+  }
+  // Towers: ladders and a crossbrace, on top of the sim's legs and deck.
+  for (const T of L.towers) {
+    for (let y = 0.4; y < 4.4; y += 0.4) pushBox('plank', T.x - 0.3, y, T.z + 1.35, T.x + 0.3, y + 0.06, T.z + 1.42, { tile: 1 });
+    pushBox('plank', T.x - 0.34, 0, T.z + 1.36, T.x - 0.28, 4.6, T.z + 1.42, { tile: 1 }); pushBox('plank', T.x + 0.28, 0, T.z + 1.36, T.x + 0.34, 4.6, T.z + 1.42, { tile: 1 });
+    for (const [ox, oz] of [[-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2], [1.2, 1.2]]) pushBox('plank', T.x + ox - 0.05, 4.6, T.z + oz - 0.05, T.x + ox + 0.05, 7.0, T.z + oz + 0.05, { tile: 1 });
+    pushBox('plank', T.x - 1.25, 2.1, T.z - 1.25, T.x + 1.25, 2.25, T.z - 1.15, { tile: 1 }); pushBox('plank', T.x - 1.25, 2.1, T.z + 1.15, T.x + 1.25, 2.25, T.z + 1.25, { tile: 1 });
+  }
+  // Fence: chain-link panels, a post every 3 m, a top rail and a barbed strand, leaning away from the middle.
+  const fcx = L.map === 'outpost' ? 16 : 0, fcz = L.map === 'outpost' ? -11 : 0;
+  for (const f of L.fences) {
+    const alongX = f.z0 === f.z1, len = alongX ? f.x1 - f.x0 : f.z1 - f.z0;
+    const sz = Math.sign(f.z0 - fcz), sx = Math.sign(f.x0 - fcx);
+    const B = bucket('fence');
+    const quad = (ax, az, bx, bz, y0, y1) => {
+      const n = alongX ? [0, 0, 1] : [1, 0, 0];
+      const u0 = (alongX ? ax : az) / 1.2, u1 = (alongX ? bx : bz) / 1.2, v0 = y0 / 1.2, v1 = y1 / 1.2;
+      const A = [ax, y0, az], Bv = [bx, y0, bz], C = [bx, y1, bz], D = [ax, y1, az];
+      for (const [p, t] of [[A, [u0, v0]], [Bv, [u1, v0]], [C, [u1, v1]], [A, [u0, v0]], [C, [u1, v1]], [D, [u0, v1]]]) { B.pos.push(...p); B.nor.push(...n); B.uv.push(...t); B.col.push(1, 1, 1); }
+    };
+    quad(f.x0, f.z0, f.x1, f.z1, 0.05, 2.45);
+    const posts = Math.max(1, Math.round(len / 3));
+    for (let i = 0; i <= posts; i++) {
+      const t = i / posts, x = f.x0 + (f.x1 - f.x0) * t, z = f.z0 + (f.z1 - f.z0) * t;
+      pushGeom('metal', cyl6, M4(x, 1.35, z, 0, 0.05, 2.7, 0.05), shade(0.7));
+      const out = alongX ? [0, sz * 0.25] : [sx * 0.25, 0];
+      pushGeom('metal', cyl6, M4(x + out[0] / 2, 2.85, z + out[1] / 2, 0, 0.02, 0.5, 0.02, alongX ? sz * 0.5 : 0, alongX ? 0 : -sx * 0.5), shade(0.5));
+    }
+    if (alongX) { pushBox('metal', f.x0, 2.52, f.z0 - 0.03, f.x1, 2.58, f.z0 + 0.03, { uv: 'solid', col: shade(0.6) }); pushBox('metal', f.x0, 3.02, f.z0 + sz * 0.22, f.x1, 3.04, f.z0 + sz * 0.24, { uv: 'solid', col: shade(0.35) }); }
+    else { pushBox('metal', f.x0 - 0.03, 2.52, f.z0, f.x0 + 0.03, 2.58, f.z1, { uv: 'solid', col: shade(0.6) }); pushBox('metal', f.x0 + sx * 0.22, 3.02, f.z0, f.x0 + sx * 0.24, 3.04, f.z1, { uv: 'solid', col: shade(0.35) }); }
+  }
+  // The cut in the wire: a flap of mesh peeled back, so the quiet way in is findable by eye.
+  if (L.hole) {
+    const B = bucket('fence'), hx = L.hole.x, hz = L.hole.z;
+    const pts = [[hx - 1.1, 0.05, hz], [hx - 0.1, 0.05, hz + 0.9], [hx - 0.2, 1.3, hz + 0.8], [hx - 1.1, 1.4, hz]];
+    for (const i of [0, 1, 2, 0, 2, 3]) { B.pos.push(...pts[i]); B.nor.push(0, 0, 1); B.uv.push(pts[i][0] / 1.2, pts[i][1] / 1.2); B.col.push(1, 1, 1); }
+  }
+  if (L.map === 'outpost') buildOutpostDressing(L, P);
+  // Pines (see makePineGeom): two buckets for all the trees. On the mountain they are shorter and dusted.
+  {
+    for (let n = 0; n < L.trees.length; n++) {
+      const T = L.trees[n];
+      pushGeom('bark', cyl6, M4(T.x, T.h * 0.3, T.z, 0, 0.17, T.h * 0.6, 0.17), WHITE, 1);
+      const base = snowy ? 0.9 : 1.3, H = T.h - base + 0.4, c = 0.82 + vrng() * 0.28;
+      const col = snowy ? tint(c * 0.95, c * 1.02, c * 1.0) : tint(c * 0.92, c, c * 0.86);
+      const tx = (vrng() - 0.5) * 0.06, tz = (vrng() - 0.5) * 0.06;
+      pushGeom('pine', PINES[n % 4], M4(T.x, base, T.z, T.rot, T.r * 1.08, H, T.r * 1.08, tx, tz), col, 3);
+      if (snowy) pushGeom('snow', PINE_SNOW[P.snow ? 1 : 0][n % 4], M4(T.x, base, T.z, T.rot, T.r * 1.08, H, T.r * 1.08, tx, tz), shade(0.97), 3);
+    }
+  }
+  // Brush: the sim's crouch-height sight blockers, drawn as a thicket of low leafy lumps.
+  for (const B of L.brush) {
     const n = Math.round(B.w * B.d * 1.6);
     for (let i = 0; i < n; i++) {
       const x = B.x + (vrng() - 0.5) * B.w, z = B.z + (vrng() - 0.5) * B.d, r = 0.4 + vrng() * 0.3, c = 0.75 + vrng() * 0.4;
-      pushGeom('pine', ico, M4(x, r * 0.95, z, vrng() * 6, r, r * 1.35, r), tint(c * 0.95, c * 1.05, c * 0.8), 1);
+      pushGeom('pine', ico1, M4(x, r * 0.95, z, vrng() * 6, r, r * 1.35, r), snowy ? tint(c * 0.8, c * 0.95, c * 0.85) : tint(c * 0.95, c * 1.05, c * 0.8), 1);
+      if (snowy && vrng() < 0.6) pushGeom('snow', ico1, M4(x, r * 1.55, z, vrng() * 6, r * 0.8, r * 0.35, r * 0.8), WHITE, 0.6);
     }
   }
-}
-// Grass tufts: crossed quads, alpha-tested, outside the wire and away from the road.
-{
-  const B = bucket('tuft');
-  for (let i = 0; i < 520; i++) {
-    const x = (vrng() * 2 - 1) * 66, z = (vrng() * 2 - 1) * 66;
-    if (Math.abs(x) < 33.5 && Math.abs(z) < 27.5) continue;
-    if (x < -30 && Math.abs(z) < 4.5) continue;
-    const s = 0.5 + vrng() * 0.6, a = vrng() * Math.PI, k = 0.75 + vrng() * 0.35;
-    for (const r of [a, a + Math.PI / 2]) {
-      const dx = Math.cos(r) * s, dz = Math.sin(r) * s;
-      const P = [[x - dx, 0, z - dz], [x + dx, 0, z + dz], [x + dx, s * 1.1, z + dz], [x - dx, s * 1.1, z - dz]];
-      const U = [[0, 0], [1, 0], [1, 1], [0, 1]];
-      for (const j of [0, 1, 2, 0, 2, 3]) { B.pos.push(...P[j]); B.nor.push(0, 1, 0); B.uv.push(...U[j]); B.col.push(k, k, k * 0.9); }
+  // Grass tufts: crossed quads, alpha-tested, outside the wire and away from the road.
+  {
+    const B = bucket('tuft');
+    const inWire = L.map === 'outpost' ? (x, z) => x > -21 && x < 53 && z > -47 && z < 25 : (x, z) => Math.abs(x) < 33.5 && Math.abs(z) < 27.5;
+    const road = L.map === 'outpost' ? (x, z) => x > 50 && Math.abs(z - 18) < 4.5 : (x, z) => x < -30 && Math.abs(z) < 4.5;
+    const N = L.map === 'outpost' ? 360 : 520;
+    for (let i = 0; i < N; i++) {
+      const x = (vrng() * 2 - 1) * 66, z = (vrng() * 2 - 1) * 66;
+      if (inWire(x, z) || road(x, z)) continue;
+      if (L.map === 'outpost' && (z < -49 || z > 51)) continue;
+      const s = 0.5 + vrng() * 0.6, a = vrng() * Math.PI, k = (0.75 + vrng() * 0.35) * (snowy ? 1.1 : 1);
+      for (const r of [a, a + Math.PI / 2]) {
+        const dx = Math.cos(r) * s, dz = Math.sin(r) * s;
+        const Pq = [[x - dx, 0, z - dz], [x + dx, 0, z + dz], [x + dx, s * 1.1, z + dz], [x - dx, s * 1.1, z - dz]];
+        const U = [[0, 0], [1, 0], [1, 1], [0, 1]];
+        for (const j of [0, 1, 2, 0, 2, 3]) { B.pos.push(...Pq[j]); B.nor.push(0, 1, 0); B.uv.push(...U[j]); B.col.push(k, k * (snowy ? 0.95 : 1), k * (snowy ? 0.8 : 0.9)); }
+      }
     }
   }
-}
-// Lamps: pole, arm, a bulb that glows, a pool of light on the ground (the pool the sim's lightAt()
-// measures), and a real point light for the four that matter most.
-const glowMat = new THREE.SpriteMaterial({ map: TEX.glow, color: 0xffc070, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-const poolMat = new THREE.MeshBasicMaterial({ map: TEX.glow, color: 0x6a4a22, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4 });
-LEVEL.lamps.forEach((lp, i) => {
-  if (lp.inside) {
-    const pl = new THREE.PointLight(0x7dffb0, 0.9, 7, 2); pl.position.set(lp.x, 2.2, lp.z); world.add(pl);
-    return;
+  // Lamps: pole, arm, a bulb that glows, a pool of light on the ground (the pool the sim's lightAt()
+  // measures), and a real point light for the five that matter most.
+  for (const pl of LAMP_LIGHTS) pl.intensity = 0;
+  let nl = 0;
+  L.lamps.forEach((lp) => {
+    if (lp.inside) {
+      const pl = LAMP_LIGHTS[5]; pl.color.setHex(0x7dffb0); pl.intensity = 0.9; pl.distance = 7; pl.position.set(lp.x, 2.2, lp.z);
+      return;
+    }
+    pushGeom('metal', cyl6, M4(lp.x, 2.75, lp.z, 0, 0.08, 5.5, 0.08), shade(0.45));
+    pushBox('metal', lp.x - 0.05, 5.4, lp.z - 0.05, lp.x + 0.05, 5.48, lp.z + 0.9, { uv: 'solid', col: shade(0.4) });
+    pushBox('metal', lp.x - 0.2, 5.3, lp.z + 0.7, lp.x + 0.2, 5.45, lp.z + 1.1, { uv: 'solid', col: shade(0.3) });
+    pushBox('bulb', lp.x - 0.14, 5.26, lp.z + 0.76, lp.x + 0.14, 5.3, lp.z + 1.04, { uv: 'solid' });
+    const s = new THREE.Sprite(glowMat); s.scale.set(2.2, 2.2, 1); s.position.set(lp.x, 5.2, lp.z + 0.9); world.add(s);
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(lp.r * 1.7, lp.r * 1.7), poolMat); pool.rotation.x = -Math.PI / 2; pool.position.set(lp.x, 0.05, lp.z + 0.9); world.add(pool);
+    if (nl < 5) { const pl = LAMP_LIGHTS[nl++]; pl.color.setHex(0xffb865); pl.intensity = 1.25 * P.lampK; pl.distance = 16; pl.position.set(lp.x, 5, lp.z + 0.9); }
+  });
+  // Mission props: masts, generators, the dish, doors, charges, pickups, the captive.
+  for (const pr of L.props) buildProp(pr, P);
+  for (const d of L.doors) {
+    const B = d.box, key = 'metal:door';
+    pushBox(key, B.x0 + 0.04, 0, B.z0, B.x1 - 0.04, B.y1, B.z1, { uv: 'face', col: tint(0.34, 0.38, 0.36) });
+    pushBox(key, B.x1 - 0.02, 0.95, B.z0 + 0.25, B.x1 + 0.03, 1.15, B.z0 + 0.45, { uv: 'solid', col: tint(0.8, 0.3, 0.2) });
+    const m = bucketMesh(key); world.add(m);
+    WV.door = { id: d.id, mesh: m, t: 0 };
   }
-  pushGeom('metal', cyl6, M4(lp.x, 2.75, lp.z, 0, 0.08, 5.5, 0.08), shade(0.45));
-  pushBox('metal', lp.x - 0.05, 5.4, lp.z - 0.05, lp.x + 0.05, 5.48, lp.z + 0.9, { uv: 'solid', col: shade(0.4) });
-  pushBox('metal', lp.x - 0.2, 5.3, lp.z + 0.7, lp.x + 0.2, 5.45, lp.z + 1.1, { uv: 'solid', col: shade(0.3) });
-  pushBox('bulb', lp.x - 0.14, 5.26, lp.z + 0.76, lp.x + 0.14, 5.3, lp.z + 1.04, { uv: 'solid' });
-  const s = new THREE.Sprite(glowMat); s.scale.set(2.2, 2.2, 1); s.position.set(lp.x, 5.2, lp.z + 0.9); world.add(s);
-  const pool = new THREE.Mesh(new THREE.PlaneGeometry(lp.r * 1.7, lp.r * 1.7), poolMat); pool.rotation.x = -Math.PI / 2; pool.position.set(lp.x, 0.05, lp.z + 0.9); world.add(pool);
-  if (i < 4 || i === 4) { const pl = new THREE.PointLight(0xffb865, 1.25, 16, 2); pl.position.set(lp.x, 5, lp.z + 0.9); world.add(pl); }
-});
-// Terminal screen, the extraction flare, medkits.
-const screenMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.45), MAT.screen);
-screenMesh.position.set(LEVEL.terminal.x, 1.36, -16.35 + 0.36 - 0.1); world.add(screenMesh);
-const medkitViews = LEVEL.medkits.map((m) => {
-  const g = new THREE.Group();
-  const box = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.28, 0.3), new THREE.MeshLambertMaterial({ color: 0xe8e4da }));
-  const cr1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.31), new THREE.MeshBasicMaterial({ color: 0xd8261c }));
-  const cr2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.31), cr1.material);
-  cr1.position.z = cr2.position.z = 0.001;
-  g.add(box, cr1, cr2); g.position.set(m.x, 0.3, m.z); world.add(g); return g;
-});
-flushBuckets(world);
+  // Medkits (shared materials; the geometry is the world's own and goes with it).
+  WV.medkits = L.medkits.map((m) => {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.28, 0.3), MEDKIT_MAT.box));
+    const cr1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.31), MEDKIT_MAT.cross), cr2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.31), MEDKIT_MAT.cross);
+    g.add(cr1, cr2); g.position.set(m.x, 0.3, m.z); world.add(g); return g;
+  });
+  // Pickups: the keycard on its desk, the codebook with the target (placed on his body when he falls).
+  for (const o of L.objectives) {
+    if (o.type !== 'pickup') continue;
+    const g = new THREE.Group();
+    if (o.item === 'keycard') {
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.012, 0.055), new THREE.MeshBasicMaterial({ color: 0xd8dde2 })));
+      const led = new THREE.Sprite(PICK_GLOW); led.scale.set(0.25, 0.25, 1); led.position.y = 0.03; g.add(led);
+      g.position.set(o.x, 0.81, o.z - 0.75);
+    } else {
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 0.32), new THREE.MeshLambertMaterial({ color: 0x3b2a1c })));
+      const led = new THREE.Sprite(PICK_GLOW); led.scale.set(0.5, 0.5, 1); led.position.y = 0.12; g.add(led);
+      g.visible = false;
+    }
+    g.traverse((q) => { if (q.material && !q.isSprite) q.material.userData.own = true; });
+    world.add(g); WV.pickups.push({ o, g });
+  }
+  if (L.captive) { WV.captive = makeSoldier('pilot'); world.add(WV.captive.root); }
+  flushBuckets(world);
+  applyPreset(P);
+}
+const MEDKIT_MAT = { box: new THREE.MeshLambertMaterial({ color: 0xe8e4da }), cross: new THREE.MeshBasicMaterial({ color: 0xd8261c }) };
+const PICK_GLOW = new THREE.SpriteMaterial({ map: TEX.glow, color: 0x9dffb0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.8 });
+const BEACON = new THREE.SpriteMaterial({ map: TEX.glow, color: 0xff3020, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+
+// The mast, the generator, the dish: each its own mesh so it can fall, burn or turn.
+function buildProp(pr, P) {
+  if (pr.kind === 'mast') {
+    const key = 'metal:mast' + pr.id;
+    pushLattice(key, 0, 0, pr.h, 0.62, 0.3, 3, shade(0.62));
+    for (let y = 2; y < pr.h - 1; y += 3.4) pushBox(key, -0.22, y, 0.62, 0.22, y + 0.9, 0.7, { uv: 'solid', col: shade(0.85) });   // antenna panels
+    pushGeom(key, cyl6, M4(0, pr.h + 1.4, 0, 0, 0.04, 2.8, 0.04), shade(0.5));
+    pushBox(key, -1, 0, -1, 1, 0.3, 1, { uv: 'solid', col: shade(0.45) });                                                        // footing
+    const mesh = bucketMesh(key);
+    const pivot = new THREE.Group(); pivot.position.set(pr.x, 0, pr.z); pivot.add(mesh); world.add(pivot);
+    const beacon = new THREE.Sprite(BEACON); beacon.scale.set(1.2, 1.2, 1); beacon.position.set(0, pr.h + 2.8, 0); pivot.add(beacon);
+    // guy wires to three anchors, and the anchors' concrete blocks
+    const wp = [];
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.9, ax = Math.cos(a) * pr.h * 0.42, az = Math.sin(a) * pr.h * 0.42;
+      wp.push(0, pr.h * 0.85, 0, ax, 0.3, az, 0, pr.h * 0.45, 0, ax, 0.3, az);
+      pushBox('concrete', pr.x + ax - 0.4, 0, pr.z + az - 0.4, pr.x + ax + 0.4, 0.4, pr.z + az + 0.4, { tile: 2 });
+    }
+    const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
+    const wires = new THREE.LineSegments(wg, WIRE_MAT); pivot.add(wires);
+    WV.masts[pr.id] = { pivot, mesh, beacon, wires, fallT: -1, dir: 0, h: pr.h };
+  } else if (pr.kind === 'generator') {
+    const key = 'metal:gen', x0 = pr.x - 1.7, x1 = pr.x + 1.7, z0 = pr.z - 0.85, z1 = pr.z + 0.85;
+    const olive = tint(0.36, 0.42, 0.3), steel = shade(0.4);
+    pushBox(key, x0, 0, z0, x1, 0.25, z1, { uv: 'solid', col: shade(0.25) });                        // skid
+    pushBox(key, x0 + 0.1, 0.25, z0 + 0.1, x1 - 0.6, 1.95, z1 - 0.1, { uv: 'face', col: olive });   // housing
+    pushBox(key, x1 - 0.6, 0.25, z0 + 0.15, x1 - 0.1, 1.8, z1 - 0.15, { uv: 'face', col: steel });   // radiator
+    for (let y = 0.45; y < 1.7; y += 0.14) pushBox(key, x1 - 0.12, y, z0 + 0.2, x1 - 0.08, y + 0.06, z1 - 0.2, { uv: 'solid', col: shade(0.15) });
+    pushGeom(key, cyl6, M4(x0 + 0.6, 2.3, z0 + 0.4, 0, 0.09, 0.8, 0.09), shade(0.2));                // exhaust
+    pushBox('hazard', x0 + 0.3, 1.5, z1 - 0.1, x0 + 2.0, 1.65, z1 - 0.09, { tile: 0.5 });
+    pushBox(key, x0 + 0.5, 0.9, z1 - 0.1, x0 + 1.1, 1.3, z1 - 0.05, { uv: 'solid', col: tint(0.8, 0.75, 0.6) }); // panel
+    const intact = bucketMesh(key); world.add(intact);
+    const wk = 'metal:genwreck';
+    pushBox(wk, x0, 0, z0, x1, 0.25, z1, { uv: 'solid', col: shade(0.12) });
+    pushBox(wk, x0 + 0.2, 0.25, z0 + 0.15, x1 - 0.9, 1.1, z1 - 0.2, { uv: 'face', col: shade(0.1) });
+    pushGeom(wk, dodeca, M4(pr.x + 0.4, 1.2, pr.z, 0.7, 0.9, 0.6, 0.7), shade(0.08));
+    pushBox(wk, x1 - 0.7, 0.25, z0 + 0.1, x1 - 0.2, 0.9, z1 - 0.3, { uv: 'face', col: tint(0.2, 0.16, 0.12) });
+    pushGeom(wk, dodeca, M4(pr.x - 2.6, 0.2, pr.z + 1.4, 1.2, 0.5, 0.2, 0.4), shade(0.1));
+    pushGeom(wk, dodeca, M4(pr.x + 2.4, 0.2, pr.z - 1.2, 0.3, 0.4, 0.15, 0.6), shade(0.12));
+    const wreck = bucketMesh(wk); wreck.visible = false; world.add(wreck);
+    WV.gens[pr.id] = { intact, wreck, x: pr.x, z: pr.z };
+  } else if (pr.kind === 'dish') {
+    // tower top platform and cross-bracing (the legs come from the sim's boxes), then the turning antenna
+    pushBox('metal', pr.x - 2, pr.h, pr.z - 2, pr.x + 2, pr.h + 0.2, pr.z + 2, { uv: 'solid', col: shade(0.35) });
+    for (let y = 1.5; y < pr.h; y += 2.5) {
+      pushBox('metal', pr.x - 1.5, y, pr.z - 1.55, pr.x + 1.5, y + 0.08, pr.z - 1.45, { uv: 'solid', col: shade(0.5) });
+      pushBox('metal', pr.x - 1.5, y, pr.z + 1.45, pr.x + 1.5, y + 0.08, pr.z + 1.55, { uv: 'solid', col: shade(0.5) });
+      pushBox('metal', pr.x - 1.55, y, pr.z - 1.5, pr.x - 1.45, y + 0.08, pr.z + 1.5, { uv: 'solid', col: shade(0.5) });
+      pushBox('metal', pr.x + 1.45, y, pr.z - 1.5, pr.x + 1.55, y + 0.08, pr.z + 1.5, { uv: 'solid', col: shade(0.5) });
+    }
+    const key = 'dome:dish';
+    const prof = []; for (let i = 0; i <= 8; i++) { const r = (i / 8) * 3.2; prof.push(new THREE.Vector2(r, r * r * 0.09)); }
+    const lathe = new THREE.LatheGeometry(prof, 20); lathe.rotateX(-Math.PI / 2 + 0.35);
+    pushGeom(key, lathe, M4(0, 0, 0), shade(0.95), 0.4);
+    const back = new THREE.LatheGeometry(prof.map((v) => new THREE.Vector2(v.x, v.y - 0.06)), 20); back.rotateX(-Math.PI / 2 + 0.35);
+    back.setIndex(Array.from(back.index.array).reverse()); back.computeVertexNormals();
+    pushGeom(key, back, M4(0, 0, 0), shade(0.7), 0.4);
+    pushGeom(key, cyl6, M4(0, 0.2, -1.1, 0, 0.05, 2.2, 0.05, -1.2), shade(0.4));
+    pushBox(key, -0.3, -1.4, -0.3, 0.3, 0, 0.3, { uv: 'solid', col: shade(0.35) });
+    const head = bucketMesh(key); head.position.set(pr.x, pr.h + 1.6, pr.z); world.add(head);
+    WV.dish = head;
+  }
+  void P;
+}
+const WIRE_MAT = new THREE.LineBasicMaterial({ color: 0x9aa0a6, transparent: true, opacity: 0.55 });
+
+// Outpost dressing: the radome, the boom gate, antennas on HQ, rim stones along the drop, drifts.
+function buildOutpostDressing(L, P) {
+  const D = L.dome;
+  if (D) {
+    const sph = new THREE.SphereGeometry(D.r, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.6);
+    pushGeom('dome', sph, M4(D.x, D.y + D.r * 0.28, D.z), shade(P.snow ? 0.95 : 1), 1.6);
+    pushGeom('concrete', cyl6, M4(D.x, D.y + 0.3, D.z, 0, D.r * 0.99, 0.6, D.r * 0.99), shade(0.7), 1);
+  }
+  // boom gate across the road outside the wire, arm raised, and a stop sign on the hut
+  const gx = 56.5, gz = L.road.z;
+  pushBox('metal', gx - 0.25, 0, gz - L.road.w / 2 - 0.6, gx + 0.25, 1.1, gz - L.road.w / 2 - 0.1, { uv: 'solid', col: shade(0.3) });
+  pushGeom('hazard', cyl6, M4(gx, 1.05 + 2.6, gz - L.road.w / 2 - 0.35 + 0.9, 0, 0.07, 6, 0.07, -0.3), WHITE, 1);
+  // HQ antennas
+  pushGeom('metal', cyl6, M4(2, 3.4 + 3, -24.5, 0, 0.04, 6, 0.04), shade(0.5));
+  pushGeom('metal', cyl6, M4(10.5, 3.4 + 2, -19.5, 0, 0.03, 4, 0.03), shade(0.5));
+  pushGeom('dome', new THREE.SphereGeometry(0.6, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), M4(8, 3.4 + 0.25, -24, 0, 1, 0.5, 1), shade(0.85), 0.3);
+  // rim stones along the drop, and a rope rail on posts where the ground is open
+  for (let x = -64; x <= 64; x += 4.6) {
+    if (L.rocks.some((r) => Math.abs(r.x - x) < 3 && r.z > 48)) continue;
+    const s = 0.5 + vrng() * 0.7;
+    const rz = 52.2 + vrng() * 0.8;
+    pushGeom('rock', BOULDERS[(vrng() * 4) | 0], M4(x + vrng() * 2, s * 0.3, rz, vrng() * 6, s * 1.3, s * 0.7, s), shade(0.8), 1);
+  }
+  // snowdrifts along the fence and around the plateau
+  snowLumps(-19, -45.5, 51, -44.5, 40);
+  snowLumps(-60, -48, -25, -45, 30);
+  snowLumps(-64, 44, 40, 50, 36);
+  if (P.snow) { snowLumps(-60, -40, -24, 40, 90); snowLumps(54, -44, 66, 44, 30); snowLumps(-18, 26, 50, 44, 40); }
+}
+
+// Throw the old world away: every geometry it owns and any material marked as its own. Shared materials,
+// textures and the sprite's shared quad stay. Returns what was freed, for the memory check.
+function disposeWorld() {
+  if (!world) return 0;
+  let n = 0;
+  world.traverse((o) => {
+    if (o.isSprite) return;
+    if (o.geometry) { o.geometry.dispose(); n++; }
+    if (o.material && o.material.userData && o.material.userData.own) o.material.dispose();
+  });
+  scene.remove(world);
+  world = null;
+  return n;
+}
 
 // ---------------------------------------------------------------- particles (dust, sparks, blood, smoke)
 const MAXP = 500;
@@ -1886,8 +2794,9 @@ function updateTracers(dt) {
 // One mesh per bone, each bone's parts merged with vertex colours over a single camo texture, so a
 // soldier is 11 draw calls. Joints are groups: the hip swings the thigh, the knee the shin, and so on.
 const SKIN = tint(0.76, 0.58, 0.45), BOOT = shade(0.12), HELM = tint(0.3, 0.34, 0.24), VEST = tint(0.55, 0.55, 0.45), GUN = shade(0.16), WOOD = tint(0.42, 0.28, 0.16);
-function boneMesh(parts) {
-  for (const p of parts) pushBox('soldier', p[0], p[1], p[2], p[3], p[4], p[5], p[6] ? { uv: 'solid', col: p[6] } : { tile: 0.6 });
+// `cloth`: parts with no colour of their own take the camo texture, or this flat colour if given.
+function boneMesh(parts, cloth) {
+  for (const p of parts) pushBox('soldier', p[0], p[1], p[2], p[3], p[4], p[5], p[6] ? { uv: 'solid', col: p[6] } : cloth ? { uv: 'solid', col: cloth } : { tile: 0.6 });
   const B = buckets.soldier; delete buckets.soldier;
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(B.pos, 3));
@@ -1896,19 +2805,42 @@ function boneMesh(parts) {
   g.setAttribute('color', new THREE.Float32BufferAttribute(B.col, 3));
   return g;
 }
-const GEO = {
-  torso: boneMesh([[-0.21, 0, -0.12, 0.21, 0.6, 0.12], [-0.23, 0.12, -0.15, 0.23, 0.55, 0.15, VEST], [-0.2, -0.05, -0.13, 0.2, 0.06, 0.13, shade(0.2)], [-0.12, 0.3, -0.19, 0.1, 0.45, -0.14, tint(0.4, 0.4, 0.32)]]),
-  head: boneMesh([[-0.1, 0, -0.11, 0.1, 0.24, 0.1, SKIN], [-0.13, 0.17, -0.14, 0.13, 0.31, 0.14, HELM], [-0.14, 0.17, -0.16, 0.14, 0.2, 0.15, HELM], [-0.09, 0.1, -0.115, 0.09, 0.14, -0.1, shade(0.1)]]),
-  upperArm: boneMesh([[-0.06, -0.3, -0.06, 0.06, 0.02, 0.06]]),
-  foreArm: boneMesh([[-0.055, -0.27, -0.055, 0.055, 0, 0.055], [-0.05, -0.36, -0.05, 0.05, -0.27, 0.05, SKIN]]),
-  thigh: boneMesh([[-0.085, -0.46, -0.09, 0.085, 0.02, 0.09]]),
-  shin: boneMesh([[-0.075, -0.4, -0.075, 0.075, 0, 0.075], [-0.08, -0.47, -0.16, 0.08, -0.38, 0.08, BOOT]]),
-  rifle: boneMesh([[-0.03, -0.05, -0.62, 0.03, 0.04, 0.05, GUN], [-0.028, -0.18, -0.2, 0.028, -0.04, -0.1, GUN], [-0.025, -0.14, 0.02, 0.025, -0.02, 0.1, GUN],
-    [-0.032, -0.07, 0.05, 0.032, 0.03, 0.3, WOOD], [-0.034, -0.05, -0.5, 0.034, 0.03, -0.3, WOOD], [-0.012, -0.012, -0.8, 0.012, 0.012, -0.6, GUN]]),
+const limbs = (cloth) => ({
+  upperArm: boneMesh([[-0.06, -0.3, -0.06, 0.06, 0.02, 0.06]], cloth),
+  foreArm: boneMesh([[-0.055, -0.27, -0.055, 0.055, 0, 0.055], [-0.05, -0.36, -0.05, 0.05, -0.27, 0.05, SKIN]], cloth),
+  thigh: boneMesh([[-0.085, -0.46, -0.09, 0.085, 0.02, 0.09]], cloth),
+  shin: boneMesh([[-0.075, -0.4, -0.075, 0.075, 0, 0.075], [-0.08, -0.47, -0.16, 0.08, -0.38, 0.08, BOOT]], cloth),
+});
+const RIFLE_GEO = boneMesh([[-0.03, -0.05, -0.62, 0.03, 0.04, 0.05, GUN], [-0.028, -0.18, -0.2, 0.028, -0.04, -0.1, GUN], [-0.025, -0.14, 0.02, 0.025, -0.02, 0.1, GUN],
+  [-0.032, -0.07, 0.05, 0.032, 0.03, 0.3, WOOD], [-0.034, -0.05, -0.5, 0.034, 0.03, -0.3, WOOD], [-0.012, -0.012, -0.8, 0.012, 0.012, -0.6, GUN]]);
+// Three looks, built once. The officer (a mission's named target) has no helmet and no vest: a dark
+// uniform, a peaked cap with a red band, shoulder boards -- readable through the scope at 80 m, which is
+// the point. The pilot is in a sage flight suit, bareheaded, unarmed.
+const UNIFORM = tint(0.24, 0.26, 0.3), CAP = tint(0.2, 0.22, 0.2), BAND = tint(0.62, 0.1, 0.08), SUIT = tint(0.5, 0.52, 0.38), HAIR = tint(0.2, 0.14, 0.09);
+const GEOS = {
+  soldier: {
+    torso: boneMesh([[-0.21, 0, -0.12, 0.21, 0.6, 0.12], [-0.23, 0.12, -0.15, 0.23, 0.55, 0.15, VEST], [-0.2, -0.05, -0.13, 0.2, 0.06, 0.13, shade(0.2)], [-0.12, 0.3, -0.19, 0.1, 0.45, -0.14, tint(0.4, 0.4, 0.32)]]),
+    head: boneMesh([[-0.1, 0, -0.11, 0.1, 0.24, 0.1, SKIN], [-0.13, 0.17, -0.14, 0.13, 0.31, 0.14, HELM], [-0.14, 0.17, -0.16, 0.14, 0.2, 0.15, HELM], [-0.09, 0.1, -0.115, 0.09, 0.14, -0.1, shade(0.1)]]),
+    ...limbs(null), rifle: RIFLE_GEO,
+  },
+  officer: {
+    torso: boneMesh([[-0.21, 0, -0.12, 0.21, 0.6, 0.12], [-0.2, -0.05, -0.13, 0.2, 0.06, 0.13, shade(0.12)], [-0.26, 0.54, -0.07, -0.13, 0.6, 0.07, tint(0.7, 0.6, 0.3)],
+      [0.13, 0.54, -0.07, 0.26, 0.6, 0.07, tint(0.7, 0.6, 0.3)], [-0.05, 0.35, -0.125, 0.05, 0.6, -0.119, tint(0.75, 0.75, 0.7)], [-0.15, 0.4, -0.13, -0.06, 0.46, -0.12, BAND]], UNIFORM),
+    head: boneMesh([[-0.1, 0, -0.11, 0.1, 0.24, 0.1, SKIN], [-0.125, 0.2, -0.13, 0.125, 0.3, 0.13, CAP], [-0.128, 0.19, -0.133, 0.128, 0.225, 0.133, BAND],
+      [-0.11, 0.19, -0.22, 0.11, 0.21, -0.12, shade(0.08)], [-0.025, 0.24, -0.137, 0.025, 0.28, -0.13, tint(0.85, 0.7, 0.3)]]),
+    ...limbs(UNIFORM), rifle: RIFLE_GEO,
+  },
+  pilot: {
+    torso: boneMesh([[-0.21, 0, -0.12, 0.21, 0.6, 0.12], [-0.2, -0.05, -0.13, 0.2, 0.06, 0.13, shade(0.2)], [-0.12, 0.38, -0.13, -0.02, 0.48, -0.12, tint(0.6, 0.35, 0.15)]], SUIT),
+    head: boneMesh([[-0.1, 0, -0.11, 0.1, 0.24, 0.1, SKIN], [-0.105, 0.2, -0.1, 0.105, 0.27, 0.11, HAIR], [-0.105, 0.08, 0.06, 0.105, 0.24, 0.11, HAIR]]),
+    ...limbs(SUIT), rifle: null,
+  },
 };
 const flashMat = new THREE.SpriteMaterial({ map: TEX.flash, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
 const blobMat = new THREE.MeshBasicMaterial({ map: TEX.glow, color: 0x000000, transparent: true, opacity: 0.45, depthWrite: false });
-function makeSoldier() {
+const blobGeo = new THREE.PlaneGeometry(1.1, 1.1);
+function makeSoldier(style = 'soldier') {
+  const G = GEOS[style];
   const mk = (geo) => new THREE.Mesh(geo, MAT.soldier);
   const root = new THREE.Group();
   const deathYaw = new THREE.Group(); root.add(deathYaw);
@@ -1916,41 +2848,58 @@ function makeSoldier() {
   const body = new THREE.Group(); fall.add(body);
   const hips = new THREE.Group(); hips.position.y = 0.95; body.add(hips);
   const chest = new THREE.Group(); hips.add(chest);
-  chest.add(mk(GEO.torso));
-  const neck = new THREE.Group(); neck.position.y = 0.6; chest.add(neck); neck.add(mk(GEO.head));
+  chest.add(mk(G.torso));
+  const neck = new THREE.Group(); neck.position.y = 0.6; chest.add(neck); neck.add(mk(G.head));
   const arm = (side) => {
-    const sh = new THREE.Group(); sh.position.set(side * 0.28, 0.54, 0); chest.add(sh); sh.add(mk(GEO.upperArm));
-    const el = new THREE.Group(); el.position.y = -0.3; sh.add(el); el.add(mk(GEO.foreArm));
+    const sh = new THREE.Group(); sh.position.set(side * 0.28, 0.54, 0); chest.add(sh); sh.add(mk(G.upperArm));
+    const el = new THREE.Group(); el.position.y = -0.3; sh.add(el); el.add(mk(G.foreArm));
     return [sh, el];
   };
   const [shL, elL] = arm(-1), [shR, elR] = arm(1);
   const leg = (side) => {
-    const hp = new THREE.Group(); hp.position.set(side * 0.11, 0.95, 0); body.add(hp); hp.add(mk(GEO.thigh));
-    const kn = new THREE.Group(); kn.position.y = -0.47; hp.add(kn); kn.add(mk(GEO.shin));
+    const hp = new THREE.Group(); hp.position.set(side * 0.11, 0.95, 0); body.add(hp); hp.add(mk(G.thigh));
+    const kn = new THREE.Group(); kn.position.y = -0.47; hp.add(kn); kn.add(mk(G.shin));
     return [hp, kn];
   };
   const [hpL, knL] = leg(-1), [hpR, knR] = leg(1);
-  const rifle = new THREE.Group(); chest.add(rifle); rifle.add(mk(GEO.rifle));
+  const rifle = new THREE.Group(); chest.add(rifle); if (G.rifle) rifle.add(mk(G.rifle));
   const flash = new THREE.Sprite(flashMat); flash.position.set(0, 0, -0.9); flash.scale.set(0.55, 0.55, 1); flash.visible = false; rifle.add(flash);
-  const icon = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.qmark, transparent: true, depthWrite: false }));
+  const iconMat = new THREE.SpriteMaterial({ map: TEX.qmark, transparent: true, depthWrite: false });
+  const icon = new THREE.Sprite(iconMat);
   icon.position.y = 2.25; icon.scale.set(0.45, 0.45, 1); icon.visible = false; root.add(icon);
-  const blob = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), blobMat); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.03; root.add(blob);
-  root.traverse((o) => { o.matrixAutoUpdate = true; });
-  return { root, deathYaw, fall, body, hips, chest, neck, shL, elL, shR, elR, hpL, knL, hpR, knR, rifle, flash, icon, blob, aim: 0, crouch: 0 };
+  const blob = new THREE.Mesh(blobGeo, blobMat); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.03; root.add(blob);
+  root.traverse((o) => { o.matrixAutoUpdate = true; if (o.isMesh && o.material !== blobMat) o.castShadow = true; });
+  return { root, deathYaw, fall, body, hips, chest, neck, shL, elL, shR, elR, hpL, knL, hpR, knR, rifle, flash, icon, iconMat, blob, aim: 0, crouch: 0, style };
 }
 const lerp = (a, b, t) => a + (b - a) * t;
 const guardViews = [];
 function buildGuardViews(S) {
-  for (const v of guardViews) scene.remove(v.root);
+  // The soldiers' geometry is shared (GEOS); each one's own icon material is not, so it goes with him.
+  for (const v of guardViews) { scene.remove(v.root); v.iconMat.dispose(); }
   guardViews.length = 0;
   for (let i = 0; i < S.guards.length; i++) {
-    const v = makeSoldier(); scene.add(v.root); guardViews.push(v);
-    v.root.traverse((o) => { if (o.isMesh && o.material !== blobMat) o.castShadow = true; });
+    const v = makeSoldier(S.guards[i].officer ? 'officer' : 'soldier'); scene.add(v.root); guardViews.push(v);
   }
 }
 function animateGuards(S, dt) {
-  for (let i = 0; i < S.guards.length; i++) {
-    const g = S.guards[i], v = guardViews[i];
+  for (let i = 0; i < S.guards.length; i++) animateSoldier(guardViews[i], S.guards[i], dt);
+}
+// The captive: sitting, hands bound behind him, until he is cut loose; then he walks and crouches with you.
+const CAPTIVE_POSE = { y: 0, state: 'patrol', hitT: 0, flashT: 0, stateT: 0, searchT: 0, tower: false };
+function animateCaptive(S, dt) {
+  const v = WV.captive, c = S && S.captive;
+  if (!v || !c) return;
+  const g = Object.assign(CAPTIVE_POSE, { x: c.x, z: c.z, yaw: c.yaw, crouch: c.state === 'held' || c.crouch, speedNow: c.speedNow, walkPhase: c.walkPhase });
+  animateSoldier(v, g, dt);
+  if (c.state === 'held') {
+    v.shL.rotation.set(-0.5, 0, 0.35); v.shR.rotation.set(-0.5, 0, -0.35); v.elL.rotation.x = 1.3; v.elR.rotation.x = 1.3;
+    v.neck.rotation.x = 0.35 + Math.sin(performance.now() / 1700) * 0.05;
+  } else if (c.speedNow < 0.2) {
+    v.shL.rotation.set(0.1, 0, -0.1); v.shR.rotation.set(0.1, 0, 0.1); v.elL.rotation.x = 0.3; v.elR.rotation.x = 0.3;
+  }
+}
+function animateSoldier(v, g, dt) {
+  {
     v.root.position.set(g.x, g.y, g.z);
     v.root.rotation.y = g.yaw;
     const alive = g.state !== 'dead';
@@ -1976,8 +2925,12 @@ function animateGuards(S, dt) {
     v.neck.rotation.y = alive && g.state === 'search' && g.searchT > 0 ? 0.4 * Math.sin(g.searchT * 2.2) : 0;
     // arms and rifle: low ready while patrolling, shouldered when alert
     const swing = (1 - v.aim) * sw * 0.25;
-    v.shR.rotation.x = lerp(0.35 - swing, 1.35, v.aim); v.shR.rotation.z = lerp(0.1, 0.05, v.aim); v.elR.rotation.x = lerp(1.0, 0.35, v.aim);
-    v.shL.rotation.x = lerp(0.75 + swing, 1.45, v.aim); v.shL.rotation.z = lerp(-0.45, -0.55, v.aim); v.elL.rotation.x = lerp(1.1, 0.2, v.aim);
+    if (v.style === 'pilot') {
+      v.shR.rotation.set(-sw * 0.6, 0, 0.08); v.shL.rotation.set(sw * 0.6, 0, -0.08); v.elR.rotation.x = 0.35 + run * 0.8; v.elL.rotation.x = 0.35 + run * 0.8;
+    } else {
+      v.shR.rotation.x = lerp(0.35 - swing, 1.35, v.aim); v.shR.rotation.z = lerp(0.1, 0.05, v.aim); v.elR.rotation.x = lerp(1.0, 0.35, v.aim);
+      v.shL.rotation.x = lerp(0.75 + swing, 1.45, v.aim); v.shL.rotation.z = lerp(-0.45, -0.55, v.aim); v.elL.rotation.x = lerp(1.1, 0.2, v.aim);
+    }
     v.rifle.position.set(lerp(0.02, 0.14, v.aim), lerp(0.2, 0.47, v.aim), lerp(-0.25, -0.2, v.aim));
     v.rifle.rotation.set(lerp(0.75, 0, v.aim), lerp(0.35, 0, v.aim), lerp(0.5, 0, v.aim));
     // muzzle flash: a random-rolled star for the 60 ms the sim says he is firing
@@ -2006,7 +2959,7 @@ function animateGuards(S, dt) {
 // ---------------------------------------------------------------- first-person rifle (own scene + camera)
 const vmScene = new THREE.Scene();
 const vmCam = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 10);
-vmScene.add(new THREE.HemisphereLight(0xa59bd0, 0x3b3226, 0.75));
+const vmHemi = new THREE.HemisphereLight(0xa59bd0, 0x3b3226, 0.75); vmScene.add(vmHemi);
 const vmSun = new THREE.DirectionalLight(0xffa06a, 0.7); vmSun.position.set(-1, 1, 0.5); vmScene.add(vmSun);
 const vmFlashLight = new THREE.PointLight(0xffb060, 0, 2, 2); vmFlashLight.position.set(0.1, -0.1, -0.9); vmScene.add(vmFlashLight);
 // ---- the rifle and hands, first person ----
@@ -2186,6 +3139,17 @@ const Snd = {
     const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.3); g.gain.setValueAtTime(0.09, t + 5.2); g.gain.exponentialRampToValueAtTime(0.0001, t + 6);
     f.connect(g); g.connect(this.master); o.start(t); lfo.start(t); o.stop(t + 6.1); lfo.stop(t + 6.1);
   },
+  // A demolition charge: a long rumble of low-passed noise whose cut-off falls as it rolls away, under a
+  // sub-bass thump. It arrives late with distance, like the guards' shots.
+  boom(dist) {
+    if (!this.ctx || !this.on) return;
+    const t = this.ctx.currentTime + dist / 343, vol = Math.min(1, 14 / (8 + dist * 0.3));
+    const n = this.ctx.createBufferSource(); n.buffer = this.noise; n.loop = true; n.start(t);
+    const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(2400, t); f.frequency.exponentialRampToValueAtTime(110, t + 2.2);
+    n.connect(f); this.env(f, t, 0.004, vol, 2.6); n.stop(t + 3);
+    const o = this.ctx.createOscillator(); o.frequency.setValueAtTime(72, t); o.frequency.exponentialRampToValueAtTime(26, t + 1.3);
+    this.env(o, t, 0.008, vol, 1.5); o.start(t); o.stop(t + 1.7);
+  },
   ambient() {
     // wind: looped noise through a low band-pass, slowly breathing
     const n = this.ctx.createBufferSource(); n.buffer = this.noise; n.loop = true;
@@ -2198,7 +3162,7 @@ let cricketT = 0;
 
 // ---------------------------------------------------------------- input
 const keys = Object.create(null);
-const view = { yaw: LEVEL.start.yaw, pitch: 0, crouch: false, scopeToggle: false, scopeHeld: false, fireHeld: false, reloadEdge: false, kick: 0 };
+const view = { yaw: 0, pitch: 0, crouch: false, scopeToggle: false, scopeHeld: false, fireHeld: false, reloadEdge: false, kick: 0 };
 let mode = 'title';        // title | play | end
 let locked = false, everLocked = false;
 addEventListener('keydown', (e) => {
@@ -2307,10 +3271,14 @@ function sizeHud() { HDPR = Math.min(2, window.devicePixelRatio || 1); HW = inne
 sizeHud();
 const hits = { t: 0, kill: false, head: false };
 const hurtMarks = [];
+// Where the compass and minimap point: the current objective, wherever it is now (a moving target once he
+// is identified; the reported area before that).
 function objectivePoint(S) {
-  const M = S.mission;
-  return M.phase === 'infiltrate' ? { x: LEVEL.terminal.x, z: LEVEL.terminal.z, label: 'TERMINAL' } : { x: LEVEL.extraction.x, z: LEVEL.extraction.z, label: 'LZ' };
+  const o = currentObjective(S);
+  const q = objectivePos(S, o) || LEVEL.extraction;
+  return { x: q.x, z: q.z, label: o ? o.label : 'LZ', vague: !!(o && o.type === 'eliminate' && !S.mission.marked) };
 }
+const projV = new THREE.Vector3();
 function drawHud(S, dt) {
   const c = hctx; c.setTransform(HDPR, 0, 0, HDPR, 0, 0); c.clearRect(0, 0, HW, HH);
   if (mode !== 'play') return;
@@ -2332,8 +3300,19 @@ function drawHud(S, dt) {
   const ob = objectivePoint(S);
   const obB = angWrap(yawTo(ob.x - p.x, ob.z - p.z) - yaw);
   const ox = cx - Math.max(-1, Math.min(1, obB / span)) * (cw / 2);
-  c.fillStyle = '#ffb347'; c.beginPath(); c.moveTo(ox, cy + 16); c.lineTo(ox - 6, cy + 24); c.lineTo(ox, cy + 32); c.lineTo(ox + 6, cy + 24); c.fill();
-  c.fillStyle = '#e9efdc'; c.fillText(Math.round(Math.hypot(ob.x - p.x, ob.z - p.z)) + ' m', ox, cy + 42);
+  c.fillStyle = ob.vague ? 'rgba(255,179,71,.55)' : '#ffb347'; c.beginPath(); c.moveTo(ox, cy + 16); c.lineTo(ox - 6, cy + 24); c.lineTo(ox, cy + 32); c.lineTo(ox + 6, cy + 24); c.fill();
+  c.fillStyle = '#e9efdc'; c.fillText((ob.vague ? '~' : '') + Math.round(Math.hypot(ob.x - p.x, ob.z - p.z)) + ' m', ox, cy + 42);
+  // A marked target: a red bracket over his head wherever he is on screen (IGI's binocular tag).
+  const ot = currentObjective(S);
+  if (ot && ot.type === 'eliminate' && S.mission.marked) {
+    const g = S.guards[ot.gi];
+    projV.set(g.x, g.y + 2.25 - (g.crouch ? 0.6 : 0), g.z).project(camera);
+    if (projV.z < 1 && Math.abs(projV.x) < 1.2 && Math.abs(projV.y) < 1.2) {
+      const sx = (projV.x + 1) / 2 * HW, sy = (1 - projV.y) / 2 * HH;
+      c.strokeStyle = '#ff4d3d'; c.lineWidth = 2; c.beginPath(); c.moveTo(sx - 7, sy - 10); c.lineTo(sx, sy - 3); c.lineTo(sx + 7, sy - 10); c.stroke();
+      c.fillStyle = '#ff4d3d'; c.font = '600 11px ' + HUD_FONT; c.fillText(ot.label, sx, sy - 18); c.font = '600 12px ' + HUD_FONT;
+    }
+  }
 
   // Awareness arcs around the crosshair, one per guard who has noticed you: yellow as suspicion fills,
   // red when he is sure. Direction is relative to where you are looking.
@@ -2368,11 +3347,17 @@ function drawHud(S, dt) {
   c.save();
   c.beginPath(); c.arc(mx, my, ms / 2, 0, 7); c.fillStyle = 'rgba(10,14,20,.55)'; c.fill(); c.strokeStyle = 'rgba(233,239,220,.35)'; c.lineWidth = 1; c.stroke(); c.clip();
   c.translate(mx, my); c.rotate(yaw); c.scale(sc, sc); c.translate(-p.x, -p.z);
-  c.strokeStyle = 'rgba(200,210,190,.55)'; c.lineWidth = 1 / sc; c.strokeRect(-32, -26, 64, 52);
+  c.strokeStyle = 'rgba(200,210,190,.55)'; c.lineWidth = 1 / sc; c.beginPath();
+  for (const f of LEVEL.fences) { c.moveTo(f.x0, f.z0); c.lineTo(f.x1, f.z1); }
+  c.stroke();
+  if (LEVEL.map === 'outpost') { c.strokeStyle = 'rgba(160,190,230,.5)'; c.beginPath(); c.moveTo(-68, -50); c.lineTo(68, -50); c.moveTo(-68, 52.5); c.lineTo(68, 52.5); c.stroke(); }
   c.fillStyle = 'rgba(180,170,150,.55)';
   for (const B of LEVEL.buildings) c.fillRect(B.cx - B.w / 2, B.cz - B.d / 2, B.w, B.d);
   for (const T of LEVEL.towers) { c.fillStyle = 'rgba(160,130,90,.8)'; c.fillRect(T.x - 1.5, T.z - 1.5, 3, 3); }
-  c.fillStyle = '#ffb347'; c.beginPath(); c.arc(ob.x, ob.z, 2.2, 0, 7); c.fill();
+  for (const ch of S.mission.charges) if (!ch.blown) { c.fillStyle = '#ff4d3d'; c.fillRect(ch.x - 1, ch.z - 1, 2, 2); }
+  c.fillStyle = '#ffb347'; c.beginPath(); c.arc(ob.x, ob.z, ob.vague ? 6 : 2.2, 0, 7);
+  if (ob.vague) { c.strokeStyle = '#ffb347'; c.lineWidth = 1.5 / sc; c.stroke(); } else c.fill();
+  if (S.captive && S.captive.state === 'follow') { c.fillStyle = '#8fd3ff'; c.beginPath(); c.arc(S.captive.x, S.captive.z, 1.3, 0, 7); c.fill(); }
   for (const g of S.guards) {
     if (g.state === 'dead' || (g.state === 'patrol' && g.sus < 0.05)) continue;
     c.fillStyle = g.state === 'alert' ? '#ff4d3d' : '#ffd54a'; c.beginPath(); c.arc(g.x, g.z, 1.4, 0, 7); c.fill();
@@ -2385,39 +3370,124 @@ function drawHud(S, dt) {
 let S = null, paused = false, acc = 0, lastT = performance.now();
 let titleS = null;
 const pv = { walkPhase: 0, stepAcc: 0, scopeT: 0, recoil: 0, reloadT: 0, dmg: 0, shake: 0, deadT: 0, lastYaw: 0, lastPitch: 0, swayX: 0, swayY: 0, sprintT: 0 };
+
+// ---- campaign progress. localStorage, guarded: a private window or blocked storage keeps nothing and
+// the game still plays (mission 1 unlocked, no best times).
+const SAVE_KEY = 'dusk-protocol:campaign';
+function loadSave() {
+  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (s && typeof s.unlocked === 'number' && s.best && typeof s.best === 'object') return s; } catch (err) { /* no storage */ }
+  return { unlocked: 1, best: {}, last: MISSIONS[0].id };
+}
+function storeSave() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch (err) { /* no storage */ } }
+let SAVE = loadSave();
+// Ratings, worst to best. A ghost was never spotted and never fired a fatal shot; a shadow was never
+// spotted; an operative raised the alarm once or twice.
+const RATINGS = ['SOLDIER', 'OPERATIVE', 'SHADOW', 'GHOST'];
+const rateRun = (M) => (M.spotted === 0 && M.kills === 0 ? 3 : M.spotted === 0 ? 2 : M.spotted <= 2 ? 1 : 0);
+const fmtTime = (t) => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+const isUnlocked = (m) => MISSIONS.indexOf(m) < SAVE.unlocked;
+
+// ---- level switching: throw the old world away, build the new one, re-aim the lights
+function loadMission(m) {
+  if (MISSION === m && LEVEL) return;
+  disposeWorld();
+  MISSION = m; LEVEL = buildMission(m);
+  buildWorld(LEVEL, m);
+}
+// ---- the campaign screen
+function renderCampaign() {
+  const list = $('mlist');
+  list.innerHTML = '';
+  for (const m of MISSIONS) {
+    const open = isUnlocked(m), best = SAVE.best[m.id];
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'mitem' + (m === MISSION ? ' sel' : ''); b.disabled = !open; b.dataset.id = m.id;
+    const sub = !open ? 'LOCKED' : best ? m.when.split(' // ')[1] + ' · ' + fmtTime(best.time) + ' · ' + RATINGS[best.rating] : m.when.split(' // ')[1] + ' · not flown';
+    b.innerHTML = '<b>' + m.code + '</b><span class="mn">' + (open ? m.name : '— — —') + '</span><small>' + sub + '</small>';
+    b.addEventListener('click', () => selectMission(m.id));
+    list.appendChild(b);
+  }
+  const m = MISSION, best = SAVE.best[m.id];
+  $('bMeta').textContent = m.code + ' // ' + m.when + ' // ' + m.place.toUpperCase();
+  $('bName').textContent = m.name;
+  $('bText').textContent = m.brief;
+  $('bObj').innerHTML = m.objectives.map((o) => '<li>' + o.text + '</li>').join('');
+  $('bBest').textContent = best ? 'BEST ' + fmtTime(best.time) + ' · RATING ' + RATINGS[best.rating] + (best.ghost ? ' · GHOSTED' : '') : 'NOT YET COMPLETED';
+}
+function selectMission(id) {
+  const m = missionById(id);
+  if (!m || !isUnlocked(m)) return;
+  SAVE.last = m.id; storeSave();
+  loadMission(m);
+  renderCampaign();
+  newTitleState();
+}
+const TITLE_START = { compound: { x: -66, z: 66, yaw: 0 }, outpost: { x: 66, z: -48, yaw: 0 } };
 function newTitleState() {
-  // The briefing shows the compound live: the real garrison walks its routes while the camera circles.
-  titleS = createState(12345, { level: LEVEL, start: { x: -66, z: 66, yaw: 0 } });
+  // The briefing shows the map live: the real garrison walks its routes while the camera circles.
+  titleS = createState(12345, { level: LEVEL, start: TITLE_START[LEVEL.map] });
   titleS.player.crouch = true; titleS.player.eye = 1;
   buildGuardViews(titleS);
+  resetWorldViews();
 }
-function startMission() {
+// Put the world's live props back as they were: masts up, generators whole, no charges or fires, the
+// door shut, pickups where they belong.
+function resetWorldViews() {
+  for (const k in WV.masts) { const mv = WV.masts[k]; mv.fallT = -1; mv.pivot.rotation.set(0, 0, 0); mv.beacon.visible = true; mv.wires.visible = true; }
+  for (const k in WV.gens) { WV.gens[k].intact.visible = true; WV.gens[k].wreck.visible = false; }
+  for (const c of WV.charges) { world.remove(c.g); c.g.children[0].geometry.dispose(); }
+  WV.charges = []; WV.fires = [];
+  for (const sc of WV.scorch || []) { world.remove(sc); sc.geometry.dispose(); }
+  WV.scorch = [];
+  for (const L of FX_LIGHTS) L.intensity = 0;
+  if (WV.door) { WV.door.t = 0; WV.door.mesh.position.set(0, 0, 0); }
+  for (const pk of WV.pickups) pk.g.visible = pk.o.item === 'keycard';
+  for (const m of WV.medkits) m.visible = true;
+}
+function startMission(id) {
+  if (typeof id === 'string') { const m = missionById(id); if (m) { loadMission(m); SAVE.last = m.id; } }
   Snd.ensure();
   S = createState((Date.now() & 0xffffffff) >>> 0, { level: LEVEL });
   buildGuardViews(S);
+  resetWorldViews();
   view.yaw = LEVEL.start.yaw; view.pitch = 0; view.crouch = false; view.scopeToggle = false; view.sprintToggle = false; view.scopeHeld = false; view.fireHeld = false; view.reloadEdge = false;
   Object.assign(pv, { scopeT: 0, recoil: 0, reloadT: 0, dmg: 0, shake: 0, deadT: 0, sprintT: 0 });
-  for (const m of medkitViews) m.visible = true;
+  for (const k in last) delete last[k];
   mode = 'play'; paused = false;
   $('title').hidden = true; $('end').hidden = true; $('pause').hidden = true; $('hud').hidden = false; $('xhair').hidden = false;
   pad.show();
-  toast('INFILTRATE', 'Find the command post. The wire is cut on the south side.');
+  toast(MISSION.intro[0], MISSION.intro[1]);
   if (!touchMode && canvas.requestPointerLock) { try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) { /* ignore */ } }
 }
 function endMission(won) {
   mode = 'end'; pad.hide();
   if (document.exitPointerLock && locked) document.exitPointerLock();
   $('hud').hidden = true; $('xhair').hidden = true; $('scope').hidden = true;
-  const M = S.mission;
-  $('endKicker').textContent = won ? 'MISSION REPORT // SUCCESS' : 'MISSION REPORT // OPERATIVE DOWN';
+  const M = S.mission, m = MISSION, idx = MISSIONS.indexOf(m);
+  const rating = rateRun(M);
+  let newBest = false;
+  if (won) {
+    const b = SAVE.best[m.id];
+    if (!b || M.time < b.time || rating > b.rating) {
+      SAVE.best[m.id] = { time: b ? Math.min(b.time, M.time) : M.time, rating: b ? Math.max(b.rating, rating) : rating, ghost: (b && b.ghost) || rating === 3 };
+      newBest = !b || M.time < b.time;
+    }
+    SAVE.unlocked = Math.max(SAVE.unlocked, Math.min(MISSIONS.length, idx + 2));
+    storeSave();
+  }
+  $('endKicker').textContent = 'MISSION ' + m.code + ' // ' + m.name + (won ? ' // SUCCESS' : ' // FAILED');
   $('endTitle').innerHTML = won ? 'MISSION <span>COMPLETE</span>' : 'MISSION <span style="color:var(--red)">FAILED</span>';
   const ghost = M.spotted === 0 && M.kills === 0, silent = M.spotted === 0;
   $('endLine').textContent = won ? (ghost ? 'Ghost. Nobody knew you were there.' : silent ? 'In and out without raising the alarm.' : 'Out, but they know someone was here.')
-    : (M.phase === 'failed' ? 'Killed in action. The garrison is on alert.' : 'Mission aborted.');
-  const mm = Math.floor(M.time / 60), ss = Math.floor(M.time % 60);
-  const rows = [['Time', mm + ':' + String(ss).padStart(2, '0')], ['Objective', M.phase === 'infiltrate' || (M.phase === 'failed' && !S._hacked) ? 'not uploaded' : 'uploaded'],
+    : M.failReason === 'time' ? 'Out of time. The valley garrison reached the compound before you reached the LZ.'
+    : M.failReason === 'killed' ? 'Killed in action. The garrison is on alert.' : 'Mission aborted.';
+  const done = Math.min(M.obj, M.objs.length);
+  const rows = [['Time', fmtTime(M.time) + (newBest ? '  (best)' : '')], ['Objectives', done + ' / ' + M.objs.length],
     ['Times spotted', M.spotted], ['Guards down', M.kills + ' / ' + S.guards.length], ['Headshots', M.heads], ['Accuracy', M.shots ? Math.round(100 * M.hits / M.shots) + '%' : '-']];
+  if (won) rows.push(['Rating', RATINGS[rating]]);
   $('endStats').innerHTML = rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
+  const next = MISSIONS[idx + 1];
+  $('btnNext').hidden = !(won && next);
   $('end').hidden = false;
 }
 let toastTimer = 0;
@@ -2425,12 +3495,119 @@ function toast(big, small) {
   const t = $('toast'); t.innerHTML = big + (small ? '<small>' + small + '</small>' : ''); t.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 3200);
 }
-$('btnStart').addEventListener('click', startMission);
-$('btnRetry').addEventListener('click', startMission);
-$('btnTitle').addEventListener('click', () => { $('end').hidden = true; $('title').hidden = false; mode = 'title'; newTitleState(); });
+function showCampaign() { $('end').hidden = true; $('title').hidden = false; mode = 'title'; renderCampaign(); newTitleState(); }
+$('btnStart').addEventListener('click', () => startMission());
+$('btnRetry').addEventListener('click', () => startMission());
+$('btnNext').addEventListener('click', () => { const m = MISSIONS[MISSIONS.indexOf(MISSION) + 1]; if (m) startMission(m.id); });
+$('btnTitle').addEventListener('click', showCampaign);
 $('btnResume').addEventListener('click', () => { paused = false; $('pause').hidden = true; if (canvas.requestPointerLock) { try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) { /* ignore */ } } });
 $('btnQuit').addEventListener('click', () => { paused = false; $('pause').hidden = true; endMission(false); });
 addEventListener('keydown', (e) => { if (e.code === 'Enter' && mode !== 'play' && !$('title').hidden) startMission(); });
+
+// ---- world effects: charges, explosions, fire, the falling mast, the door, the dish, the codebook
+const chargeGeo = () => new THREE.BoxGeometry(0.28, 0.16, 0.12);
+const CHARGE_MAT = new THREE.MeshLambertMaterial({ color: 0x5a5a3c });
+const LED_MAT = new THREE.SpriteMaterial({ map: TEX.glow, color: 0xff2a1a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+const SCORCH_MAT = new THREE.MeshBasicMaterial({ map: TEX.glow, color: 0x000000, transparent: true, opacity: 0.8, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 });
+function plantView(e) {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(chargeGeo(), CHARGE_MAT));
+  const led = new THREE.Sprite(LED_MAT); led.scale.set(0.3, 0.3, 1); led.position.set(0, 0.1, 0.07); g.add(led);
+  const mast = WV.masts[e.id], gen = WV.gens[e.id];
+  if (mast) g.position.set(mast.pivot.position.x + 0.4, 0.9, mast.pivot.position.z + 0.45);
+  else if (gen) g.position.set(gen.x - 0.4, 1.0, gen.z - 0.9);
+  else g.position.set(e.x, 0.5, e.z);
+  world.add(g);
+  WV.charges.push({ id: e.id, g, led, beepT: 0 });
+}
+function explosionFX(x, z) {
+  const fl = FX_LIGHTS[0]; fl.position.set(x, 3, z); fl.color.setHex(0xffa040); fl.intensity = 10; fl.distance = 70;
+  for (let i = 0; i < 70; i++) {
+    const a = vrng() * 6.283, s = 2 + vrng() * 7;
+    spawn('add', x + (vrng() - 0.5), 0.8 + vrng() * 2, z + (vrng() - 0.5), Math.cos(a) * s * 0.6, 3 + vrng() * 8, Math.sin(a) * s * 0.6, 0.7 + vrng() * 0.8, 1.6 + vrng() * 1.3, 2.4, 1, 0.5 + vrng() * 0.35, 0.16, 1, 2);
+  }
+  for (let i = 0; i < 46; i++) {
+    const a = vrng() * 6.283, s = vrng() * 3;
+    const k = PRESET === PRESETS.night ? 0.24 : 0.14;     // unlit particles: at night the smoke is lit by the fire, so it reads lighter
+    spawn('soft', x + (vrng() - 0.5) * 2, 1 + vrng() * 3, z + (vrng() - 0.5) * 2, Math.cos(a) * s, 2 + vrng() * 4, Math.sin(a) * s, 3 + vrng() * 3, 2.2 + vrng() * 1.5, 3.5, k * 1.1, k, k * 0.9, 0.8, -0.25);
+  }
+  for (let i = 0; i < 40; i++) {
+    const a = vrng() * 6.283, s = 8 + vrng() * 12;
+    spawn('add', x, 1 + vrng(), z, Math.cos(a) * s, 4 + vrng() * 10, Math.sin(a) * s, 0.8 + vrng() * 0.8, 0.12, 0, 1, 0.75, 0.35, 1, 14);
+  }
+  for (let i = 0; i < 36; i++) {
+    const a = (i / 36) * 6.283, s = 7 + vrng() * 3;
+    spawn('soft', x + Math.cos(a), 0.4, z + Math.sin(a), Math.cos(a) * s, 0.4 + vrng(), Math.sin(a) * s, 1.4 + vrng(), 1.4, 2.4, 0.42, 0.38, 0.33, 0.6, 0);
+  }
+  const sc = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), SCORCH_MAT); sc.rotation.x = -Math.PI / 2; sc.position.set(x, 0.06, z); world.add(sc);
+  (WV.scorch = WV.scorch || []).push(sc);
+}
+function onBoom(e) {
+  const i = WV.charges.findIndex((c) => c.id === e.id);
+  if (i >= 0) { const c = WV.charges[i]; world.remove(c.g); c.g.children[0].geometry.dispose(); WV.charges.splice(i, 1); }
+  explosionFX(e.x, e.z);
+  const mast = WV.masts[e.id], gen = WV.gens[e.id];
+  if (mast) { mast.fallT = 0; mast.dir = vrng() * 6.283; mast.beacon.visible = false; mast.wires.visible = false; mast.landed = false; WV.fires.push({ x: e.x, z: e.z, t: 0, smoke: true }); }
+  if (gen) { gen.intact.visible = false; gen.wreck.visible = true; WV.fires.push({ x: gen.x, z: gen.z, t: 0 }); }
+  const p = S.player, d = Math.hypot(p.x - e.x, p.z - e.z);
+  pv.shake = Math.max(pv.shake, 0.9 * Math.max(0.15, 1 - d / 70));
+  Snd.boom(d);
+}
+function updateWorldFX(dt, now) {
+  const Sx = mode === 'title' ? titleS : S;
+  // charges: a red LED that blinks faster as the fuse runs down, and a beep you can hear up close
+  for (const c of WV.charges) {
+    const ch = Sx && Sx.mission.charges.find((q) => q.id === c.id && !q.blown);
+    const left = ch ? ch.t : 20, rate = left < 5 ? 6 : left < 10 ? 3 : 1.4;
+    c.led.visible = Math.sin(now / 1000 * rate * Math.PI * 2) > 0;
+    c.beepT -= dt;
+    if (c.beepT <= 0 && S && mode === 'play') { c.beepT = 1 / rate; const d = Math.hypot(S.player.x - c.g.position.x, S.player.z - c.g.position.z); if (d < 25) Snd.tone(1900, 0.04, 0.12 * (1 - d / 25)); }
+  }
+  // the mast: tips over, slowly, then fast, and lands in a cloud of dust
+  for (const k in WV.masts) {
+    const mv = WV.masts[k];
+    mv.beacon.material.opacity = 0.35 + 0.65 * (Math.sin(now / 450) > 0.2 ? 1 : 0);
+    if (mv.fallT < 0) continue;
+    mv.fallT += dt;
+    const f = Math.min(1, Math.pow(mv.fallT / 2.4, 2));
+    mv.pivot.rotation.order = 'YXZ'; mv.pivot.rotation.y = mv.dir; mv.pivot.rotation.x = f * (Math.PI / 2 - 0.06);
+    if (f >= 1 && !mv.landed) {
+      mv.landed = true;
+      const ex = mv.pivot.position.x - Math.sin(mv.dir) * mv.h * 0.6, ez = mv.pivot.position.z - Math.cos(mv.dir) * mv.h * 0.6;
+      for (let i = 0; i < 40; i++) spawn('soft', ex + (vrng() - 0.5) * mv.h * 0.8, 0.3, ez + (vrng() - 0.5) * 4, (vrng() - 0.5) * 4, 0.5 + vrng() * 1.5, (vrng() - 0.5) * 4, 1.8 + vrng(), 1.6, 2.5, 0.45, 0.42, 0.37, 0.7, 0);
+      if (S) { const d = Math.hypot(S.player.x - ex, S.player.z - ez); Snd.thud(Math.min(0.9, 8 / (4 + d))); pv.shake = Math.max(pv.shake, 0.35 * Math.max(0, 1 - d / 40)); }
+    }
+  }
+  // fires in a wreck: flames, smoke, and a flickering light on everything around
+  const fl0 = FX_LIGHTS[0]; if (fl0.intensity > 0) fl0.intensity = Math.max(0, fl0.intensity - dt * 14);
+  const fl1 = FX_LIGHTS[1]; fl1.intensity = 0;
+  for (const f of WV.fires) {
+    f.t += dt;
+    const k = Math.max(0.35, 1 - f.t / 90), sk = PRESET === PRESETS.night ? 0.2 : 0.12;
+    if (f.smoke) { if (f.t < 40 && vrng() < dt * 6) spawn('soft', f.x + (vrng() - 0.5), 0.6, f.z + (vrng() - 0.5), 0.25, 1.2 + vrng(), (vrng() - 0.5) * 0.3, 5, 1.2, 4, sk, sk, sk, 0.5 * (1 - f.t / 40), -0.08); continue; }
+    if (vrng() < dt * 40 * k) spawn('add', f.x + (vrng() - 0.5) * 2.4, 0.8 + vrng() * 0.8, f.z + (vrng() - 0.5) * 1.2, (vrng() - 0.5) * 0.5, 1.5 + vrng() * 1.5, (vrng() - 0.5) * 0.5, 0.5 + vrng() * 0.4, 0.7, 1.2, 1, 0.5 + vrng() * 0.3, 0.12, 0.9, -0.5);
+    if (vrng() < dt * 12 * k) spawn('soft', f.x + (vrng() - 0.5) * 1.5, 2.2, f.z + (vrng() - 0.5), 0.3 + (vrng() - 0.5) * 0.4, 1.8 + vrng(), (vrng() - 0.5) * 0.4, 4 + vrng() * 2, 1.6, 4, sk, sk * 0.95, sk * 0.9, 0.55, -0.1);
+    fl1.position.set(f.x, 2.2, f.z); fl1.color.setHex(0xff8a30); fl1.distance = 24; fl1.intensity = (1.6 + Math.sin(now / 70) * 0.3 + Math.sin(now / 37) * 0.25) * k;
+  }
+  // the door slides into the wall once opened
+  if (WV.door && LEVEL.doors.length) {
+    const d = LEVEL.doors[0];
+    WV.door.t = d.open ? Math.min(1, WV.door.t + dt * 1.6) : 0;
+    WV.door.mesh.position.z = -1.7 * (1 - Math.pow(1 - WV.door.t, 3));
+  }
+  if (WV.dish) WV.dish.rotation.y = now / 1000 * 0.45;
+  // the codebook lies by the colonel once he is down
+  for (const pk of WV.pickups) {
+    const o = pk.o, M = Sx && Sx.mission;
+    if (o.item === 'keycard') { if (M && M.obj > M.objs.findIndex((q) => q.item === 'keycard')) pk.g.visible = false; continue; }
+    if (!Sx || o.from == null) continue;
+    const oi = M.objs.findIndex((q) => q.item === o.item), gi = M.objs[oi].gi, g = Sx.guards[gi];
+    const show = g && g.state === 'dead' && g.deadT > 0.6 && M.obj <= oi;
+    pk.g.visible = !!show;
+    if (show) { pk.g.position.set(g.x + Math.sin(g.deathDir) * 0.6, 0.06, g.z + Math.cos(g.deathDir) * 0.6); pk.g.children[1].material.opacity = 0.5 + 0.4 * Math.sin(now / 300); }
+  }
+  if (WV.captive && Sx) animateCaptive(Sx, dt);
+}
 
 function handleEvents(S, evs) {
   const p = S.player;
@@ -2457,7 +3634,7 @@ function handleEvents(S, evs) {
         if (e.near != null && e.near < 2.2) Snd.crack();
       }
     } else if (e.type === 'hurt') {
-      pv.dmg = Math.min(1, pv.dmg + 0.45); pv.shake = 0.25; hurtMarks.push({ x: e.fromX, z: e.fromZ, t: 1.4 }); Snd.thud(0.6);
+      pv.dmg = Math.min(1, pv.dmg + 0.45); pv.shake = Math.max(pv.shake, 0.25); hurtMarks.push({ x: e.fromX, z: e.fromZ, t: 1.4 }); Snd.thud(0.6);
     } else if (e.type === 'kill') {
       hits.t = 0.45; hits.kill = true; hits.head = e.part === 'head';
       const g = S.guards[e.id]; impact(g.x, g.y + 1.3, g.z, 'guard');
@@ -2466,7 +3643,14 @@ function handleEvents(S, evs) {
       if (S.t - (S._sirenT || -99) > 12) { S._sirenT = S.t; Snd.siren(); toast('SPOTTED', 'The alarm is up. Break line of sight.'); }
     } else if (e.type === 'reload') { pv.reloadT = 0; Snd.click(0.25); Snd.click(1.25); Snd.click(1.85); Snd.click(1.95); }
     else if (e.type === 'dry') Snd.click(0);
-    else if (e.type === 'hacked') { S._hacked = true; Snd.tone(880, 0.1, 0.3); Snd.tone(1320, 0.18, 0.3, 'sine', 0.12); toast('UPLOAD COMPLETE', 'Get to the landing zone, west of the gate.'); $('objText').textContent = 'Reach the landing zone west of the gate'; }
+    else if (e.type === 'objective') {
+      const o = S.mission.objs[e.index];
+      Snd.tone(880, 0.1, 0.3); Snd.tone(1320, 0.18, 0.3, 'sine', 0.12);
+      if (o.toast) toast(o.toast[0], o.toast[1]);
+    } else if (e.type === 'planted') plantView(e);
+    else if (e.type === 'boom') onBoom(e);
+    else if (e.type === 'identified') { Snd.tone(1200, 0.08, 0.25); Snd.tone(1600, 0.1, 0.25, 'sine', 0.1); toast('TARGET IDENTIFIED', 'Colonel Varga. He is marked.'); }
+    else if (e.type === 'door') { Snd.thud(0.5); Snd.click(0.05); Snd.click(0.4); }
     else if (e.type === 'medkit') { Snd.tone(660, 0.1, 0.25); Snd.tone(990, 0.12, 0.25, 'sine', 0.1); }
     else if (e.type === 'body') { /* the guard's own search is the tell */ }
     else if (e.type === 'died') { Snd.thud(0.9); }
@@ -2539,18 +3723,29 @@ function setHidden(id, v) { if (last['h' + id] !== v) { last['h' + id] = v; $(id
 function updateDomHud(S) {
   const p = S.player, M = S.mission;
   const hp = Math.ceil(p.hp);
-  if (last.hp !== hp) { last.hp = hp; $('hp').style.width = hp + '%'; $('hpbar').classList.toggle('low', hp < 35); }
+  if (last.hp !== hp) { last.hp = hp; $('hp').style.width = Math.min(100, hp) + '%'; $('hpbar').classList.toggle('low', hp < 35); }
   setText('mag', String(p.mag)); setText('res', '/ ' + p.reserve);
   $('ammo').classList.toggle('empty', p.mag === 0);
   setHidden('reloading', !(p.reloadT > 0));
   setText('stance', p.crouch ? 'CROUCHED' : p.sprinting ? 'SPRINTING' : 'STANDING');
   setHidden('alarm', !M.alarm);
-  // prompt / hack bar at the terminal
-  const t = LEVEL.terminal, nearT = M.phase === 'infiltrate' && Math.hypot(p.x - t.x, p.z - t.z) < 1.7;
-  setHidden('hack', !(nearT && M.hackT > 0));
-  if (nearT && M.hackT > 0) { const pct = Math.round((M.hackT / 3) * 100); setText('hackPct', pct + '%'); $('hackBar').style.width = pct + '%'; }
-  const promptText = nearT && M.hackT === 0 ? (touchMode ? 'Hold USE to upload the intercept' : 'Hold <kbd>E</kbd> to upload the intercept') : '';
+  // the current objective: its line, the hold bar and prompt when it is in reach, the clock
+  const o = currentObjective(S);
+  setText('objText', o ? o.text : 'Mission complete');
+  const near = objectiveInReach(S, o);
+  setHidden('hack', !(near && M.hackT > 0));
+  if (near && M.hackT > 0) { const pct = Math.round((M.hackT / (o.time || HACK_TIME)) * 100); setText('hackLbl', o.bar || 'WORKING'); setText('hackPct', pct + '%'); $('hackBar').style.width = pct + '%'; }
+  let promptText = near && M.hackT === 0 ? (touchMode ? 'Hold USE to ' : 'Hold <kbd>E</kbd> to ') + o.prompt : '';
+  if (o && o.type === 'extract' && Math.hypot(p.x - o.x, p.z - o.z) < o.r) {
+    const live = M.charges.find((c) => !c.blown), cap = S.captive;
+    if (live) promptText = 'Hold here: the charge blows in ' + Math.ceil(live.t) + ' s';
+    else if (o.withCaptive && cap && Math.hypot(cap.x - o.x, cap.z - o.z) >= o.r + 3) promptText = 'Wait for the pilot';
+  }
   if (last.prompt !== promptText) { last.prompt = promptText; $('prompt').innerHTML = promptText; $('prompt').hidden = !promptText; }
+  const live = M.charges.filter((c) => !c.blown);
+  const clock = (M.deadline != null ? 'EXFIL ' + fmtTime(Math.max(0, M.deadline - S.t)) : '') + (live.length ? (M.deadline != null ? ' · ' : '') + 'CHARGE ' + Math.ceil(Math.min(...live.map((c) => c.t))) + ' s' : '');
+  setHidden('timer', !clock);
+  if (clock) { setText('timer', clock); $('timer').classList.toggle('low', M.deadline != null && M.deadline - S.t < 30); }
   // crosshair: gap follows the real spread; red when a living guard is under it
   const xh = $('xhair');
   const hideX = pv.scopeT > 0.3 || p.sprinting || p.dead;
@@ -2572,18 +3767,26 @@ function updateDomHud(S) {
 
 // ---------------------------------------------------------------- main loop
 const frameTimes = [], frameGaps = [];
+let timeScale = 1;        // 1 in play; the visual checks slow it to catch an explosion mid-flight
 function frame(now) {
   requestAnimationFrame(frame);
   frameGaps.push(now - lastT); if (frameGaps.length > 240) frameGaps.shift();
-  const dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
+  const dt = Math.min(0.1, (now - lastT) / 1000) * timeScale; lastT = now;
   const f0 = performance.now();
   renderer.info.reset();
   if (mode === 'title' && titleS) {
     acc += dt; let n = 0;
     while (acc >= 1 / 60 && n++ < 4) { acc -= 1 / 60; step(titleS, { crouch: true }, 1 / 60); }
     const a = now / 1000 * 0.045;
-    camera.position.set(Math.cos(a) * 62, 20 + Math.sin(a * 1.7) * 3, Math.sin(a) * 50);
-    camera.lookAt(0, 2, 0);
+    if (LEVEL.map === 'outpost') {
+      // a slow swing along the south side: the station against the wall of rock, the drop below
+      const s = Math.sin(a * 1.3) * 1.1;
+      camera.position.set(12 + Math.sin(s) * 72, 24 + Math.sin(a * 1.7) * 3, -12 + Math.cos(s) * 60);
+      camera.lookAt(14, 4, -18);
+    } else {
+      camera.position.set(Math.cos(a) * 62, 20 + Math.sin(a * 1.7) * 3, Math.sin(a) * 50);
+      camera.lookAt(0, 2, 0);
+    }
     if (camera.fov !== BASE_FOV) { camera.fov = BASE_FOV; camera.updateProjectionMatrix(); }
     animateGuards(titleS, dt);
     gun.visible = false;
@@ -2605,11 +3808,12 @@ function frame(now) {
     updateCamera(S, dt);
     animateGuards(S, dt);
     updateDomHud(S);
-    medkitViews.forEach((m, i) => { m.visible = !S.medkits[i].taken; m.rotation.y += dt; m.position.y = 0.3 + Math.sin(now / 400 + i) * 0.05; });
+    WV.medkits.forEach((m, i) => { m.visible = !S.medkits[i].taken; m.rotation.y += dt; m.position.y = 0.3 + Math.sin(now / 400 + i) * 0.05; });
   }
-  updateParticles(dt); updateTracers(dt);
-  // the LZ smoke: green once the upload is done, so it can be found by eye from inside the wire
-  if (S && S.mission.phase === 'extract' && vrng() < dt * 14) spawn('soft', LEVEL.extraction.x + (vrng() - 0.5) * 0.4, 0.3, LEVEL.extraction.z + (vrng() - 0.5) * 0.4, 0.4 + vrng() * 0.3, 1.4 + vrng() * 0.8, (vrng() - 0.5) * 0.3, 5, 0.9, 5, 0.45, 0.85, 0.5, 0.55, -0.05);
+  updateWorldFX(dt, now);
+  updateParticles(dt); updateTracers(dt); updateSnow(dt);
+  // the LZ smoke: green once the last objective is the LZ, so it can be found by eye from a distance
+  if (S && mode !== 'title' && S.mission.phase === 'extract' && vrng() < dt * 14) spawn('soft', LEVEL.extraction.x + (vrng() - 0.5) * 0.4, 0.3, LEVEL.extraction.z + (vrng() - 0.5) * 0.4, 0.4 + vrng() * 0.3, 1.4 + vrng() * 0.8, (vrng() - 0.5) * 0.3, 5, 0.9, 5, 0.45, 0.85, 0.5, 0.55, -0.05);
   sky.position.copy(camera.position);
   aimSun(camera.position.x, camera.position.z);
   renderer.clear();
@@ -2626,6 +3830,8 @@ function onResize() {
 }
 addEventListener('resize', onResize);
 onResize();
+loadMission(isUnlocked(missionById(SAVE.last) || MISSIONS[0]) ? missionById(SAVE.last) || MISSIONS[0] : MISSIONS[0]);
+renderCampaign();
 newTitleState();
 requestAnimationFrame(frame);
 
@@ -2634,6 +3840,25 @@ window.__dp = {
   get S() { return S; }, get mode() { return mode; }, view, keys, frameTimes, frameGaps, renderer, startMission,
   teleport(x, z, yaw, pitch) { S.player.x = x; S.player.z = z; if (yaw != null) view.yaw = yaw; if (pitch != null) view.pitch = pitch; },
   drawCalls() { return renderer.info.render.calls; },
+  missions: MISSIONS.map((m) => m.id), selectMission, loadMission: (id) => loadMission(missionById(id)), showCampaign, endMission,
+  get mission() { return MISSION && MISSION.id; }, get level() { return LEVEL; }, get titleS() { return titleS; },
+  unlockAll() { SAVE.unlocked = MISSIONS.length; storeSave(); renderCampaign(); },
+  slow(k) { timeScale = k; },
+  // What is in the scene, for the perf checks: visible drawables in and out of the world, the heaviest.
+  breakdown() {
+    const out = { world: 0, other: 0, top: [] };
+    scene.traverseVisible((o) => {
+      if (!(o.isMesh || o.isSprite || o.isPoints || o.isLine)) return;
+      let w = false; for (let q = o; q; q = q.parent) if (q === world) w = true;
+      if (w) out.world++; else out.other++;
+      const g = o.geometry, n = g && g.index ? g.index.count / 3 : g && g.attributes.position ? g.attributes.position.count / 3 : 0;
+      out.top.push([Math.round(n), (o.material && o.material.map && Object.keys(TEX).find((k) => TEX[k] === o.material.map)) || o.type]);
+    });
+    out.top.sort((a, b) => b[0] - a[0]); out.top = out.top.slice(0, 8);
+    return out;
+  },
+  // Finish the current objective as if it had been done (tests drive the chain without the walking).
+  completeObjective() { const o = currentObjective(S); if (o) { completeObjective(S, o); handleEvents(S, S.events); S.events = []; } },
 };
 </script>
 </body>
