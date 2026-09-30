@@ -1,0 +1,1504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#f2f3f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1015" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="dgames">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+  /* Installable, and playable with no network once a game has been opened. Registered from every page so
+     a deep link into one game works offline too, not only a visit that started at the launcher. Over
+     file:// there is no service worker and register() rejects; the catch keeps that silent. */
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('../sw.js').catch(() => {}));
+</script>
+<meta name="description" content="Troll Chess: chess with a card drawn before every turn (1, 2 or 3 moves, Skip, Reverse, Draw 2, Wild), knights that fuse into the Knook, Knishop and Kning, or both at once.">
+<title>Troll Chess</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Optional. Offline or over file:// this fails quietly and the Segoe UI / system fallbacks take over. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+  /* Light by default, dark when the system asks. Every colour is a token here; the cards keep their own
+     four fixed colours in both themes because that is what makes them read as cards. */
+  :root {
+    color-scheme: light;
+    --bg: #f2f3f6; --bg-top: #fbfbfd;
+    --surface: #ffffff; --surface-2: #e6e8ee; --line: rgba(22, 27, 38, .1);
+    --text: #161a22; --muted: #5a6273;
+    --accent: #4338ca; --accent-soft: rgba(67, 56, 202, .12);
+    --sq-l: #e9e4d8; --sq-d: #b58f6a; --coord-l: #8a6a4c; --coord-d: #f3ead9; --frame-bg: #ffffff;
+    --last: rgba(250, 204, 21, .42); --sel: rgba(67, 56, 202, .38); --dot: rgba(30, 30, 60, .32);
+    --check: #dc2626; --quad: rgba(22, 163, 74, .2); --place: rgba(22, 163, 74, .5); --fuse: #d97706;
+    --good: #15803d; --bad: #b91c1c;
+    --shadow: 0 1px 2px rgba(16, 20, 30, .06), 0 14px 34px -10px rgba(16, 20, 30, .28);
+    --bs: 340px; --sq: 40px; --frame: 4px; --gap: 8px;
+    --sans: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --c-r: #e53935; --c-y: #f5b700; --c-g: #2e9e48; --c-b: #1e78d6; --c-x: #1b1b1f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0d1015; --bg-top: #161a22;
+      --surface: #181c24; --surface-2: #1f242e; --line: rgba(255, 255, 255, .08);
+      --text: #e9ecf1; --muted: #9aa2b1;
+      --accent: #a5b4fc; --accent-soft: rgba(165, 180, 252, .14);
+      --sq-l: #cfc3ab; --sq-d: #8d6a4c; --coord-l: #6f5238; --coord-d: #efe4cf; --frame-bg: #1a1e26;
+      --dot: rgba(20, 20, 40, .42);
+      --good: #4ade80; --bad: #f87171;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 18px 40px -12px rgba(0, 0, 0, .7);
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: linear-gradient(180deg, var(--bg-top), var(--bg) 60%) fixed, var(--bg);
+    color: var(--text); font-family: var(--sans); -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none; user-select: none; -webkit-user-select: none; -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Portrait: title, the opponent's strip, the board, your strip, the card bar and the controls in one
+     centred column. Landscape: the same pieces in a panel left of the board. layout() sizes the board
+     from whatever the other rows leave. */
+  #app {
+    min-height: 100%; display: grid; gap: var(--gap); justify-content: center;
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    grid-template-columns: var(--bs);
+    grid-template-rows: auto 1fr auto auto auto auto auto 1fr;
+    grid-template-areas: "head" "." "top" "stage" "bot" "cards" "ctrl" ".";
+  }
+  @media (orientation: landscape) {
+    #app { grid-template-columns: minmax(0, 330px) var(--bs); column-gap: 24px;
+      grid-template-rows: auto 1fr auto auto auto auto 1fr;
+      grid-template-areas: "head stage" ". stage" "top stage" "cards stage" "ctrl stage" "bot stage" ". stage"; }
+    #stage { align-self: center; }
+  }
+  header { grid-area: head; display: flex; align-items: center; gap: 8px; min-height: 44px; padding-left: 54px; }
+  h1 { margin: 0; flex: 1; min-width: 0; font-weight: 700; font-size: 18px; letter-spacing: -.2px; line-height: 1.15; white-space: nowrap; }
+  h1 small { display: block; font-size: 12.5px; font-weight: 500; letter-spacing: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  .iconbtn { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 0; background: transparent;
+    display: grid; place-items: center; cursor: pointer; color: var(--muted); transition: background .15s, color .15s; }
+  .iconbtn:hover { background: var(--surface-2); color: var(--text); }
+  .iconbtn svg { width: 22px; height: 22px; }
+
+  /* ---- player strips: who, which army, whose turn, and the captured pieces a Draw 2 can bring back ---- */
+  .strip { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 10px; border-radius: 14px;
+    background: var(--surface-2); border: 2px solid transparent; transition: border-color .2s, background .2s; }
+  #top { grid-area: top; } #bot { grid-area: bot; }
+  .strip.turn { border-color: var(--accent); background: var(--accent-soft); }
+  .strip .who { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .army { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #222; flex: none; }
+  .army.w { background: #f6f1e4; } .army.b { background: #2b2b31; border-color: #777; }
+  .strip .tray { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0; }
+  .tray .tp { width: 24px; height: 24px; border: 0; padding: 0; background: transparent; border-radius: 6px; position: relative; }
+  .tray .tp svg { width: 100%; height: 100%; }
+  .tray .tp.can { cursor: pointer; background: var(--surface); box-shadow: 0 0 0 2px var(--good); animation: breathe 1.6s ease-in-out infinite; }
+  .tray .tp.can.sel { background: var(--place); animation: none; }
+  .tray .tp.dead { opacity: .35; }
+  .tray .empty { font-size: 12px; color: var(--muted); }
+  @keyframes breathe { 50% { box-shadow: 0 0 0 3px var(--good); } }
+
+  /* ---- the card bar ---- */
+  /* Fusion Chess has no cards: no deck and no pile, just the status line */
+  #app.nocards #deck, #app.nocards #pile, #app.nocards #ctrl { display: none; }
+  #app.nocards #cards { grid-template-columns: 1fr; min-height: 60px; }
+  #cards { grid-area: cards; display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 12px; padding: 8px 10px;
+    border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+  #deck { position: relative; width: 58px; height: 84px; border: 0; padding: 0; background: transparent; cursor: default; }
+  #deck .back { position: absolute; inset: 0; }
+  #deck .back:nth-child(1) { transform: translate(4px, 4px); } #deck .back:nth-child(2) { transform: translate(2px, 2px); }
+  #deck.ready { cursor: pointer; }
+  #deck.ready .back:last-of-type { animation: nudgecard 1.4s ease-in-out infinite; }
+  @keyframes nudgecard { 50% { transform: translateY(-5px) rotate(-2deg); box-shadow: 0 0 0 3px var(--accent); } }
+  #deck .cnt { position: absolute; right: -6px; bottom: -8px; z-index: 3; min-width: 22px; height: 20px; padding: 0 5px; border-radius: 10px;
+    background: var(--text); color: var(--bg); font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+  #pile { width: 58px; height: 84px; position: relative; }
+  #pile .slot { position: absolute; inset: 0; border-radius: 9px; border: 2px dashed var(--line); }
+  #pile .card { position: absolute; inset: 0; }
+  #pile .card.flip { animation: flip .45s cubic-bezier(.2, .9, .3, 1.2) both; }
+  @keyframes flip { from { transform: translateX(-70px) rotateY(90deg) scale(.9); } 60% { transform: translateX(0) rotateY(0) scale(1.06); } }
+  #effect { min-width: 0; }
+  #effect b { display: block; font-size: 15px; font-weight: 700; line-height: 1.2; }
+  #effect span { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.35; margin-top: 2px; }
+  #effect .pips { display: flex; gap: 5px; margin-top: 6px; }
+  #effect .pips i { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+  #effect .pips i.used { background: var(--surface-2); box-shadow: inset 0 0 0 1.5px var(--muted); }
+
+  /* A card: UNO-shaped. Colour field, a tilted white oval, the value large in the middle and small in two
+     corners. Built from one function so the deck, the pile and the rules all draw the same thing. */
+  .card { border-radius: 9px; background: #fff; padding: 4px; box-shadow: 0 2px 6px rgba(0, 0, 0, .3); color: #fff; font-family: var(--sans); }
+  .card .face { position: relative; width: 100%; height: 100%; border-radius: 6px; background: var(--cc); overflow: hidden; display: grid; place-items: center; }
+  .card .oval { position: absolute; left: 50%; top: 50%; width: 76%; height: 64%; transform: translate(-50%, -50%) rotate(-28deg) scaleY(1.28); border-radius: 50%; background: #fff; }
+  .card .v { position: relative; z-index: 1; font-weight: 800; font-size: calc(var(--cw, 58px) * .44); line-height: 1; color: var(--cc);
+    -webkit-text-stroke: 1.5px #111; paint-order: stroke fill; text-shadow: 2px 2px 0 #111; font-style: italic; letter-spacing: -1px; }
+  .card .v svg { width: calc(var(--cw, 58px) * .5); height: calc(var(--cw, 58px) * .5); display: block; filter: drop-shadow(1.5px 1.5px 0 #111); }
+  .card .cn { position: absolute; z-index: 1; font-weight: 800; font-size: calc(var(--cw, 58px) * .17); line-height: 1; font-style: italic; }
+  .card .cn svg { width: calc(var(--cw, 58px) * .18); height: calc(var(--cw, 58px) * .18); display: block; }
+  .card .cn.tl { left: 5%; top: 4%; } .card .cn.br { right: 5%; bottom: 4%; transform: rotate(180deg); }
+  .card.x .oval { background: conic-gradient(var(--c-r) 0 25%, var(--c-b) 0 50%, var(--c-g) 0 75%, var(--c-y) 0); }
+  .card.x .v { color: #fff; }
+  .back.card .face { background: #1b1b1f; }
+  .back.card .oval { background: var(--c-r); }
+  .back.card .v { color: var(--c-y); font-size: 13px; -webkit-text-stroke: 1px #111; text-shadow: 1px 1px 0 #111; transform: rotate(-28deg); letter-spacing: 0; }
+
+  /* ---- controls ---- */
+  #ctrl { grid-area: ctrl; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; padding: 4px;
+    border-radius: 16px; background: var(--surface-2); }
+  .btn { min-height: 48px; border-radius: 12px; border: 0; cursor: pointer; background: transparent; color: var(--text);
+    display: flex; align-items: center; justify-content: center; gap: 8px; padding: 4px 10px;
+    font-size: 14px; font-weight: 600; transition: background .15s, transform .08s; }
+  .btn:hover:not(:disabled) { background: var(--accent-soft); }
+  .btn:active:not(:disabled) { transform: scale(.97); }
+  .btn:disabled { opacity: .38; cursor: default; }
+  .btn.primary { background: var(--accent); color: var(--surface); }
+  .btn.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+  .btn kbd { font: 600 11px var(--sans); opacity: .7; border: 1px solid currentColor; border-radius: 5px; padding: 1px 5px; }
+
+  /* ---- the board ---- */
+  #stage { grid-area: stage; width: var(--bs); height: var(--bs); position: relative; perspective: 1400px; }
+  #board { position: absolute; inset: 0; padding: var(--frame); border-radius: 12px; background: var(--frame-bg); box-shadow: var(--shadow); }
+  #board.spin { animation: spin .8s cubic-bezier(.5, 0, .3, 1) both; }
+  @keyframes spin { from { transform: rotate(-180deg); } }
+  #grid { position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+    border-radius: 8px; overflow: hidden; }
+  .sq { position: relative; border: 0; padding: 0; margin: 0; background: var(--sq-l); cursor: default; overflow: hidden; }
+  .sq.d { background: var(--sq-d); }
+  .sq .co { position: absolute; z-index: 1; font-size: max(8px, min(12px, calc(var(--sq) * .16))); font-weight: 700; line-height: 1; pointer-events: none; color: var(--coord-l); }
+  .sq.d .co { color: var(--coord-d); }
+  .sq .co.f { right: 5%; bottom: 4%; } .sq .co.r { left: 5%; top: 4%; }
+  .sq.last::before, .sq.sel::before, .sq.quad::before { content: ""; position: absolute; inset: 0; }
+  .sq.last::before { background: var(--last); }
+  .sq.quad::before { background: var(--quad); }
+  .sq.sel::before { background: var(--sel); }
+  .sq.chk .pc { background: radial-gradient(circle, rgba(220, 38, 38, .9) 0, rgba(220, 38, 38, .45) 45%, transparent 72%); }
+  .sq.mine { cursor: pointer; }
+  .sq.tgt { cursor: pointer; }
+  .sq.tgt::after { content: ""; position: absolute; left: 50%; top: 50%; width: 28%; height: 28%; border-radius: 50%; transform: translate(-50%, -50%); background: var(--dot); z-index: 3; pointer-events: none; }
+  .sq.tgt.cap::after { width: 92%; height: 92%; background: transparent; box-shadow: inset 0 0 0 max(3px, calc(var(--sq) * .07)) var(--dot); }
+  .sq.tgt.place::after { width: 34%; height: 34%; background: var(--place); box-shadow: 0 0 0 2px rgba(255, 255, 255, .7); }
+  /* a fusion target: a gold ring round our own piece, with a small plus */
+  .sq.tgt.fuse::after { width: 92%; height: 92%; background: transparent; box-shadow: inset 0 0 0 max(3px, calc(var(--sq) * .07)) var(--fuse); }
+  .sq.tgt.fuse::before { content: "+"; position: absolute; inset: auto 6% 4% auto; z-index: 4; width: 30%; height: 30%; border-radius: 50%; display: grid; place-items: center;
+    background: var(--fuse); color: #1a1405; font-weight: 800; font-size: calc(var(--sq) * .24); line-height: 1; }
+  .duo { position: relative; width: 92%; height: 92%; display: block; }
+  .duo svg { position: absolute; }
+  .pc .duo svg:first-child, .duo svg:first-child { left: 0; top: 0; width: 80%; height: 80%; }
+  .pc .duo svg:last-child, .duo svg:last-child { right: 0; bottom: 0; width: 62%; height: 62%; }
+  .tray .tp .duo svg:first-child { width: 80%; height: 80%; }
+  .sq.tgt:hover::after { transform: translate(-50%, -50%) scale(1.25); }
+  .pc { position: absolute; inset: 0; display: grid; place-items: center; z-index: 2; pointer-events: none; }
+  .pc svg { width: 88%; height: 88%; filter: drop-shadow(0 1.5px 1.5px rgba(0, 0, 0, .35)); }
+  .pc.pop { animation: pop .35s ease-out both; }
+  @keyframes pop { from { transform: scale(.3); opacity: 0; } 70% { transform: scale(1.12); } }
+  #flyer { position: absolute; z-index: 5; width: var(--sq); height: var(--sq); pointer-events: none; display: grid; place-items: center; }
+  #flyer svg { width: 88%; height: 88%; filter: drop-shadow(0 6px 6px rgba(0, 0, 0, .35)); }
+  #banner { position: absolute; left: 50%; top: 50%; z-index: 6; transform: translate(-50%, -50%); pointer-events: none;
+    padding: 10px 20px; border-radius: 14px; background: rgba(12, 14, 20, .82); color: #fff; font-weight: 800; font-size: clamp(18px, calc(var(--bs) * .07), 34px);
+    letter-spacing: .5px; white-space: nowrap; box-shadow: 0 10px 30px rgba(0, 0, 0, .4); }
+  #banner.show { animation: banner 1.3s ease-out both; }
+  @keyframes banner { from { opacity: 0; transform: translate(-50%, -50%) scale(.7); } 15% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); } 25% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } to { opacity: 0; } }
+
+  /* pieces: one drawing per type, the army decides the fill */
+  .w { --pf: #f7f2e6; --ps: #1c1712; --pd: #1c1712; }
+  .b { --pf: #2c2c33; --ps: #09090b; --pd: #a9a9b6; }
+
+  /* ---- overlays ---- */
+  .veil { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 12px; background: rgba(8, 10, 16, .45);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); animation: fade .2s ease-out both; }
+  @keyframes fade { from { opacity: 0; } }
+  .panel { width: min(420px, 100%); max-height: calc(100dvh - 24px); overflow: auto; border-radius: 20px; padding: 20px;
+    background: var(--surface); color: var(--text); border: 1px solid var(--line); box-shadow: 0 24px 60px -12px rgba(0, 0, 0, .45);
+    animation: rise .35s cubic-bezier(.2, 1.1, .3, 1) both; }
+  @keyframes rise { from { transform: translateY(20px) scale(.97); opacity: 0; } }
+  .panel h2 { margin: 0 0 4px; font-size: 20px; font-weight: 700; letter-spacing: -.2px; }
+  .panel .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; line-height: 1.45; }
+  .panel h3 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; padding: 4px; border-radius: 14px; background: var(--surface-2); }
+  .seg .btn { font-size: 13px; }
+  .seg .btn.on { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+  .panel .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 18px; }
+  .panel .btns .btn { background: var(--surface-2); }
+  .panel .btns .btn.primary { background: var(--accent); color: var(--surface); }
+  .record { font-size: 12.5px; color: var(--muted); margin-top: 8px; min-height: 1.3em; }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 8px 2px 0; line-height: 1.45; }
+  .rules.fusion li .pcard { width: 40px; height: 40px; border-radius: 8px; background: var(--sq-d); display: grid; place-items: center; }
+  #flyer .duo svg:first-child { width: 80%; height: 80%; } #flyer .duo svg:last-child { width: 62%; height: 62%; }
+  .rules { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .rules li { display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: center; font-size: 13.5px; line-height: 1.4; }
+  .rules li .card { width: 40px; height: 58px; --cw: 40px; padding: 2.5px; border-radius: 6px; }
+  .rules li b { display: block; }
+  .rules li small { color: var(--muted); }
+  .fine { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin: 12px 0 0; }
+  .fine b { color: var(--text); }
+  .promo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+  .promo button { aspect-ratio: 1; border: 0; border-radius: 12px; background: var(--sq-l); cursor: pointer; padding: 6px; }
+  .promo button:hover { box-shadow: inset 0 0 0 3px var(--accent); }
+  .promo svg { width: 100%; height: 100%; }
+  #over .big { font-size: 34px; font-weight: 800; letter-spacing: -.5px; margin: 4px 0 2px; }
+  #over .panel { text-align: center; }
+  #over.peek { background: transparent; pointer-events: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  #over.peek .panel { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #deck.ready .back:last-of-type, .tray .tp.can, #pile .card.flip, #board.spin, .pc.pop, .veil, .panel { animation: none; }
+    #banner.show { animation-duration: 2.2s; }
+  }
+</style>
+</head>
+<body>
+<style>
+  /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
+     ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
+     A dark disc with a light ring reads on a bright pastel scene and on a black one without being
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
+  .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
+    font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
+</style>
+<a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
+
+<div id="app">
+  <header>
+    <h1>Troll Chess<small id="sub">Draw a card, then play it</small></h1>
+    <button class="iconbtn" id="rulesBtn" type="button" title="Rules" aria-label="Rules">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M10 9.5a2.2 2.2 0 1 1 3 2c-.7.3-1 .8-1 1.5v.5"/><circle cx="12" cy="16.8" r=".6" fill="currentColor"/></svg>
+    </button>
+    <button class="iconbtn" id="newBtn" type="button" title="New game" aria-label="New game">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+    </button>
+  </header>
+  <div class="strip" id="top"><div class="who"><i class="army"></i><span class="nm"></span></div><div class="tray"></div></div>
+  <div id="stage">
+    <div id="board"><div id="grid" role="grid" aria-label="Board"></div></div>
+    <div id="flyer" hidden></div>
+    <div id="banner" hidden></div>
+  </div>
+  <div class="strip" id="bot"><div class="who"><i class="army"></i><span class="nm"></span></div><div class="tray"></div></div>
+  <div id="cards">
+    <button id="deck" type="button" aria-label="Draw a card" title="Draw a card (Space)"><span class="cnt" id="deckCnt">40</span></button>
+    <div id="pile"><div class="slot"></div></div>
+    <div id="effect" role="status" aria-live="polite"></div>
+  </div>
+  <div id="ctrl">
+    <button class="btn primary" type="button" id="actBtn" disabled>End turn</button>
+  </div>
+</div>
+
+<div class="veil" id="setup" hidden>
+  <div class="panel" role="dialog" aria-labelledby="setupTitle">
+    <h2 id="setupTitle">New game</h2>
+    <p class="sub">Chess, trolled: cards that decide your turn, knights that fuse with other pieces, or both.</p>
+    <h3>Mode</h3>
+    <div class="seg" id="variantSeg">
+      <button class="btn" type="button" data-variant="cards">Card Chess</button>
+      <button class="btn" type="button" data-variant="fusion">Fusion Chess</button>
+      <button class="btn" type="button" data-variant="both">Card + Fusion</button>
+    </div>
+    <p class="hint" id="variantHint"></p>
+    <h3>Opponent</h3>
+    <div class="seg" id="modeSeg">
+      <button class="btn" type="button" data-mode="ai">Computer</button>
+      <button class="btn" type="button" data-mode="pvp">Two players</button>
+    </div>
+    <div id="levelBox">
+      <h3>Level</h3>
+      <div class="seg" id="levelSeg">
+        <button class="btn" type="button" data-level="easy">Easy</button>
+        <button class="btn" type="button" data-level="normal">Normal</button>
+        <button class="btn" type="button" data-level="hard">Hard</button>
+      </div>
+      <h3>You start as</h3>
+      <div class="seg" id="sideSeg">
+        <button class="btn" type="button" data-side="w">White</button>
+        <button class="btn" type="button" data-side="b">Black</button>
+        <button class="btn" type="button" data-side="r">Random</button>
+      </div>
+      <div class="record" id="record"></div>
+    </div>
+    <div class="btns">
+      <button class="btn" type="button" id="setupRules">How to play</button>
+      <button class="btn primary" type="button" id="startBtn">Start</button>
+    </div>
+  </div>
+</div>
+
+<div class="veil" id="rules" hidden>
+  <div class="panel" role="dialog" aria-labelledby="rulesTitle">
+    <h2 id="rulesTitle">How to play</h2>
+    <p class="sub">Normal chess moves. Before every turn you draw a card from a shared deck, and the card is your turn.</p>
+    <ul class="rules" id="rulesList"></ul>
+    <p class="fine"><b>Winning.</b> Capture the enemy king, or checkmate it: if a player draws a number card while in check and has no legal move, they lose. A player left in check who draws Skip, Reverse, Draw 2 or Wild cannot answer it, and the king can simply be taken next turn.</p>
+    <p class="fine"><b>Check ends your turn.</b> A move that puts the enemy king in check uses up the rest of a 2 or 3, so the opponent always gets a card to answer with. You may end a 2 or 3 early after one move. With no legal move and no check, the turn just passes.</p>
+    <p class="fine"><b>The deck</b> is 40 cards and reshuffles when it runs out. A captured piece that had been promoted comes back as a pawn. Castling, en passant and promotion work as usual; a king or rook that was revived or moved by a Wild loses its castling right.</p>
+    <p class="fine"><b>Three modes.</b> <b>Card Chess</b> is the cards above with ordinary pieces. <b>Fusion Chess</b> has no cards: one move a turn with the fusion pieces below; checkmate wins as in chess, and 50 moves each with no capture and no pawn move is a draw. <b>Card + Fusion</b> (the default) is both at once.</p>
+    <h3>Fusion pieces</h3>
+    <ul class="rules fusion">
+      <li><span class="pcard w" id="fzM"></span><div><b>Knook</b>A knight and a rook on one square, by moving either onto the other. Moves like both.</div></li>
+      <li><span class="pcard w" id="fzA"></span><div><b>Knishop</b>A knight and a bishop, the same way. Moves like both.</div></li>
+      <li><span class="pcard w" id="fzE"></span><div><b>Kning</b>The king steps onto its knight (or the knight jumps onto the king). Moves one or two squares along any king line, and counts as the king for check, except that checking it does not end your turn: with a 2 or 3 you can check it and keep going. If it is taken, only the knight is lost: the king goes to the nearest safe free square within two squares, and is taken only if there is none. So a Kning in check with no move is not mated; the turn just passes.</div></li>
+    </ul>
+    <p class="fine"><b>Captured, a Knook or Knishop</b> goes back to the pool as its two pieces. <b>Draw 2</b> can revive a knight onto your rook or bishop in the revive quarter, or onto your king wherever it is: the one way a Draw 2 can shield a king in check. <b>Wild</b> can drop a knight onto your rook, bishop or king anywhere. Neither may put the enemy king in check. <b>A pawn placed by a Wild</b> next to an enemy pawn on the same rank can be taken en passant on the next move.</p>
+    <div class="btns"><span></span><button class="btn primary" type="button" id="rulesClose">Got it</button></div>
+  </div>
+</div>
+
+<div class="veil" id="promo" hidden>
+  <div class="panel" role="dialog" aria-labelledby="promoTitle">
+    <h2 id="promoTitle">Promote to</h2>
+    <div class="promo" id="promoBtns"></div>
+  </div>
+</div>
+
+<div class="veil" id="over" hidden>
+  <div class="panel" role="dialog" aria-labelledby="overTitle">
+    <h2 id="overTitle">Game over</h2>
+    <div class="big" id="overBig"></div>
+    <p class="sub" id="overSub"></p>
+    <div class="btns">
+      <button class="btn" type="button" id="viewBtn">View board</button>
+      <button class="btn primary" type="button" id="againBtn">New game</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ---------- rules, cards and computer player (pure: no DOM, no clock, no Math.random) ----------
+// Squares are 0..63, index = r * 8 + c, with r = 0 the 8th rank and c = 0 the a-file, so White starts
+// at the bottom rows 6 and 7. A piece is a string: colour, type, and a trailing '+' if it came from a
+// promotion ('wP', 'bQ', 'wQ+'). A position is { b, castle, ep }; the game state wraps it with the deck,
+// whose turn it is, which army each player currently commands, and the captured pieces. Every function
+// takes state in and either returns something or mutates the state passed in; nothing is hidden, so the
+// UI, the tests and the computer player all drive the same object.
+
+const FILES = 'abcdefgh';
+// M, A and E only exist in Fusion games: rook+knight, bishop+knight and king+knight. They are valued a
+// little above their parts, since one square holds both. E counts only its knight: the king is priceless.
+const VAL = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0, M: 880, A: 720, E: 320 };
+const other = (c) => (c === 'w' ? 'b' : 'w');
+const rowOf = (s) => s >> 3, colOf = (s) => s & 7;
+const sqName = (s) => FILES[colOf(s)] + (8 - rowOf(s));
+const onB = (r, c) => r >= 0 && r < 8 && c >= 0 && c < 8;
+const pColor = (p) => p[0], pType = (p) => p[1];
+// the rank a pawn of this colour promotes on (as a board row), and the row it double-steps from
+const lastRow = (c) => (c === 'w' ? 0 : 7);
+const pawnHome = (c) => (c === 'w' ? 6 : 1);
+const fwd = (c) => (c === 'w' ? -1 : 1);
+
+const N_STEPS = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
+const K_STEPS = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+const DIAG = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+const ORTH = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+// How each type moves: lines it slides along (and how far), and squares it jumps to. The king+knight
+// slides like a king but up to two squares, so a piece next to it blocks the second step.
+const SLIDE = { B: DIAG, R: ORTH, Q: K_STEPS, M: ORTH, A: DIAG, E: K_STEPS };
+const REACH = { E: 2 };
+const JUMP = { N: N_STEPS, M: N_STEPS, A: N_STEPS, K: K_STEPS };
+const isKing = (p) => p[1] === 'K' || p[1] === 'E';
+
+// ---- Fusion pieces ----
+// A knight and a rook, bishop or king of the same colour on one square. Formed by moving either onto the
+// other, or by reviving a knight onto one. A promoted part is remembered in the flags after the type
+// ('r' the rook or bishop, 'n' the knight), so it goes back to the captured pool as a pawn like any other
+// promoted piece.
+const FUSE = { R: 'M', B: 'A', K: 'E' };
+const FUSED_FROM = { M: 'R', A: 'B', E: 'K' };
+function canFuse(a, b) {
+  if (!a || !b || a[0] !== b[0] || a.length > 3 || b.length > 3) return false;
+  return (a[1] === 'N' && FUSE[b[1]] !== undefined) || (b[1] === 'N' && FUSE[a[1]] !== undefined);
+}
+function fuse(a, b) {
+  const [n, base] = a[1] === 'N' ? [a, b] : [b, a];
+  return base[0] + FUSE[base[1]] + (base[2] === '+' ? 'r' : '') + (n[2] === '+' ? 'n' : '');
+}
+// What a captured piece puts back into its army's pool. A king+knight only gives up the knight: the king
+// steps away (see makeMove).
+function partsOf(p) {
+  const t = pType(p);
+  if (!FUSED_FROM[t]) return [p[2] === '+' ? 'P' : t];
+  const knight = p.includes('n') ? 'P' : 'N';
+  if (t === 'E') return [knight];
+  return [p.slice(2).includes('r') ? 'P' : FUSED_FROM[t], knight];
+}
+
+function startPos(fusion = false) {
+  return fromFEN('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', fusion).pos;
+}
+// FEN in, { pos, turn } out. Used for the start position and by the tests; M, A and E are accepted too.
+function fromFEN(fen, fusion = false) {
+  const [placement, turn, castle, ep] = fen.trim().split(/\s+/);
+  const b = new Array(64).fill(null);
+  let r = 0, c = 0;
+  for (const ch of placement) {
+    if (ch === '/') { r++; c = 0; continue; }
+    if (/\d/.test(ch)) { c += +ch; continue; }
+    const col = ch === ch.toUpperCase() ? 'w' : 'b';
+    b[r * 8 + c] = col + ch.toUpperCase(); c++;
+  }
+  let e = -1;
+  if (ep && ep !== '-') e = (8 - +ep[1]) * 8 + FILES.indexOf(ep[0]);
+  return { pos: { b, castle: castle && castle !== '-' ? castle : '', ep: e, fusion: !!fusion }, turn: turn || 'w' };
+}
+const clonePos = (p) => ({ b: p.b.slice(), castle: p.castle, ep: p.ep, fusion: p.fusion });
+function findKing(pos, col) {
+  const b = pos.b;
+  for (let s = 0; s < 64; s++) { const p = b[s]; if (p && p[0] === col && (p[1] === 'K' || p[1] === 'E')) return s; }
+  return -1;
+}
+
+// Does `from` (holding piece p) attack square `t`? Only what a piece on `from` hits; blockers matter.
+function hits(pos, from, p, t) {
+  const r = rowOf(from), c = colOf(from), tr = rowOf(t), tc = colOf(t), dr = tr - r, dc = tc - c;
+  if (from === t) return false;
+  const type = pType(p);
+  if (type === 'P') return dr === fwd(pColor(p)) && Math.abs(dc) === 1;
+  const jumps = JUMP[type];
+  if (jumps && jumps.some(([a, b]) => a === dr && b === dc)) return true;
+  const dirs = SLIDE[type];
+  if (!dirs) return false;
+  const sr = Math.sign(dr), sc = Math.sign(dc);
+  if (!(dr === 0 || dc === 0 || Math.abs(dr) === Math.abs(dc))) return false;
+  if (!dirs.some(([a, b]) => a === sr && b === sc)) return false;
+  if (Math.max(Math.abs(dr), Math.abs(dc)) > (REACH[type] || 7)) return false;
+  for (let rr = r + sr, cc = c + sc; rr !== tr || cc !== tc; rr += sr, cc += sc) if (pos.b[rr * 8 + cc]) return false;
+  return true;
+}
+
+// Is square s attacked by any piece of colour `by`? Scans outward from s, which is what makes check
+// detection cheap enough for the computer player to call it on every node. The first piece met along a
+// line attacks if it slides that way (and reaches that far), or if it is a king one step off.
+function attacked(pos, s, by) {
+  const b = pos.b, r = rowOf(s), c = colOf(s);
+  // flags after the type (promotion marks) do not matter here: compare colour and type only
+  const is = (p, t) => p && p[0] === by && p[1] === t;
+  const pr = r - fwd(by);
+  for (const dc of [-1, 1]) if (onB(pr, c + dc) && is(b[pr * 8 + c + dc], 'P')) return true;
+  for (const [dr, dc] of N_STEPS) {
+    if (!onB(r + dr, c + dc)) continue;
+    const p = b[(r + dr) * 8 + c + dc];
+    if (is(p, 'N') || is(p, 'M') || is(p, 'A')) return true;
+  }
+  for (const [dr, dc] of K_STEPS) {
+    const diag = dr && dc;
+    let rr = r + dr, cc = c + dc, d = 1;
+    while (onB(rr, cc)) {
+      const p = b[rr * 8 + cc];
+      if (p) {
+        if (p[0] !== by) break;
+        const t = p[1];
+        if (t === 'Q' || (diag ? t === 'B' || t === 'A' : t === 'R' || t === 'M')) return true;
+        if ((t === 'K' && d === 1) || (t === 'E' && d <= 2)) return true;
+        break;
+      }
+      rr += dr; cc += dc; d++;
+    }
+  }
+  return false;
+}
+const inCheck = (pos, col) => { const k = findKing(pos, col); return k >= 0 && attacked(pos, k, other(col)); };
+
+// Every move a piece of colour `col` could make ignoring its own king's safety. A move is
+// { from, to, promo?, castle?, ep?, dbl?, fuse? }.
+function pseudoMoves(pos, col) {
+  const b = pos.b, out = [];
+  // landing on q: a capture, a quiet move, a fusion with our own piece, or nothing
+  const land = (s, p, to, q) => {
+    if (!q) out.push({ from: s, to });
+    else if (pColor(q) !== col) out.push({ from: s, to });
+    else if (pos.fusion && canFuse(p, q)) out.push({ from: s, to, fuse: true });
+  };
+  for (let s = 0; s < 64; s++) {
+    const p = b[s];
+    if (!p || pColor(p) !== col) continue;
+    const r = rowOf(s), c = colOf(s), t = pType(p);
+    if (t === 'P') {
+      const f = fwd(col), r1 = r + f;
+      const add = (to, extra) => {
+        if (rowOf(to) === lastRow(col)) for (const q of 'QRBN') out.push(Object.assign({ from: s, to, promo: q }, extra));
+        else out.push(Object.assign({ from: s, to }, extra));
+      };
+      if (onB(r1, c) && !b[r1 * 8 + c]) {
+        add(r1 * 8 + c);
+        const r2 = r + 2 * f;
+        if (r === pawnHome(col) && !b[r2 * 8 + c]) out.push({ from: s, to: r2 * 8 + c, dbl: true });
+      }
+      for (const dc of [-1, 1]) {
+        if (!onB(r1, c + dc)) continue;
+        const to = r1 * 8 + c + dc, q = b[to];
+        if (q && pColor(q) !== col) add(to);
+        else if (!q && to === pos.ep && b[r * 8 + c + dc] === other(col) + 'P') out.push({ from: s, to, ep: true });
+      }
+      continue;
+    }
+    for (const [dr, dc] of JUMP[t] || []) {
+      if (!onB(r + dr, c + dc)) continue;
+      const to = (r + dr) * 8 + c + dc;
+      land(s, p, to, b[to]);
+    }
+    const reach = REACH[t] || 7;
+    for (const [dr, dc] of SLIDE[t] || []) {
+      let rr = r + dr, cc = c + dc, d = 1;
+      while (onB(rr, cc) && d <= reach) {
+        const to = rr * 8 + cc, q = b[to];
+        land(s, p, to, q);
+        if (q) break;
+        rr += dr; cc += dc; d++;
+      }
+    }
+    if (t === 'K') castleMoves(pos, col, s, out);
+  }
+  return out;
+}
+
+// Castling: the right is still held, the squares between are empty, and the king is not in check, does
+// not pass through an attacked square and does not land on one.
+function castleMoves(pos, col, s, out) {
+  const home = col === 'w' ? 60 : 4;
+  if (s !== home) return;
+  const b = pos.b, en = other(col), K = col === 'w' ? 'K' : 'k', Q = col === 'w' ? 'Q' : 'q';
+  if (attacked(pos, s, en)) return;
+  if (pos.castle.includes(K) && b[s + 3] === col + 'R' && !b[s + 1] && !b[s + 2] && !attacked(pos, s + 1, en) && !attacked(pos, s + 2, en))
+    out.push({ from: s, to: s + 2, castle: 'K' });
+  if (pos.castle.includes(Q) && b[s - 4] === col + 'R' && !b[s - 1] && !b[s - 2] && !b[s - 3] && !attacked(pos, s - 1, en) && !attacked(pos, s - 2, en))
+    out.push({ from: s, to: s - 2, castle: 'Q' });
+}
+
+// Castling rights that touching square s (moving from it, or capturing on it) takes away.
+const CASTLE_SQ = { 60: 'KQ', 63: 'K', 56: 'Q', 4: 'kq', 7: 'k', 0: 'q' };
+const dropRights = (castle, s) => (CASTLE_SQ[s] ? castle.replace(new RegExp('[' + CASTLE_SQ[s] + ']', 'g'), '') : castle);
+
+// Where a king goes when the knight guarding it is taken: an empty, unattacked square within two squares
+// (any square of the 5x5 box around it, no path needed). Nearest first: a neighbouring square beats one
+// two away. Among equals, the one with the most safe squares around it (the least boxed-in), then the
+// lower square index, so the choice is always the same. -1 if there is none, and then the king is taken.
+function kingEscape(pos, from, col) {
+  let best = -1, bestKey = -Infinity;
+  for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+    const r = rowOf(from) + dr, c = colOf(from) + dc, dist = Math.max(Math.abs(dr), Math.abs(dc));
+    if (!dist || !onB(r, c)) continue;
+    const sq = r * 8 + c;
+    if (pos.b[sq]) continue;
+    const n = clonePos(pos); n.b[sq] = col + 'K';
+    if (attacked(n, sq, other(col))) continue;
+    let room = 0;
+    for (const [er, ec] of K_STEPS) {
+      const r2 = r + er, c2 = c + ec;
+      if (onB(r2, c2) && !n.b[r2 * 8 + c2] && !attacked(n, r2 * 8 + c2, other(col))) room++;
+    }
+    const key = -dist * 100 + room;
+    if (key > bestKey || (key === bestKey && sq < best)) { bestKey = key; best = sq; }
+  }
+  return best;
+}
+// A check that ends the checker's turn: on a plain king. Checking a Kning does not, so a 2 or a 3 can
+// check it and carry on, to take it or anything else.
+const turnEndingCheck = (pos, col) => inCheck(pos, col) && pType(pos.b[findKing(pos, col)]) === 'K';
+
+// Plays m on a copy of pos. Returns { pos, captured, escape, kingTaken }: the piece taken (or null); for
+// a king+knight taken, the square its king stepped to (or -1); and whether a king is now off the board.
+function makeMove(pos, m) {
+  const n = clonePos(pos), b = n.b, p = b[m.from];
+  let captured = m.fuse ? null : b[m.to];
+  if (m.ep) { const cap = rowOf(m.from) * 8 + colOf(m.to); captured = b[cap]; b[cap] = null; }
+  b[m.to] = m.fuse ? fuse(p, b[m.to]) : m.promo ? pColor(p) + m.promo + '+' : p;
+  b[m.from] = null;
+  if (m.castle === 'K') { b[m.from + 1] = b[m.from + 3]; b[m.from + 3] = null; }
+  if (m.castle === 'Q') { b[m.from - 1] = b[m.from - 4]; b[m.from - 4] = null; }
+  n.castle = dropRights(dropRights(pos.castle, m.from), m.to);
+  n.ep = m.dbl ? (m.from + m.to) >> 1 : -1;
+  let escape = -1, kingTaken = !!captured && pType(captured) === 'K';
+  if (captured && pType(captured) === 'E') {
+    escape = kingEscape(n, m.to, pColor(captured));
+    if (escape >= 0) b[escape] = pColor(captured) + 'K';
+    else kingTaken = true;
+  }
+  return { pos: n, captured, escape, kingTaken };
+}
+
+// Legal moves: those that do not leave your own king attacked. Taking the enemy king (or the king+knight)
+// is always legal; it can only be on the board when the other side could not answer a check.
+function legalMoves(pos, col) {
+  const out = [], ek = findKing(pos, other(col));
+  for (const m of pseudoMoves(pos, col)) {
+    if (m.to === ek) { out.push(m); continue; }
+    const n = makeMove(pos, m).pos;
+    if (!attacked(n, findKing(n, col), other(col))) out.push(m);
+  }
+  return out;
+}
+
+// perft: number of move sequences of a given depth, alternating colours. Only the tests use it; it is the
+// standard way to prove a move generator right (known totals from the start and from "Kiwipete").
+function perft(pos, col, depth) {
+  if (depth === 0) return 1;
+  let n = 0;
+  for (const m of legalMoves(pos, col)) n += depth === 1 ? 1 : perft(makeMove(pos, m).pos, other(col), depth - 1);
+  return n;
+}
+
+// ---- cards ----
+// 40 cards. Numbers are the common case, as in UNO; the four action cards are ten percent each. The
+// colours carry no rule and are there so the pile looks like cards; they cycle through the deck.
+const DECK_MIX = [['1', 12], ['2', 8], ['3', 4], ['skip', 4], ['rev', 4], ['d2', 4], ['wild', 4]];
+const CARD_INFO = {
+  '1': { name: '1', title: 'One move', text: 'Make one move.' },
+  '2': { name: '2', title: 'Two moves', text: 'Make up to two moves, with any pieces.' },
+  '3': { name: '3', title: 'Three moves', text: 'Make up to three moves, with any pieces.' },
+  skip: { name: 'Skip', title: 'Skip', text: 'Your turn is skipped.' },
+  rev: { name: 'Reverse', title: 'Reverse', text: 'The board flips: you take over the other army, your opponent takes yours. Turn ends.' },
+  d2: { name: 'Draw 2', title: 'Draw 2', text: 'Revive up to two of your captured pieces into the quarter of the board diagonally opposite the enemy king, on a square that does not attack it. Pawns never go on their last rank.' },
+  wild: { name: 'Wild', title: 'Wild', text: 'Pick up one of your pieces and put it on any empty square, as long as that does not check the enemy king or leave your own king in check.' },
+};
+const moveCount = (card) => (card && /^[123]$/.test(card.k) ? +card.k : 0);
+
+function rng(state) {
+  // mulberry32, kept in the state so a game (and a test) is reproducible from its seed
+  let t = (state.seed = (state.seed + 0x6D2B79F5) >>> 0);
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function shuffle(state, a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng(state) * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+function buildDeck() {
+  const cols = ['r', 'y', 'g', 'b'], out = [];
+  let i = 0;
+  for (const [k, n] of DECK_MIX) for (let j = 0; j < n; j++) out.push({ k, col: k === 'wild' ? 'x' : cols[i++ % 4] });
+  return out;
+}
+
+// players are 0 and 1. army[p] is the colour player p commands right now; Reverse swaps them.
+// cards = false is Fusion Chess: no deck, one move a turn, and a 50-move draw so a game can't run forever.
+function newGame({ seed = 1, p0 = 'w', fusion = false, cards = true } = {}) {
+  // Without cards and without Fusion it would just be chess: a game always has one or the other.
+  if (!cards) fusion = true;
+  const s = { seed: seed >>> 0, pos: startPos(fusion), army: [p0, other(p0)], turn: 0, phase: 'draw', card: null,
+    deck: [], discard: [], movesLeft: 0, movesMade: 0, revivesLeft: 0, captured: { w: [], b: [] },
+    winner: -1, reason: '', turnNo: 1, last: null, note: '', reshuffles: 0, cards: !!cards, quiet: 0 };
+  if (s.cards) s.deck = shuffle(s, buildDeck());
+  // White moves first, whoever commands it
+  s.turn = s.army[0] === 'w' ? 0 : 1;
+  if (!s.cards) startMoves(s, 1);
+  return s;
+}
+// Moves 50 each with no capture and no pawn move: drawn (games without cards only).
+const QUIET_LIMIT = 100;
+const myCol = (s) => s.army[s.turn];
+
+function endTurn(s, note) {
+  s.turn = 1 - s.turn; s.phase = 'draw'; s.movesLeft = 0; s.movesMade = 0; s.revivesLeft = 0; s.turnNo++;
+  if (note !== undefined) s.note = note;
+  // no deck: the next turn is simply one move
+  if (!s.cards) startMoves(s, 1);
+}
+// Start a turn of n moves. A player in check with no legal move is mated, unless the king is a Kning:
+// taking it only costs the knight, so the turn passes. No move and no check: the turn passes too. In
+// a game without cards, if both players pass in a row, nobody can ever move again and the game is drawn.
+function startMoves(s, n) {
+  const col = myCol(s);
+  s.phase = 'move'; s.movesLeft = n; s.movesMade = 0;
+  if (legalMoves(s.pos, col).length) return;
+  const check = inCheck(s.pos, col);
+  if (check && pType(s.pos.b[findKing(s.pos, col)]) === 'K') return win(s, 1 - s.turn, 'checkmate');
+  if (!s.cards && (s.note === 'nomove' || s.note === 'guarded')) return win(s, -1, 'draw');
+  endTurn(s, check ? 'guarded' : 'nomove');
+}
+function win(s, player, reason) { s.winner = player; s.reason = reason; s.phase = 'over'; }
+
+// Draw the top card and apply what can be applied at once. Returns the card. Skip and Reverse finish the
+// turn here; a number card starts the move phase unless the player is checkmated or has no move at all;
+// Draw 2 and Wild start their placement phases unless there is nothing they could place.
+function draw(s) {
+  if (!s.cards) throw new Error('no cards in this game');
+  if (s.phase !== 'draw') throw new Error('not time to draw');
+  if (!s.deck.length) { s.deck = shuffle(s, s.discard.splice(0)); s.reshuffles++; }
+  const card = s.deck.pop();
+  s.discard.push(card); s.card = card; s.note = '';
+  const col = myCol(s);
+  if (moveCount(card)) {
+    startMoves(s, moveCount(card));
+  } else if (card.k === 'skip') {
+    endTurn(s, 'skip');
+  } else if (card.k === 'rev') {
+    s.army = [s.army[1], s.army[0]];
+    endTurn(s, 'rev');
+  } else if (card.k === 'd2') {
+    s.phase = 'revive'; s.revivesLeft = 2;
+    if (!canReviveAny(s)) endTurn(s, s.captured[col].length ? 'noroom' : 'nocaptured');
+  } else if (card.k === 'wild') {
+    s.phase = 'wild';
+    if (!wildOptions(s).length) endTurn(s, 'nowild');
+  }
+  return card;
+}
+
+function checkMoveAllowed(s, m) {
+  if (s.phase !== 'move') throw new Error('not in the move phase');
+  const ok = legalMoves(s.pos, myCol(s)).find((x) => x.from === m.from && x.to === m.to && (x.promo || '') === (m.promo || ''));
+  if (!ok) throw new Error('illegal move ' + sqName(m.from) + sqName(m.to));
+  return ok;
+}
+// Play one move of a number card. Taking the king wins; checking a (plain) king ends the turn; so does
+// the last move.
+function playMove(s, mIn) {
+  const m = checkMoveAllowed(s, mIn), col = myCol(s);
+  const piece = s.pos.b[m.from];
+  const r = makeMove(s.pos, m);
+  s.pos = r.pos;
+  s.last = { from: m.from, to: m.to, kind: 'move', escape: r.escape };
+  if (r.captured) {
+    // a promoted piece goes back as a pawn; a fused one as its two parts (a Kning's king steps away)
+    for (const t of partsOf(r.captured)) if (t !== 'K') s.captured[pColor(r.captured)].push(t);
+    if (r.kingTaken) { win(s, s.turn, 'king'); return { m, piece, captured: r.captured, escape: r.escape }; }
+  }
+  s.movesLeft--; s.movesMade++;
+  s.quiet = r.captured || pType(piece) === 'P' ? 0 : s.quiet + 1;
+  if (!s.cards && s.quiet >= QUIET_LIMIT) { win(s, -1, 'draw'); return { m, piece, captured: r.captured }; }
+  const check = inCheck(s.pos, other(col));
+  if (check && turnEndingCheck(s.pos, other(col))) endTurn(s, 'check');
+  else if (s.movesLeft <= 0) endTurn(s, '');
+  else if (!legalMoves(s.pos, col).length) endTurn(s, 'nomore');
+  return { m, piece, captured: r.captured, check, escape: r.escape };
+}
+function endEarly(s) {
+  if (s.phase !== 'move' || s.movesMade < 1) throw new Error('cannot end the turn yet');
+  endTurn(s, '');
+}
+
+// Draw 2 targets: empty squares in the quarter diagonally opposite the enemy king, where the revived
+// piece would not attack that king, and never a pawn on the rank it would promote on.
+function quadrantOf(s) {
+  const k = findKing(s.pos, other(myCol(s)));
+  if (k < 0) return [];
+  const top = rowOf(k) < 4, left = colOf(k) < 4, out = [];
+  for (let sq = 0; sq < 64; sq++) if ((rowOf(sq) < 4) !== top && (colOf(sq) < 4) !== left) out.push(sq);
+  return out;
+}
+function placeOk(pos, piece, sq, enemyKing) {
+  if (pos.b[sq]) return false;
+  if (pType(piece) === 'P' && rowOf(sq) === lastRow(pColor(piece))) return false;
+  if (enemyKing >= 0 && hits(pos, sq, piece, enemyKing)) return false;
+  return true;
+}
+function reviveTargets(s, type) {
+  const col = myCol(s), piece = col + type, ek = findKing(s.pos, other(col));
+  const out = quadrantOf(s).filter((sq) => placeOk(s.pos, piece, sq, ek));
+  // Fusion: a knight may also land on one of your rooks or bishops in the quarter, making a Knook or a
+  // Knishop, or on your king wherever it stands, making a Kning: the one way a Draw 2 can shield a king
+  // in check. The fused piece must not attack the enemy king either.
+  if (s.pos.fusion && type === 'N') {
+    for (let sq = 0; sq < 64; sq++) {
+      const q = s.pos.b[sq];
+      if (!q || pColor(q) !== col || !canFuse(piece, q)) continue;
+      if (pType(q) !== 'K' && !quadrantOf(s).includes(sq)) continue;
+      if (ek >= 0 && hits(s.pos, sq, fuse(piece, q), ek)) continue;
+      out.push(sq);
+    }
+  }
+  return out;
+}
+function canReviveAny(s) {
+  const types = new Set(s.captured[myCol(s)]);
+  for (const t of types) if (reviveTargets(s, t).length) return true;
+  return false;
+}
+function revive(s, type, sq) {
+  if (s.phase !== 'revive') throw new Error('not in the revive phase');
+  const col = myCol(s), pool = s.captured[col], i = pool.indexOf(type);
+  if (i < 0) throw new Error('no captured ' + type);
+  if (!reviveTargets(s, type).includes(sq)) throw new Error('cannot revive on ' + sqName(sq));
+  pool.splice(i, 1);
+  const n = clonePos(s.pos); n.b[sq] = n.b[sq] ? fuse(col + type, n.b[sq]) : col + type; n.ep = -1; s.pos = n;
+  s.last = { to: sq, kind: 'revive' };
+  s.revivesLeft--;
+  if (s.revivesLeft <= 0 || !canReviveAny(s)) endTurn(s, '');
+}
+function reviveDone(s) { if (s.phase !== 'revive') throw new Error('not in the revive phase'); endTurn(s, ''); }
+
+// Wild targets for the piece on `from`: any empty square, as long as your own king is not left attacked
+// and the enemy king is not put in check, by the piece or by a line it uncovers (the same spirit as the
+// Draw 2 rule: a card can't hand out a free check). Pawns keep off their last rank.
+function wildTargets(s, from) {
+  const col = myCol(s), piece = s.pos.b[from];
+  if (!piece || pColor(piece) !== col) return [];
+  const ek = findKing(s.pos, other(col)), out = [];
+  const lifted = clonePos(s.pos); lifted.b[from] = null;
+  for (let sq = 0; sq < 64; sq++) {
+    if (sq === from) continue;
+    // Fusion: a knight may also be dropped onto one of your rooks, bishops or your king, anywhere
+    const q = lifted.b[sq], merge = lifted.fusion && pType(piece) === 'N' && q && canFuse(piece, q);
+    if (!merge && !placeOk(lifted, piece, sq, ek)) continue;
+    const n = clonePos(lifted); n.b[sq] = merge ? fuse(piece, q) : piece;
+    if (!attacked(n, findKing(n, col), other(col)) && !(ek >= 0 && attacked(n, ek, col))) out.push(sq);
+  }
+  return out;
+}
+// The position after a Wild from `from` to `to` (a fusion if `to` holds a piece).
+function wildPlace(pos, from, to) {
+  const n = clonePos(pos), piece = n.b[from];
+  n.b[to] = n.b[to] ? fuse(piece, n.b[to]) : piece; n.b[from] = null; n.ep = -1;
+  n.castle = dropRights(dropRights(n.castle, from), to);
+  return n;
+}
+function wildOptions(s) {
+  const out = [];
+  for (let sq = 0; sq < 64; sq++) { const p = s.pos.b[sq]; if (p && pColor(p) === myCol(s) && wildTargets(s, sq).length) out.push(sq); }
+  return out;
+}
+function wild(s, from, to) {
+  if (s.phase !== 'wild') throw new Error('not in the wild phase');
+  if (!wildTargets(s, from).includes(to)) throw new Error('cannot place on ' + sqName(to));
+  const piece = s.pos.b[from], n = wildPlace(s.pos, from, to);
+  // Fusion: a pawn dropped by a Wild counts as having just stepped past the square behind it, so an
+  // enemy pawn beside it on the same rank may take it en passant on the next move.
+  if (n.fusion && pType(piece) === 'P') {
+    const behind = to - fwd(pColor(piece)) * 8;
+    if (behind >= 0 && behind < 64 && !n.b[behind]) n.ep = behind;
+  }
+  s.pos = n; s.last = { from, to, kind: 'wild' };
+  endTurn(s, '');
+}
+function wildPass(s) { if (s.phase !== 'wild') throw new Error('not in the wild phase'); endTurn(s, ''); }
+
+// ---- the computer player ----
+// Material plus small piece-square bonuses (centre for knights and bishops, advancement for pawns). Scored
+// from `me`'s side. Being in check with the other side to move is worth a lot: forty percent of the deck
+// can't answer a check, and then the king is simply taken.
+const PST_MINOR = [0, 4, 8, 10, 10, 8, 4, 0];
+function evaluate(pos, me) {
+  let v = 0;
+  for (let s = 0; s < 64; s++) {
+    const p = pos.b[s];
+    if (!p) continue;
+    const col = pColor(p), t = pType(p), r = rowOf(s), c = colOf(s);
+    let x = VAL[t];
+    if (t === 'N' || t === 'B') x += PST_MINOR[r] + PST_MINOR[c] - (t === 'N' ? 8 : 4);
+    else if (t === 'P') x += (col === 'w' ? 6 - r : r - 1) * 8 + (c > 1 && c < 6 ? 6 : 0);
+    else if (t === 'Q') x += (PST_MINOR[r] + PST_MINOR[c]) / 4;
+    v += col === me ? x : -x;
+  }
+  return v;
+}
+const WIN = 1e6, CHECK_BONUS = 120;
+
+// Minimax over a turn shaped like the card game's: my remaining moves in a row (a check ends them), then
+// one reply from the opponent, who is assumed to hold a 1. depth counts plies; the opponent's reply is
+// always searched even when the depth runs out, so a move never looks good only because the reply to it
+// was cut off.
+function search(pos, me, side, left, depth, seenOpp, alpha, beta, stats) {
+  stats.nodes++;
+  const col = side === 'me' ? me : other(me);
+  if (side === 'me' && depth <= 0 && seenOpp) return evaluate(pos, me);
+  const moves = legalMoves(pos, col);
+  if (killsKing(pos, moves, col)) return side === 'me' ? WIN : -WIN;
+  if (!moves.length) {
+    if (!inCheck(pos, col)) return evaluate(pos, me);
+    // A Kning in check with no move survives: its turn passes. That is worth nothing until the knight is
+    // actually taken. Scoring it as a knight already won made every quiet shuffle look as good as the
+    // capture, and the computer kept moving forever while the stuck side was skipped.
+    if (pType(pos.b[findKing(pos, col)]) === 'E') return evaluate(pos, me);
+    return side === 'me' ? -WIN / 2 : WIN / 2;
+  }
+  order(pos, moves);
+  if (side === 'me') {
+    if (depth <= 0) return search(pos, me, 'opp', 0, 0, false, alpha, beta, stats);
+    let best = -Infinity;
+    for (const m of moves) {
+      const n = makeMove(pos, m).pos;
+      const check = turnEndingCheck(n, other(me));
+      const v = left > 1 && !check
+        ? search(n, me, 'me', left - 1, depth - 1, seenOpp, alpha, beta, stats)
+        : search(n, me, 'opp', 0, depth - 1, seenOpp, alpha, beta, stats) + (check ? CHECK_BONUS : 0);
+      if (v > best) best = v;
+      if (best > alpha) alpha = best;
+      if (alpha >= beta) break;
+    }
+    return best;
+  }
+  let best = Infinity;
+  for (const m of moves) {
+    const n = makeMove(pos, m).pos;
+    const v = depth - 1 <= 0 || seenOpp ? evaluate(n, me) - (inCheck(n, me) ? CHECK_BONUS : 0)
+      : search(n, me, 'me', 1, depth - 1, true, alpha, beta, stats);
+    if (v < best) best = v;
+    if (best < beta) beta = best;
+    if (alpha >= beta) break;
+  }
+  return best;
+}
+// A Kning of colour `col` in check with no legal move: its owner can only pass until it is taken.
+function kningStuck(pos, col) {
+  const k = findKing(pos, col);
+  return k >= 0 && pType(pos.b[k]) === 'E' && attacked(pos, k, other(col)) && !legalMoves(pos, col).length;
+}
+// The move among `moves` that takes the enemy king off the board, if any. Taking a Kning whose king can
+// step away is only taking a knight.
+function killsKing(pos, moves, col) {
+  const ek = findKing(pos, other(col));
+  return moves.find((m) => m.to === ek && makeMove(pos, m).kingTaken) || null;
+}
+// captures first, biggest victim with the smallest attacker first
+function order(pos, moves) {
+  const key = (m) => { const v = m.fuse ? null : pos.b[m.to]; return (v ? VAL[pType(v)] * 10 - VAL[pType(pos.b[m.from])] / 10 : 0) + (m.promo === 'Q' ? 8000 : 0); };
+  moves.sort((a, b) => key(b) - key(a));
+}
+// The opponent's best single reply to a position, from my side: used to score placements and passes.
+const replyScore = (pos, me, stats) => search(pos, me, 'opp', 0, 1, false, -Infinity, Infinity, stats);
+
+const LEVELS = {
+  easy: { depth: 1, noise: 140, reply: false },
+  normal: { depth: 1, noise: 12, reply: true },
+  hard: { depth: 3, noise: 0, reply: true },
+};
+
+// The computer's next action for the phase the game is in. Always something the rules above accept.
+function aiAction(s, level = 'normal', rand = () => rng(s)) {
+  const L = LEVELS[level] || LEVELS.normal, me = myCol(s), stats = { nodes: 0 };
+  const jitter = () => (L.noise ? (rand() - .5) * 2 * L.noise : 0);
+  if (s.phase === 'draw') return { type: 'draw' };
+
+  if (s.phase === 'move') {
+    const moves = legalMoves(s.pos, me);
+    const kill = killsKing(s.pos, moves, me);
+    if (kill) return { type: 'move', m: kill };
+    // The other side's Kning is in check with no legal move, so its turns only pass. Take it (with the
+    // capture that searches best) rather than keep them waiting: otherwise nothing ever changes.
+    if (kningStuck(s.pos, other(me))) {
+      const ek = findKing(s.pos, other(me)), takes = moves.filter((m) => m.to === ek);
+      if (takes.length) moves.splice(0, moves.length, ...takes);
+    }
+    order(s.pos, moves);
+    // Hard searches two of its own moves and a reply when it holds a 2 or 3 (three of its own and a reply
+    // was over a second a move in a browser), three plies otherwise.
+    const depth = level === 'hard' ? (s.movesLeft >= 2 ? 2 : 3) : L.depth;
+    let best = null, bestV = -Infinity;
+    for (const m of moves) {
+      const n = makeMove(s.pos, m).pos;
+      const check = turnEndingCheck(n, other(me));
+      let v;
+      if (!L.reply) v = evaluate(n, me) + (check ? CHECK_BONUS : 0);
+      else if (s.movesLeft > 1 && !check) v = search(n, me, 'me', s.movesLeft - 1, depth - 1, false, bestV, Infinity, stats);
+      else v = search(n, me, 'opp', 0, depth - 1, false, bestV - 1, Infinity, stats) + (check ? CHECK_BONUS : 0);
+      v += jitter();
+      if (v > bestV) { bestV = v; best = m; }
+    }
+    // With a move or two made already, stopping is an option too: it is worth what the reply leaves.
+    if (s.movesMade >= 1 && L.reply) {
+      const stop = replyScore(s.pos, me, stats);
+      if (stop > bestV + 5) return { type: 'end' };
+    }
+    if (best && best.promo && best.promo !== 'Q') best = moves.find((m) => m.from === best.from && m.to === best.to && m.promo === 'Q') || best;
+    return { type: 'move', m: best };
+  }
+
+  if (s.phase === 'revive') {
+    // Most valuable piece first, onto the square the reply hurts least.
+    const types = [...new Set(s.captured[me])].sort((a, b) => VAL[b] - VAL[a]);
+    let best = null, bestV = -Infinity;
+    for (const t of types) {
+      for (const sq of reviveTargets(s, t)) {
+        const n = clonePos(s.pos); n.b[sq] = me + t;
+        const v = (L.reply ? replyScore(n, me, stats) : evaluate(n, me)) + jitter();
+        if (v > bestV) { bestV = v; best = { type: 'revive', t, sq }; }
+      }
+      if (best && level !== 'easy') break;    // the best piece that fits anywhere is the one to bring back
+    }
+    return best || { type: 'reviveDone' };
+  }
+
+  if (s.phase === 'wild') {
+    let best = { type: 'wildPass' };
+    let bestV = (L.reply ? replyScore(s.pos, me, stats) : evaluate(s.pos, me)) + 1;
+    for (const from of wildOptions(s)) {
+      for (const to of wildTargets(s, from)) {
+        const n = wildPlace(s.pos, from, to);
+        const v = (L.reply ? replyScore(n, me, stats) : evaluate(n, me)) + jitter();
+        if (v > bestV) { bestV = v; best = { type: 'wild', from, to }; }
+      }
+    }
+    return best;
+  }
+  return null;
+}
+// Applies an action from aiAction (or the UI) to the state.
+function apply(s, a) {
+  switch (a.type) {
+    case 'draw': return draw(s);
+    case 'move': return playMove(s, a.m);
+    case 'end': return endEarly(s);
+    case 'revive': return revive(s, a.t, a.sq);
+    case 'reviveDone': return reviveDone(s);
+    case 'wild': return wild(s, a.from, a.to);
+    case 'wildPass': return wildPass(s);
+  }
+  throw new Error('unknown action ' + a.type);
+}
+
+globalThis.__cc = { turnEndingCheck, QUIET_LIMIT, FILES, VAL, sqName, fromFEN, startPos, attacked, inCheck, pseudoMoves, legalMoves, makeMove, perft,
+  DECK_MIX, CARD_INFO, buildDeck, newGame, draw, playMove, endEarly, quadrantOf, reviveTargets, canReviveAny, revive,
+  reviveDone, wildTargets, wildOptions, wild, wildPass, evaluate, aiAction, apply, myCol, findKing, other, moveCount, hits,
+  canFuse, fuse, partsOf, kingEscape, killsKing };
+
+// ---------- UI ----------
+const C = globalThis.__cc;
+const $ = (id) => document.getElementById(id);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const wait = (ms) => new Promise((r) => setTimeout(r, reduced ? Math.min(ms, 250) : ms));
+
+// ---- drawings ----
+// Pieces drawn for this game in a 45x45 box (the knight in 100x100, borrowed from Knight's Tour). The fill,
+// outline and detail colours come from the .w / .b class on an ancestor.
+const G = 'fill="var(--pf)" stroke="var(--ps)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"';
+const BASE = `<path ${G} d="M9.5 39.5h26a1.5 1.5 0 0 0 1.5-1.5v-1.5a1.5 1.5 0 0 0-1.5-1.5h-26A1.5 1.5 0 0 0 8 36.5V38a1.5 1.5 0 0 0 1.5 1.5z"/>`;
+const PIECE_SVG = {
+  P: `<svg viewBox="0 0 45 45">${BASE}<path ${G} d="M22.5 9.5a4.5 4.5 0 0 0-3.4 7.4 6.5 6.5 0 0 0-1.6 10.3c-3.5 1.8-5.5 4.6-6 7.8h22c-.5-3.2-2.5-6-6-7.8a6.5 6.5 0 0 0-1.6-10.3 4.5 4.5 0 0 0-3.4-7.4z"/></svg>`,
+  R: `<svg viewBox="0 0 45 45">${BASE}<path ${G} d="M12 35l1.6-4.5h17.8L33 35z"/><path ${G} d="M14.5 30.5l.8-12.5h14.4l.8 12.5z"/><path ${G} d="M11.5 18V10h4.2v3h4.5v-3h4.6v3h4.5v-3h4.2v8z"/><path fill="none" stroke="var(--pd)" stroke-width="1.2" d="M15.3 21h14.4M14.8 27.5h15.4"/></svg>`,
+  B: `<svg viewBox="0 0 45 45">${BASE}<path ${G} d="M14 35c1-3.5 3.5-5.5 3.5-8.5-3.2-2-5-5-5-8.5 0-5 4.5-8.8 10-11.5 5.5 2.7 10 6.5 10 11.5 0 3.5-1.8 6.5-5 8.5 0 3 2.5 5 3.5 8.5z"/><circle ${G} cx="22.5" cy="6" r="2.4"/><path fill="none" stroke="var(--pd)" stroke-width="1.6" stroke-linecap="round" d="M25.5 13.5l-5 6M17.5 26.5h10"/></svg>`,
+  Q: `<svg viewBox="0 0 45 45">${BASE}<path ${G} d="M11.5 35c.8-2.8 1.3-5 1.3-7.8L9.5 13.5l6.3 9.3.4-12.8 6.3 11.5 6.3-11.5.4 12.8 6.3-9.3-3.3 13.7c0 2.8.5 5 1.3 7.8z"/><circle ${G} cx="9.5" cy="12" r="2.2"/><circle ${G} cx="16.2" cy="8.6" r="2.2"/><circle ${G} cx="22.5" cy="7.4" r="2.2"/><circle ${G} cx="28.8" cy="8.6" r="2.2"/><circle ${G} cx="35.5" cy="12" r="2.2"/><path fill="none" stroke="var(--pd)" stroke-width="1.2" d="M13.3 30h18.4"/></svg>`,
+  K: `<svg viewBox="0 0 45 45">${BASE}<path ${G} d="M12 35c.6-2.6 1-4.6 1-7.2-3.4-2.6-5.4-5.8-4.4-9 1.4-4.3 7.2-5 10.6-.4 1-1.6 2-2.9 3.3-2.9s2.3 1.3 3.3 2.9c3.4-4.6 9.2-3.9 10.6.4 1 3.2-1 6.4-4.4 9 0 2.6.4 4.6 1 7.2z"/><path fill="none" stroke="var(--ps)" stroke-width="2.6" stroke-linecap="round" d="M22.5 4v10M18.5 8.5h8"/><path fill="none" stroke="var(--pd)" stroke-width="1.2" d="M13.4 29.5h18.2"/></svg>`,
+  N: `<svg viewBox="0 0 100 100"><g stroke="var(--ps)" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round" fill="var(--pf)">
+    <path d="M19 94h62a5 5 0 0 0 5-5v-2a5 5 0 0 0-5-5H19a5 5 0 0 0-5 5v2a5 5 0 0 0 5 5z"/><path d="M25 82h50l-2-8H27z"/>
+    <path d="M29 74C28 64 33 57 43 51C37 52 31 55 26 58C21 60 15 58 14 53C13 49 15 45 18 42L35 23C37 20 39 16 40 11L44 5L47 12C50 13 53 13 56 14C68 17 76 27 78 41C80 53 78 64 73 74Z"/></g>
+    <path fill="none" stroke="var(--pd)" stroke-width="2.4" stroke-linecap="round" d="M56 17C63 22 67 30 68 39M60 16C69 23 73 34 73 46"/>
+    <ellipse cx="38" cy="27" rx="3.6" ry="2.6" transform="rotate(-30 38 27)" fill="var(--pd)"/><path d="M22 45c2-1 4-1 5 1" fill="none" stroke="var(--pd)" stroke-width="2.4" stroke-linecap="round"/></svg>`,
+};
+// A fused piece is drawn as its rook, bishop or king with the knight riding in front of it, smaller.
+const FUSED = { M: 'R', A: 'B', E: 'K' };
+const pieceSvg = (p) => FUSED[p[1]]
+  ? `<span class="${p[0]} duo">${PIECE_SVG[FUSED[p[1]]]}${PIECE_SVG.N}</span>`
+  : `<span class="${p[0]}" style="display:contents">${PIECE_SVG[p[1]]}</span>`;
+const PIECE_NAME = { P: 'pawn', N: 'knight', B: 'bishop', R: 'rook', Q: 'queen', K: 'king', M: 'Knook', A: 'Knishop', E: 'Kning' };
+
+const SKIP_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M6.2 17.8 17.8 6.2"/></svg>';
+const REV_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h13l-3.5-3.5M20 15H7l3.5 3.5"/></svg>';
+const WILD_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.6 6.3 6.9.6-5.2 4.5 1.6 6.7L12 17l-5.9 3.6 1.6-6.7-5.2-4.5 6.9-.6z"/></svg>';
+const COLOR_VAR = { r: 'var(--c-r)', y: 'var(--c-y)', g: 'var(--c-g)', b: 'var(--c-b)', x: 'var(--c-x)' };
+function cardFace(card) {
+  const big = { skip: SKIP_SVG, rev: REV_SVG, wild: WILD_SVG, d2: '+2' }[card.k] || card.k;
+  const small = { skip: SKIP_SVG, rev: REV_SVG, wild: 'W', d2: '+2' }[card.k] || card.k;
+  return `<div class="face" style="--cc:${COLOR_VAR[card.col]}"><div class="oval"></div><div class="v">${big}</div>` +
+    `<div class="cn tl">${small}</div><div class="cn br">${small}</div></div>`;
+}
+const cardEl = (card, cls = '') => `<div class="card${card.col === 'x' ? ' x' : ''} ${cls}">${cardFace(card)}</div>`;
+const BACK = '<div class="back card"><div class="face"><div class="oval"></div><div class="v">CARD<br>CHESS</div></div></div>';
+
+// ---- preferences and record ----
+const PREF_KEY = 'dgames.troll-chess.prefs', REC_KEY = 'dgames.troll-chess.record';
+const load = (k) => { try { return JSON.parse(localStorage.getItem(k) || '{}') || {}; } catch (e) { return {}; } };
+const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+const prefs = Object.assign({ mode: 'ai', level: 'normal', side: 'w', variant: 'both' }, load(PREF_KEY));
+// Three modes, and no fourth: there is no game with neither cards nor fusions.
+const VARIANTS = {
+  cards: { name: 'Card Chess', cards: true, fusion: false, hint: 'A card drawn before every turn decides it. Ordinary chess pieces.' },
+  fusion: { name: 'Fusion Chess', cards: false, fusion: true, hint: 'No cards, one move a turn. Knights fuse with rooks, bishops and the king: the Knook, the Knishop and the Kning.' },
+  both: { name: 'Card + Fusion Chess', cards: true, fusion: true, hint: 'The cards and the fusions together. See How to play.' },
+};
+if (!VARIANTS[prefs.variant]) prefs.variant = 'both';
+const variantOf = (cards, fusion) => (cards ? (fusion ? 'both' : 'cards') : 'fusion');
+// wins, losses and draws are kept per level and per mode
+const recKey = (lv, fusion, cards = true) => lv + '-' + variantOf(cards, fusion);
+const recLabel = (lv, fusion, cards = true) => lv + ' (' + VARIANTS[variantOf(cards, fusion)].name + ')';
+const record = load(REC_KEY);
+
+// ---- state ----
+let S = null;                  // the game (see newGame)
+let mode = 'ai', level = 'normal';
+let sel = -1;                  // selected square (move / wild) or -1
+let selType = '';              // selected captured piece type (revive)
+let busy = false;              // an animation or the computer is running; input is ignored
+let lastCard = null;
+let popSq = -1;                // a square whose piece just appeared (revive, wild): plays the pop once
+const isHuman = (p) => mode === 'pvp' || p === 0;
+const viewer = () => (mode === 'pvp' ? S.turn : 0);  // whose army sits at the bottom of the board
+let flipped = false;          // true when Black is at the bottom
+let rendered = false;         // no spin on the very first paint
+let started = false;          // a real game is on (the board behind the first setup card is a placeholder)
+
+const grid = $('grid');
+const cells = [];
+for (let i = 0; i < 64; i++) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'sq';
+  b.addEventListener('click', () => onSquare(+b.dataset.s));
+  grid.appendChild(b); cells.push(b);
+}
+$('deck').insertAdjacentHTML('afterbegin', BACK + BACK + BACK);
+
+function playerName(p) {
+  if (mode === 'pvp') return 'Player ' + (p + 1);
+  return p === 0 ? 'You' : 'Computer';
+}
+
+// ---- layout: the board takes whatever the other rows leave ----
+function layout() {
+  const app = $('app'), cs = getComputedStyle(app);
+  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  const W = innerWidth, H = innerHeight, rowGap = parseFloat(cs.rowGap) || 0, colGap = parseFloat(cs.columnGap) || 0;
+  let bs;
+  if (W > H) bs = Math.min(H - padY, W - padX - colGap - 280, 820);
+  else {
+    const other = ['top', 'bot', 'cards', 'ctrl'].reduce((a, id) => a + $(id).getBoundingClientRect().height, 0) + document.querySelector('header').getBoundingClientRect().height;
+    const rows = cs.gridTemplateRows.trim().split(/\s+/).length;
+    bs = Math.min(W - padX, H - padY - other - (rows - 1) * rowGap, 820);
+  }
+  bs = Math.max(240, Math.floor(bs));
+  const frame = Math.max(3, Math.min(8, bs * 0.01));
+  document.documentElement.style.setProperty('--bs', bs + 'px');
+  document.documentElement.style.setProperty('--frame', frame + 'px');
+  document.documentElement.style.setProperty('--sq', (bs - 2 * frame) / 8 + 'px');
+  const head = document.querySelector('header');
+  head.style.paddingLeft = Math.max(0, 62 - head.getBoundingClientRect().left) + 'px';
+}
+
+// board square s is drawn in grid cell viewIndex(s)
+const viewIndex = (s) => (flipped ? 63 - s : s);
+
+// ---- painting ----
+function render() {
+  // The board turns whenever the army at the bottom changes: after a Reverse against the computer, and
+  // at every hand-over in a two-player game.
+  const nowFlipped = S.army[viewer()] === 'b';
+  if (nowFlipped !== flipped && rendered) { const b = $('board'); b.classList.remove('spin'); void b.offsetWidth; b.classList.add('spin'); }
+  flipped = nowFlipped; rendered = true;
+  // Draw 2: preselect the most valuable captured piece that has somewhere to go
+  if (S.phase === 'revive' && isHuman(S.turn) && !(selType && C.reviveTargets(S, selType).length)) {
+    selType = [...new Set(S.captured[C.myCol(S)])].sort((a, b) => C.VAL[b] - C.VAL[a]).find((t) => C.reviveTargets(S, t).length) || '';
+  }
+  const col = C.myCol(S), human = isHuman(S.turn) && S.phase !== 'over';
+  const legal = S.phase === 'move' && human ? C.legalMoves(S.pos, col) : [];
+  let targets = [], placeMode = false;
+  if (human && sel >= 0 && S.phase === 'move') targets = legal.filter((m) => m.from === sel).map((m) => m.to);
+  if (human && sel >= 0 && S.phase === 'wild') { targets = C.wildTargets(S, sel); placeMode = true; }
+  if (human && selType && S.phase === 'revive') { targets = C.reviveTargets(S, selType); placeMode = true; }
+  const quad = S.phase === 'revive' && human ? new Set(C.quadrantOf(S)) : new Set();
+  const movable = new Set(S.phase === 'move' ? legal.map((m) => m.from) : S.phase === 'wild' && human ? C.wildOptions(S) : []);
+  const checks = ['w', 'b'].filter((c) => C.inCheck(S.pos, c)).map((c) => C.findKing(S.pos, c));
+  const last = S.last || {};
+  for (let s = 0; s < 64; s++) {
+    const el = cells[viewIndex(s)], r = s >> 3, c = s & 7, p = S.pos.b[s];
+    el.dataset.s = s;
+    let cls = 'sq' + ((r + c) & 1 ? ' d' : '');
+    if (s === last.from || s === last.to || s === last.escape) cls += ' last';
+    if (quad.has(s)) cls += ' quad';
+    if (s === sel) cls += ' sel';
+    if (checks.includes(s)) cls += ' chk';
+    if (movable.has(s)) cls += ' mine';
+    // a target holding one of our own pieces is a fusion
+    if (targets.includes(s)) cls += ' tgt' + (p && p[0] === col ? ' fuse' : placeMode ? ' place' : p ? ' cap' : '');
+    el.className = cls;
+    const vi = viewIndex(s), vr = vi >> 3, vc = vi & 7;
+    let html = '';
+    if (vc === 0) html += `<span class="co r">${8 - r}</span>`;
+    if (vr === 7) html += `<span class="co f">${C.FILES[c]}</span>`;
+    if (p) html += `<div class="pc${s === popSq ? ' pop' : ''}">${pieceSvg(p)}</div>`;
+    el.innerHTML = html;
+    el.setAttribute('aria-label', C.sqName(s) + (p ? ' ' + ({ w: 'white ', b: 'black ' }[p[0]]) + PIECE_NAME[p[1]] : ''));
+  }
+  popSq = -1;
+  renderStrips(); renderCards(); renderCtrl();
+}
+
+function renderStrips() {
+  const bottomP = viewer(), topP = 1 - bottomP;
+  for (const [id, p] of [['bot', bottomP], ['top', topP]]) {
+    const el = $(id), army = S.army[p];
+    el.classList.toggle('turn', S.turn === p && S.phase !== 'over');
+    el.querySelector('.army').className = 'army ' + army;
+    el.querySelector('.nm').textContent = playerName(p);
+    // the tray shows this army's captured pieces: what a Draw 2 could bring back
+    const pool = S.captured[army].slice().sort((a, b) => C.VAL[b] - C.VAL[a]);
+    const tray = el.querySelector('.tray');
+    if (!pool.length) { tray.innerHTML = '<span class="empty">no captured pieces</span>'; continue; }
+    const reviving = S.phase === 'revive' && S.turn === p && isHuman(p);
+    tray.innerHTML = pool.map((t) => {
+      const ok = reviving && C.reviveTargets(S, t).length > 0;
+      return `<button type="button" class="tp${ok ? ' can' : reviving ? ' dead' : ''}${ok && t === selType ? ' sel' : ''}" data-t="${t}" ${ok ? '' : 'tabindex="-1"'} aria-label="captured ${t}">${pieceSvg(army + t)}</button>`;
+    }).join('');
+  }
+}
+
+function renderCards() {
+  $('deckCnt').textContent = S.deck.length;
+  const ready = S.phase === 'draw' && isHuman(S.turn) && !busy;
+  $('deck').classList.toggle('ready', ready);
+  const pile = $('pile');
+  const top = S.discard[S.discard.length - 1];
+  if (top !== lastCard) {
+    pile.querySelectorAll('.card').forEach((e) => e.remove());
+    if (top) pile.insertAdjacentHTML('beforeend', cardEl(top, lastCard ? 'flip' : ''));
+    lastCard = top;
+  }
+  $('effect').innerHTML = effectText();
+}
+
+function effectText() {
+  const who = playerName(S.turn), you = isHuman(S.turn) && mode === 'ai';
+  const card = S.card, info = card ? C.CARD_INFO[card.k] : null;
+  if (S.phase === 'over') {
+    if (S.winner < 0) return `<b>Draw</b><span>${overReason()}</span>`;
+    return `<b>${playerName(S.winner)} ${mode === 'ai' && S.winner === 0 ? 'win' : 'wins'}</b><span>${S.reason === 'king' ? 'The king was captured.' : 'Checkmate.'}</span>`;
+  }
+  if (S.phase === 'draw') {
+    const n = noteText();
+    const head = you ? 'Your turn' : mode === 'pvp' ? who + ', your turn' : who + ' is drawing';
+    return `<b>${head}</b><span>${n ? n + ' ' : ''}${isHuman(S.turn) ? 'Tap the deck to draw a card.' : ''}</span>`;
+  }
+  if (S.phase === 'move') {
+    if (!S.cards) {
+      const n = noteText(), head = you ? 'Your move' : mode === 'pvp' ? who + ', your move' : who + ' is thinking';
+      return `<b>${head}</b><span>${n ? n + ' ' : ''}One move a turn. Knights fuse with rooks, bishops and the king.</span>`;
+    }
+    const pips = Array.from({ length: S.movesMade + S.movesLeft }, (_, i) => `<i class="${i < S.movesMade ? 'used' : ''}"></i>`).join('');
+    const left = S.movesLeft;
+    return `<b>${info.title}</b><span>${left} move${left === 1 ? '' : 's'} left. ${S.pos.fusion ? 'Checking a king (not a Kning) ends the turn.' : 'A check ends the turn.'}</span><div class="pips">${pips}</div>`;
+  }
+  if (S.phase === 'revive') return `<b>Draw 2: revive</b><span>${isHuman(S.turn) ? 'Pick a captured piece, then a green square.' : ''} ${S.revivesLeft} left.</span>`;
+  if (S.phase === 'wild') return `<b>Wild</b><span>${isHuman(S.turn) ? (sel >= 0 ? 'Now tap any green square.' : 'Pick one of your pieces to move anywhere.') : ''}</span>`;
+  return '';
+}
+// what happened at the end of the previous turn, if it needs saying
+function noteText() {
+  const prev = playerName(1 - S.turn);
+  switch (S.note) {
+    case 'skip': return prev + ' drew Skip.';
+    case 'rev': return 'Reverse: the armies have swapped.';
+    case 'check': return 'Check! That ended ' + prev + '’s turn.';
+    case 'nomove': return prev + ' had no legal move.';
+    case 'nomore': return prev + ' ran out of moves.';
+    case 'nocaptured': return prev + ' drew Draw 2 with nothing to revive.';
+    case 'noroom': return prev + ' drew Draw 2 with no room to revive.';
+    case 'nowild': return prev + ' drew Wild with nowhere to go.';
+    case 'guarded': return prev + '’s Kning is in check with no move, and must wait.';
+  }
+  return '';
+}
+
+function renderCtrl() {
+  const b = $('actBtn'), human = isHuman(S.turn) && !busy;
+  let label = 'End turn', enabled = false;
+  if (S.phase === 'draw') { label = 'Draw card <kbd>Space</kbd>'; enabled = human; }
+  else if (S.phase === 'move') { label = 'End turn'; enabled = human && S.movesMade >= 1; }
+  else if (S.phase === 'revive') { label = 'Done'; enabled = human; }
+  else if (S.phase === 'wild') { label = 'Keep pieces where they are'; enabled = human; }
+  else if (S.phase === 'over') { label = 'New game'; enabled = true; }
+  b.innerHTML = label; b.disabled = !enabled;
+  $('sub').textContent = VARIANTS[variantOf(S.cards, S.pos.fusion)].name + ' · ' +
+    (S.phase === 'over' ? 'Game over' : `Turn ${S.turnNo} · ${playerName(S.turn)} (${S.army[S.turn] === 'w' ? 'White' : 'Black'})`);
+  $('app').classList.toggle('nocards', !S.cards);
+}
+
+function banner(text) {
+  const b = $('banner');
+  b.textContent = text; b.hidden = false;
+  b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+}
+
+// Slides the moving piece across, then the caller renders the result.
+async function flyPiece(from, to, piece) {
+  if (reduced) return;
+  const f = $('flyer'), sq = cells[0].getBoundingClientRect().width;
+  const stage = $('stage').getBoundingClientRect(), g = grid.getBoundingClientRect();
+  const at = (s) => { const v = viewIndex(s); return [g.left - stage.left + (v & 7) * sq, g.top - stage.top + (v >> 3) * sq]; };
+  const [x0, y0] = at(from), [x1, y1] = at(to);
+  f.innerHTML = pieceSvg(piece); f.hidden = false;
+  cells[viewIndex(from)].querySelector('.pc')?.style.setProperty('visibility', 'hidden');
+  const anim = f.animate([{ transform: `translate(${x0}px,${y0}px)` }, { transform: `translate(${x1}px,${y1}px)` }], { duration: 220, easing: 'cubic-bezier(.3,.7,.3,1)', fill: 'forwards' });
+  // capped, so a timeline that never finishes (a hidden tab) cannot stall the computer's turn
+  await Promise.race([anim.finished.catch(() => {}), new Promise((r) => setTimeout(r, 400))]);
+  f.hidden = true;
+}
+
+// ---- turn flow ----
+async function doAction(a) {
+  const piece = a.type === 'move' ? S.pos.b[a.m.from] : a.type === 'wild' ? S.pos.b[a.from] : null;
+  busy = true;
+  try {
+    if (a.type === 'move') await flyPiece(a.m.from, a.m.to, piece);
+    if (a.type === 'wild') await flyPiece(a.from, a.to, piece);
+    const res = C.apply(S, a);
+    if (a.type === 'revive') popSq = a.sq; else if (a.type === 'wild') popSq = a.to;
+    sel = -1; selType = '';
+    render();
+    if (a.type === 'draw') await afterDraw(res);
+    else if (a.type === 'move' && S.phase !== 'over' && res && res.escape >= 0) banner('Knight lost, king escapes!');
+    else if (a.type === 'move' && S.phase !== 'over' && res && res.check) banner('Check!');
+    else if (a.type === 'move' && res && res.m.fuse) banner(PIECE_NAME[S.pos.b[res.m.to][1]] + '!');
+    else if ((a.type === 'wild' || a.type === 'revive') && 'MAE'.includes((S.pos.b[a.type === 'wild' ? a.to : a.sq] || '  ')[1])) banner(PIECE_NAME[S.pos.b[a.type === 'wild' ? a.to : a.sq][1]] + '!');
+  } finally { busy = false; }
+  if (S.phase === 'over') return gameOver();
+  render();
+  tick();
+}
+
+async function afterDraw(card) {
+  const k = card.k;
+  if (k === 'skip') { banner('Skip!'); await wait(1100); }
+  else if (k === 'rev') { banner('Reverse!'); await wait(1300); } else if (k === 'd2') { banner(S.phase === 'revive' ? 'Draw 2: revive!' : 'Draw 2: nothing to revive'); await wait(S.phase === 'revive' ? 700 : 1300); }
+  else if (k === 'wild') { banner(S.phase === 'wild' ? 'Wild!' : 'Wild: no room'); await wait(S.phase === 'wild' ? 700 : 1300); }
+  else { banner(k === '1' ? '1 move' : k + ' moves'); await wait(S.phase === 'move' ? 500 : 1300); }
+}
+
+let aiTimer = 0;
+function tick() {
+  clearTimeout(aiTimer);
+  if (!S || S.phase === 'over' || isHuman(S.turn)) return;
+  aiTimer = setTimeout(() => {
+    if (!S || isHuman(S.turn) || busy || S.phase === 'over') return;
+    const a = C.aiAction(S, level, Math.random);
+    doAction(a || { type: 'draw' });
+  }, S.phase === 'draw' ? 700 : 450);
+}
+
+// ---- input ----
+function onSquare(s) {
+  if (busy || !S || !isHuman(S.turn)) return;
+  const col = C.myCol(S), p = S.pos.b[s];
+  if (S.phase === 'move') {
+    if (sel >= 0) {
+      const ms = C.legalMoves(S.pos, col).filter((m) => m.from === sel && m.to === s);
+      if (ms.length) {
+        if (ms.length > 1) return askPromo(col).then((q) => { if (q) doAction({ type: 'move', m: ms.find((m) => m.promo === q) }); });
+        return doAction({ type: 'move', m: ms[0] });
+      }
+    }
+    sel = p && p[0] === col && C.legalMoves(S.pos, col).some((m) => m.from === s) && sel !== s ? s : -1;
+    return render();
+  }
+  if (S.phase === 'wild') {
+    if (sel >= 0 && C.wildTargets(S, sel).includes(s)) return doAction({ type: 'wild', from: sel, to: s });
+    sel = p && p[0] === col && sel !== s && C.wildTargets(S, s).length ? s : -1;
+    return render();
+  }
+  if (S.phase === 'revive' && selType) {
+    if (C.reviveTargets(S, selType).includes(s)) return doAction({ type: 'revive', t: selType, sq: s });
+  }
+}
+document.addEventListener('click', (e) => {
+  const tp = e.target.closest('.tp.can');
+  if (!tp || busy) return;
+  selType = selType === tp.dataset.t ? '' : tp.dataset.t;
+  render();
+});
+$('deck').addEventListener('click', () => { if (S.phase === 'draw' && isHuman(S.turn) && !busy) doAction({ type: 'draw' }); });
+$('actBtn').addEventListener('click', onAct);
+function onAct() {
+  if (busy) return;
+  if (S.phase === 'over') return openSetup();
+  if (!isHuman(S.turn)) return;
+  if (S.phase === 'draw') doAction({ type: 'draw' });
+  else if (S.phase === 'move' && S.movesMade >= 1) doAction({ type: 'end' });
+  else if (S.phase === 'revive') doAction({ type: 'reviveDone' });
+  else if (S.phase === 'wild') doAction({ type: 'wildPass' });
+}
+addEventListener('keydown', (e) => {
+  if (!$('setup').hidden || !$('rules').hidden || !$('promo').hidden) {
+    if (e.key === 'Escape') { if (!$('rules').hidden) $('rules').hidden = true; else if (!$('setup').hidden && started) $('setup').hidden = true; }
+    return;
+  }
+  // a focused button already answers Space and Enter itself
+  if ((e.key === ' ' || e.key === 'Enter') && e.target.closest && e.target.closest('button')) return;
+  if (e.key === ' ' || e.key === 'Enter') { if (!$('actBtn').disabled) { e.preventDefault(); onAct(); } }
+  else if (e.key === 'Escape') { sel = -1; selType = ''; render(); }
+});
+
+function askPromo(col) {
+  return new Promise((resolve) => {
+    const box = $('promoBtns'), v = $('promo');
+    box.innerHTML = 'QRBN'.split('').map((q) => `<button type="button" data-q="${q}" aria-label="${q}">${pieceSvg(col + q)}</button>`).join('');
+    v.hidden = false;
+    const done = (q) => { v.hidden = true; v.onclick = null; resolve(q); };
+    v.onclick = (e) => { const b = e.target.closest('button'); if (b) done(b.dataset.q); else if (e.target === v) done(null); };
+  });
+}
+
+// ---- setup, rules, game over ----
+function segPick(id, attr, val) { for (const b of $(id).querySelectorAll('.btn')) b.classList.toggle('on', b.dataset[attr] === val); }
+function openSetup() {
+  $('over').hidden = true;
+  segPick('modeSeg', 'mode', prefs.mode); segPick('levelSeg', 'level', prefs.level); segPick('sideSeg', 'side', prefs.side);
+  segPick('variantSeg', 'variant', prefs.variant);
+  $('variantHint').textContent = VARIANTS[prefs.variant].hint;
+  $('levelBox').hidden = prefs.mode !== 'ai';
+  showRecord();
+  $('setup').hidden = false;
+  $('startBtn').focus();
+}
+function showRecord() {
+  const V = VARIANTS[prefs.variant], f = V.fusion, c = V.cards, r = record[recKey(prefs.level, f, c)];
+  $('record').textContent = r ? `Against ${recLabel(prefs.level, f, c)}: ${r.w} won, ${r.l} lost${r.d ? `, ${r.d} drawn` : ''}.` : '';
+}
+$('modeSeg').addEventListener('click', (e) => { const b = e.target.closest('.btn'); if (!b) return; prefs.mode = b.dataset.mode; openSetup(); });
+$('levelSeg').addEventListener('click', (e) => { const b = e.target.closest('.btn'); if (!b) return; prefs.level = b.dataset.level; segPick('levelSeg', 'level', prefs.level); showRecord(); });
+$('variantSeg').addEventListener('click', (e) => { const b = e.target.closest('.btn'); if (!b) return; prefs.variant = b.dataset.variant; openSetup(); });
+$('sideSeg').addEventListener('click', (e) => { const b = e.target.closest('.btn'); if (!b) return; prefs.side = b.dataset.side; segPick('sideSeg', 'side', prefs.side); });
+$('startBtn').addEventListener('click', () => {
+  store(PREF_KEY, prefs);
+  mode = prefs.mode; level = prefs.level;
+  const side = mode === 'pvp' ? 'w' : prefs.side === 'r' ? (Math.random() < .5 ? 'w' : 'b') : prefs.side;
+  const V = VARIANTS[prefs.variant];
+  S = C.newGame({ seed: Math.floor(Math.random() * 2 ** 32), p0: side, fusion: V.fusion, cards: V.cards });
+  sel = -1; selType = ''; lastCard = null; busy = false;
+  $('pile').querySelectorAll('.card').forEach((e) => e.remove());
+  $('setup').hidden = true;
+  started = true; rendered = false;
+  render(); layout(); render();
+  tick();
+});
+$('newBtn').addEventListener('click', openSetup);
+$('setupRules').addEventListener('click', () => { $('rules').hidden = false; });
+$('rulesBtn').addEventListener('click', () => { $('rules').hidden = false; });
+$('rulesClose').addEventListener('click', () => { $('rules').hidden = true; });
+for (const t of 'MAE') $('fz' + t).innerHTML = pieceSvg('w' + t);
+$('rulesList').innerHTML = C.DECK_MIX.map(([k, n]) => {
+  const info = C.CARD_INFO[k], col = { '1': 'b', '2': 'g', '3': 'y', skip: 'r', rev: 'b', d2: 'g', wild: 'x' }[k];
+  return `<li>${cardEl({ k, col })}<div><b>${info.title} <small>&times;${n}</small></b>${info.text}</div></li>`;
+}).join('');
+$('rules').addEventListener('click', (e) => { if (e.target.id === 'rules') $('rules').hidden = true; });
+$('setup').addEventListener('click', (e) => { if (e.target.id === 'setup' && started) $('setup').hidden = true; });
+
+function gameOver() {
+  render();
+  if (mode === 'ai') {
+    const k = recKey(level, S.pos.fusion, S.cards), r = record[k] || (record[k] = { w: 0, l: 0 });
+    if (S.winner < 0) r.d = (r.d || 0) + 1; else if (S.winner === 0) r.w++; else r.l++;
+    store(REC_KEY, record);
+  }
+  const youWon = mode === 'ai' && S.winner === 0;
+  const drawn = S.winner < 0, rec = record[recKey(level, S.pos.fusion, S.cards)];
+  $('overTitle').textContent = drawn ? 'Draw' : mode === 'ai' ? (youWon ? 'You win' : 'You lose') : playerName(S.winner) + ' wins';
+  $('overBig').textContent = drawn ? 'Drawn' : S.reason === 'king' ? 'King captured' : 'Checkmate';
+  $('overSub').textContent = (drawn ? overReason() + ' ' : '') + `After ${S.turnNo} turn${S.turnNo === 1 ? '' : 's'}.` +
+    (mode === 'ai' ? ` Record against ${recLabel(level, S.pos.fusion, S.cards)}: ${rec.w} won, ${rec.l} lost${rec.d ? `, ${rec.d} drawn` : ''}.` : '');
+  banner(drawn ? 'Draw!' : S.reason === 'king' ? 'King captured!' : 'Checkmate!');
+  setTimeout(() => { $('over').hidden = false; $('over').classList.remove('peek'); }, reduced ? 200 : 1300);
+}
+function overReason() {
+  return S.quiet >= C.QUIET_LIMIT ? '50 moves each with no capture and no pawn move.' : 'Neither side has a legal move.';
+}
+$('againBtn').addEventListener('click', openSetup);
+$('viewBtn').addEventListener('click', () => { $('over').classList.add('peek'); setTimeout(() => addEventListener('pointerdown', () => $('over').classList.remove('peek'), { once: true }), 0); });
+
+// ---- boot ----
+addEventListener('resize', layout);
+S = C.newGame({ seed: 7, fusion: VARIANTS[prefs.variant].fusion, cards: VARIANTS[prefs.variant].cards });
+mode = prefs.mode; level = prefs.level;
+render(); layout(); render();
+openSetup();
+</script>
+</body>
+</html>
