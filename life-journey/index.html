@@ -1582,6 +1582,11 @@ const fxc = $('fx'), fxx = fxc.getContext('2d');
 let parts = [], fxRaf = 0;
 function confetti(n, petals) {
   const w = fxc.width = innerWidth, h = fxc.height = innerHeight;
+  // Sized for a desktop; scaled by screen area, so a phone gets a sprinkle rather than a curtain over the board
+  // (a 160-piece wedding burst covered a 390x844 map mid-game), and capped so back-to-back celebrations
+  // in a computer turn do not pile up.
+  n = Math.round(n * Math.min(1, (w * h) / (1280 * 800)) * 0.7);
+  n = Math.max(0, Math.min(n, 140 - parts.length));
   for (let i = 0; i < n; i++) parts.push({ x: Math.random() * w, y: -20 - Math.random() * h * 0.4, vx: (Math.random() - 0.5) * 2, vy: 1.5 + Math.random() * 2.5, r: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.3,
     c: petals ? ['#ff7a1a', '#ffb300', '#ffd34d', '#e8505b'][i % 4] : COLORS[i % 6], s: 5 + Math.random() * 5, petal: petals });
   if (!fxRaf) fxRaf = requestAnimationFrame(fxFrame);
