@@ -137,6 +137,18 @@
   #sgfText { width: 100%; height: 160px; resize: none; border-radius: 10px; border: 1px solid var(--line); background: rgba(0, 0, 0, .3);
     color: var(--text); font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; padding: 8px; -webkit-user-select: text; user-select: text; }
   :focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+
+  /* ---- 3D table (body.v3d), drawn by ../lib/tabletop.js. The 2D canvas stays the fallback when WebGL is
+     missing and the choice for anyone who prefers it; nothing in this block applies without .v3d. The stage
+     is the whole space beside or under the HUD rather than the board's square (layout() sizes it). ---- */
+  #c3d, #view3 { display: none; }
+  body.v3d #cv { display: none; }
+  body.v3d #c3d { display: block; width: 100%; height: 100%; border-radius: 14px; touch-action: none; outline: none; cursor: pointer;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .35); }
+  body.v3d #view3 { display: flex; position: absolute; top: 8px; right: 8px; gap: 6px; }
+  #view3 button { min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 22px; border: 1px solid rgba(43, 47, 92, .25);
+    background: rgba(255, 255, 255, .82); color: #2B2F5C; font: 700 13px var(--ui); cursor: pointer; }
+  #view3 button:hover { background: #fff; }
 </style>
 </head>
 <body>
@@ -176,12 +188,13 @@
       <button class="b icon" id="bMenu" aria-label="Menu" aria-haspopup="true"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
     </div>
   </div>
-  <div id="boardBox"><canvas id="cv" aria-label="Go board"></canvas></div>
+  <div id="boardBox"><canvas id="cv" aria-label="Go board"></canvas><canvas id="c3d" aria-label="The Go board in 3D: tap a point to play. Drag to tilt, pinch to zoom."></canvas><div id="view3"><button id="camBtn" type="button" aria-label="Look straight down at the board">Top</button><button id="dimBtn" type="button" title="Flat 2D board" aria-label="Switch to the flat 2D board">2D</button></div></div>
 </div>
 
 <div id="menu" hidden role="menu">
   <button class="b" id="mNew" role="menuitem">New game</button>
   <button class="b" id="mSgf" role="menuitem">Save game record (SGF)</button>
+  <button class="b" id="mView" role="menuitem" hidden>Board: 3D table</button>
   <button class="b" id="mSound" role="menuitem">Sound: on</button>
   <button class="b" id="mResign" role="menuitem">Resign</button>
 </div>
@@ -243,6 +256,8 @@
     </div>
   </div>
 </div>
+<script src="../lib/three.min.js"></script>
+<script src="../lib/tabletop.js"></script>
 <script id="go-js">
 'use strict';
 // ---------- Go: the pure part (board, rules, superko, scoring, search) ----------
@@ -992,9 +1007,16 @@ function layout() {
     bs = Math.min(W - 16, H - 64 - 70 - 8 - 8 - 48 - 12, 720);
   }
   bs = Math.max(160, Math.floor(bs));
+  // The 3D table takes the whole stage rather than the board's square: the desk and the bowls need the room.
+  let bw = bs, bh = bs;
+  if (V3) {
+    if (side) { bw = Math.max(160, Math.floor(Math.min(W - panel - 20 - 24, 1500))); bh = Math.max(160, Math.floor(H - 16)); }
+    else { bw = Math.max(160, Math.floor(Math.min(W - 16, 720))); bh = Math.max(160, Math.floor(Math.min(H - 64 - 70 - 8 - 8 - 48 - 12, bw * 1.3))); }
+  }
   app.className = side ? 'side' : 'stack';
-  app.style.setProperty('--bs', bs + 'px'); app.style.setProperty('--panel', panel + 'px');
-  app.style.paddingTop = side ? '' : Math.max(64, Math.floor((H - (70 + 8 + bs + 8 + 48)) / 2)) + 'px';
+  app.style.setProperty('--bs', (side ? bs : bw) + 'px'); app.style.setProperty('--panel', panel + 'px');
+  app.style.paddingTop = side ? '' : Math.max(64, Math.floor((H - (70 + 8 + bh + 8 + 48)) / 2)) + 'px';
+  $('boardBox').style.width = V3 ? bw + 'px' : ''; $('boardBox').style.height = V3 ? bh + 'px' : '';
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   const N = game ? game.N : prefs.N;
   L.side = side; L.bs = bs; L.dpr = dpr;
@@ -1004,6 +1026,7 @@ function layout() {
   L.confirm = L.cell < 32;
   const key = bs + ':' + N + ':' + dpr;
   if (key !== L.key) { L.key = key; cv.width = Math.round(bs * dpr); cv.height = Math.round(bs * dpr); buildStatic(); sprites = {}; }
+  if (V3) V3.resize();
   renderHud(); draw();
 }
 
@@ -1097,6 +1120,7 @@ function stone(color, p, alpha, scale) {
 let drawQueued = false;
 function requestDraw() { if (!drawQueued) { drawQueued = true; requestAnimationFrame(() => { drawQueued = false; draw(); }); } }
 function draw() {
+  if (V3) { anims = []; V3.update(); return; }
   if (!staticLayer) return;
   g2.setTransform(1, 0, 0, 1, 0, 0);
   g2.drawImage(staticLayer, 0, 0);
@@ -1205,9 +1229,10 @@ function playWithFx(p) {
   if (why) return why;
   const t0 = performance.now();
   if (!reduceMotion) anims.push({ kind: 'place', p, t0, dur: 170 });
-  let caps = 0;
-  for (const q of b.g.pts) if (before[q] === 3 - mover && b.c[q] === EMPTY) { caps++; if (!reduceMotion) anims.push({ kind: 'capture', p: q, color: 3 - mover, t0: t0 + 60, dur: 320 }); }
-  sfx.place(); if (caps) sfx.capture(caps);
+  let caps = 0; const capPts = [];
+  for (const q of b.g.pts) if (before[q] === 3 - mover && b.c[q] === EMPTY) { caps++; capPts.push(q); if (!reduceMotion) anims.push({ kind: 'capture', p: q, color: 3 - mover, t0: t0 + 60, dur: 320 }); }
+  if (V3) V3.placed(p, mover, capPts);   // the 3D view clicks as the stone lands and as each prisoner reaches the lid
+  else { sfx.place(); if (caps) sfx.capture(caps); }
   return null;
 }
 function tryPlay(p) {
@@ -1264,6 +1289,7 @@ function undo() {
     do { game.undo(); } while (game.moves.length && game.board.toMove !== cfg.human);
   } else game.undo();
   ghost = 0; hover = 0; anims = [];
+  if (V3) V3.reset();
   save(); renderHud(); requestDraw();
   if (cfg.mode === 'ai' && game.board.toMove === aiColor()) aiThink();
 }
@@ -1297,6 +1323,7 @@ function resume() {
   phase = 'play'; dead = null; score = null;
   if (cfg.mode === 'ai') { do { game.undo(); } while (game.moves.length && (game.ended() || game.board.toMove !== cfg.human)); }
   else game.undo();
+  if (V3) V3.reset();
   save(); renderHud(); requestDraw();
   if (cfg.mode === 'ai' && game.board.toMove === aiColor()) aiThink();
 }
@@ -1359,6 +1386,7 @@ function start(c, moves) {
   game = new G.Game(cfg.N, { handicap: cfg.handicap });
   if (moves) for (const m of moves) { if (m === PASS) game.pass(); else if (game.play(m)) break; }
   phase = 'play'; dead = null; score = null; ghost = 0; hover = 0; anims = [];
+  if (V3) V3.reset();
   Object.assign(prefs, { N: c.N, mode: c.mode, level: c.level, human: c.human, handicap: c.handicap }); store.set(PREFS, prefs);
   $('setup').hidden = true; $('result').hidden = true;
   L.key = ''; layout();
@@ -1406,6 +1434,7 @@ $('sResume').onclick = () => { audio(); resumeSaved(); };
 function openMenu() {
   const m = $('menu'), r = $('bMenu').getBoundingClientRect();
   renderHud(); m.hidden = false;
+  $('mView').hidden = !can3d(); $('mView').textContent = V3 ? 'Board: flat 2D' : 'Board: 3D table';
   const mw = m.offsetWidth, mh = m.offsetHeight;
   let top = r.top - mh - 8; if (top < 8) top = Math.min(window.innerHeight - mh - 8, r.bottom + 8);
   m.style.top = Math.max(8, top) + 'px';
@@ -1498,10 +1527,526 @@ document.addEventListener('keydown', (e) => {
 let rz = 0;
 window.addEventListener('resize', () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(layout); });
 
+// ---------------------------------------------------------------- the 3D table
+// The same game on a kaya goban on Penfight's desk, drawn by the shared kit in ../lib/tabletop.js. Like the
+// 2D canvas it only reads game, phase, ghost, hover, dead and score, and calls tryPlay / setGhost /
+// toggleDead, so the rules and the flow are the 2D ones. Sizes are centimetres: a real goban's 22 mm grid,
+// stones 21 mm across and 8 mm thick, go-ke bowls beside the board with their lids holding the prisoners.
+let V3 = null, view3d = null, lost3d = false;
+const VIEW_KEY = 'dgames.go.view';
+const viewPref = (() => { try { const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; } })();
+const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(viewPref)); } catch (e) { /* ignore */ } };
+// A portrait phone opens top-down: the angled view foreshortens the far rows to a few pixels a point.
+const portraitPhone = () => innerHeight > innerWidth && innerWidth < 700;
+const camDefault = () => viewPref.cam || (portraitPhone() ? 'top' : 'angled');
+const can3d = () => !!window.Tabletop && !lost3d && !(view3d && !view3d.ok) && !/[?&]no3d\b/.test(location.search);
+
+function makeView3d() {
+  if (!window.Tabletop) return { ok: false, reason: 'the tabletop kit did not load' };
+  let q = null;
+  try { q = new URLSearchParams(location.search).get('q'); } catch (e) { /* ignore */ }
+  const canvas = $('c3d');
+  const kit = Tabletop.create({ canvas, quality: q || 'auto', onTap: tap3d, onLost: () => { lost3d = true; setDim('2d', false); } });
+  if (!kit.ok) return { ok: false, reason: kit.reason };
+  // A scene that fails half way must not leave its WebGL context and frame loop running behind the 2D board.
+  try { return buildView3d(kit, canvas); } catch (e) { try { kit.dispose(); } catch (e2) { /* already gone */ } throw e; }
+}
+function buildView3d(kit, canvas) {
+  const THREE = kit.THREE, col = Tabletop.col, hi = kit.quality === 'high', M = Tabletop.math;
+  const CELL = 2.2, MARGIN = 1.65, LEG = 1.6, BLOCK = 4.4, TOP = LEG + BLOCK;
+  const R = 1.04, SH = 0.4, REST = TOP + SH;     // stone radius, half thickness, resting centre height
+  const LID_MAX = 64, HEAP = hi ? 26 : 18, CAP = 361 + HEAP + LID_MAX + 40;
+  let N = 0, B = 0, half = 0, sc = 1, nearC = BLACK, lay = '', gen = 0, dirty = true;
+  let goban = null;
+  const rnd = (seed) => G.rngFrom(seed);
+
+  // ---- textures
+  function canvasTex(c, rep) {
+    const t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding; t.anisotropy = kit.renderer.capabilities.getMaxAnisotropy();
+    if (rep) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep[0], rep[1]); }
+    return t;
+  }
+  // Shell: faint growth lines, arcs of a far centre, across the face (the stone geometry carries planar UVs).
+  function shellTex() {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const x = c.getContext('2d');
+    x.fillStyle = '#FBFAF6'; x.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 26; i++) {
+      x.strokeStyle = 'rgba(176,160,132,' + (0.06 + (i % 3) * 0.03) + ')'; x.lineWidth = 1.4 + (i % 2);
+      x.beginPath(); x.arc(128, 128 + 470, 360 + i * 8.5, 0, Math.PI * 2); x.stroke();
+    }
+    return canvasTex(c);
+  }
+  // Light grain multiplied over a wood colour: lines running along u (the side of the goban, round a bowl).
+  function grainTex(w, h, n, seed, dark, wave) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d'), r = rnd(seed), k = wave == null ? 1 : wave;
+    x.fillStyle = '#ffffff'; x.fillRect(0, 0, w, h);
+    for (let i = 0; i < n; i++) {
+      // a whole number of waves across the width, so the texture wraps round a lathe without a seam
+      const y0 = r() * h, amp = (1 + r() * 4) * k, f = (2 * Math.PI * (1 + Math.floor(r() * 4))) / w, ph = r() * 6;
+      x.strokeStyle = 'rgba(' + dark + ',' + (0.05 + r() * 0.12).toFixed(3) + ')'; x.lineWidth = 0.6 + r() * 2.2;
+      x.beginPath();
+      for (let px = 0; px <= w; px += 8) { const py = y0 + Math.sin(px * f + ph) * amp; if (px) x.lineTo(px, py); else x.moveTo(px, py); }
+      x.stroke();
+    }
+    return c;
+  }
+
+  // ---- the goban's printed face: kaya, grid, star points (the 2D board's recipe, in centimetres)
+  function drawGoban(g, w, h, ppc) {
+    const base = g.createLinearGradient(0, 0, w, h);
+    base.addColorStop(0, '#ecc98a'); base.addColorStop(0.5, '#e2b56f'); base.addColorStop(1, '#d8a760');
+    g.fillStyle = base; g.fillRect(0, 0, w, h);
+    const r = rnd(1337 + N);
+    for (let i = 0; i < 9; i++) {
+      const y = r() * h, bh = (0.03 + r() * 0.09) * h, a = 0.04 + r() * 0.07;
+      const gr = g.createLinearGradient(0, y - bh, 0, y + bh);
+      gr.addColorStop(0, 'rgba(150,90,35,0)'); gr.addColorStop(0.5, 'rgba(150,90,35,' + a + ')'); gr.addColorStop(1, 'rgba(150,90,35,0)');
+      g.fillStyle = gr; g.fillRect(0, y - bh, w, 2 * bh);
+    }
+    const lines = Math.round(h / (0.2 * ppc));
+    for (let i = 0; i < lines; i++) {
+      const y0 = ((i + r()) * h) / lines, amp = (0.04 + r() * 0.16) * ppc, f = (2 * Math.PI) / ((14 + r() * 30) * ppc), ph = r() * 6.28;
+      g.strokeStyle = 'rgba(115,64,22,' + (0.02 + r() * 0.07).toFixed(3) + ')';
+      g.lineWidth = (0.025 + r() * 0.06) * ppc;
+      g.beginPath();
+      for (let x = 0; x <= w + 8; x += Math.max(4, 0.4 * ppc)) {
+        const y = y0 + Math.sin(x * f + ph) * amp + Math.sin(x * f * 3.3 + ph * 1.7) * amp * 0.35;
+        if (x === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    // Grid: about a millimetre, a touch heavier on 19x19 where a phone shows each line under a pixel wide.
+    const lw = Math.max(1.5, (N >= 19 ? 0.12 : N >= 13 ? 0.105 : 0.09) * ppc);
+    const X = (i) => (MARGIN + i * CELL) * ppc;
+    g.strokeStyle = 'rgba(38,22,8,.88)'; g.lineWidth = lw; g.lineCap = 'square';
+    g.beginPath();
+    for (let i = 0; i < N; i++) { g.moveTo(X(0), X(i)); g.lineTo(X(N - 1), X(i)); g.moveTo(X(i), X(0)); g.lineTo(X(i), X(N - 1)); }
+    g.stroke();
+    g.lineWidth = lw * 1.8; g.strokeRect(X(0), X(0), X(N - 1) - X(0), X(N - 1) - X(0));
+    g.fillStyle = 'rgba(38,22,8,.92)';
+    for (const p of G.starPoints(N)) { const [x, y] = G.toXY(N, p); g.beginPath(); g.arc(X(x), X(y), 0.19 * ppc, 0, 7); g.fill(); }
+  }
+
+  // ---- stones: a biconvex lens (two shallow spherical caps meeting at a softened edge), instanced
+  function lensGeo() {
+    // 320 triangles a stone at low quality, 728 at high: 361 of them stay a fraction of a phone's budget.
+    const rho = (R * R + SH * SH) / (2 * SH), n = hi ? 6 : 4, pts = [];
+    const face = (r) => Math.sqrt(rho * rho - r * r) - (rho - SH);
+    for (let i = 0; i <= n; i++) { const r = R * 0.94 * Math.sin((i / n) * Math.PI / 2); pts.push([r, -face(r)]); }
+    pts.push([R * 0.985, -0.06], [R, 0], [R * 0.985, 0.06]);
+    for (let i = n; i >= 0; i--) { const r = R * 0.94 * Math.sin((i / n) * Math.PI / 2); pts.push([r, face(r)]); }
+    const g = new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(Math.max(0.0005, r), y)), hi ? 26 : 16);
+    const p = g.attributes.position, uv = g.attributes.uv;
+    for (let i = 0; i < p.count; i++) uv.setXY(i, p.getX(i) / (2 * R) + 0.5, p.getZ(i) / (2 * R) + 0.5);
+    return g;
+  }
+  const stoneGeo = lensGeo();
+  // Slate: dark, low gloss. Shell: warm white with a soft sheen and its growth lines.
+  const matS = { [BLACK]: Tabletop.mat.plastic('#202124', { roughness: 0.5, envMapIntensity: 0.75 }),
+    [WHITE]: Tabletop.mat.plastic('#E2DDD1', { map: shellTex(), roughness: 0.2, envMapIntensity: 0.7 }) };
+  const seeThrough = (m, a) => { const c = m.clone(); c.transparent = true; c.opacity = a; c.depthWrite = false; return c; };
+  const matDead = { [BLACK]: seeThrough(matS[BLACK], 0.4), [WHITE]: seeThrough(matS[WHITE], 0.45) };
+  const matGhost = { [BLACK]: seeThrough(matS[BLACK], 0.6), [WHITE]: seeThrough(matS[WHITE], 0.6) };
+  function instanced(geo, mat, cap, shadow) {
+    const m = new THREE.InstancedMesh(geo, mat, cap);
+    m.count = 0; m.frustumCulled = false; m.castShadow = shadow; m.receiveShadow = shadow;
+    kit.add(m); return m;
+  }
+  const inst = { [BLACK]: instanced(stoneGeo, matS[BLACK], CAP, true), [WHITE]: instanced(stoneGeo, matS[WHITE], CAP, true) };
+  const deadInst = { [BLACK]: instanced(stoneGeo, matDead[BLACK], 361, false), [WHITE]: instanced(stoneGeo, matDead[WHITE], 361, false) };
+  deadInst[BLACK].renderOrder = deadInst[WHITE].renderOrder = 2;
+  const ghostMesh = new THREE.Mesh(stoneGeo, matGhost[BLACK]); ghostMesh.visible = false; ghostMesh.renderOrder = 3; kit.add(ghostMesh);
+  // Territory: a small square of the owner's colour on the point (on top of a dead stone, as in 2D).
+  const markGeo = new THREE.BoxGeometry(CELL * 0.32, 0.1, CELL * 0.32);
+  const markInst = { [BLACK]: instanced(markGeo, Tabletop.mat.plastic('#18181a', { roughness: 0.5 }), 361, false),
+    [WHITE]: instanced(markGeo, Tabletop.mat.plastic('#f6f3ec', { roughness: 0.45 }), 361, false) };
+  markInst[BLACK].renderOrder = markInst[WHITE].renderOrder = 4;
+  // Last move: a ring laid on the stone's crown, bent to the curve of the face so it never sinks in.
+  const ringGeo = (() => {
+    const g = new THREE.RingGeometry(0.3, 0.44, hi ? 40 : 28); g.rotateX(-Math.PI / 2);
+    const rho = (R * R + SH * SH) / (2 * SH), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) { const r = Math.hypot(p.getX(i), p.getZ(i)); p.setY(i, -(rho - Math.sqrt(rho * rho - r * r)) + 0.012); }
+    return g;
+  })();
+  const ringMat = new THREE.MeshBasicMaterial({ color: col('#ffffff'), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const ring = new THREE.Mesh(ringGeo, ringMat); ring.visible = false; ring.renderOrder = 4; kit.add(ring);
+  // The ghost's crosshair (preview on small points): two thin red strips along its row and column.
+  const crossMat = new THREE.MeshBasicMaterial({ color: col('#B8331E'), transparent: true, opacity: 0.6, depthWrite: false });
+  const stripGeo = new THREE.PlaneGeometry(1, 1); stripGeo.rotateX(-Math.PI / 2);
+  const crossH = new THREE.Mesh(stripGeo, crossMat), crossV = new THREE.Mesh(stripGeo, crossMat);
+  crossH.visible = crossV.visible = false; crossH.renderOrder = crossV.renderOrder = 1; kit.add(crossH); kit.add(crossV);
+
+  // ---- bowls (go-ke) and lids, lathed; scaled down beside the smaller boards
+  const lathe = (pts, segs) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(Math.max(0.0005, r), y)), segs);
+  const bowlGeo = lathe([[0, 0], [3.3, 0], [3.45, 0.18], [3.35, 0.55], [3.9, 0.75], [5.1, 1.55], [5.85, 2.7], [6.0, 3.6], [5.85, 4.55],
+    [5.3, 5.55], [4.6, 6.3], [4.15, 6.75], [4.0, 6.92], [3.82, 6.95], [3.66, 6.82], [3.8, 6.3], [4.6, 5.4], [5.3, 4.0], [5.25, 2.9], [4.6, 1.7], [3.2, 1.15], [0, 1.08]], hi ? 56 : 32);
+  const lidGeo = lathe([[0, 0], [4.3, 0], [4.65, 0.12], [5.05, 0.6], [5.25, 1.15], [5.2, 1.42], [4.98, 1.46], [4.85, 1.2], [4.55, 0.7], [4.1, 0.42], [0, 0.38]], hi ? 56 : 32);
+  // Turned wood: the grain runs round the bowl as rings (canvas rows follow the lathe profile).
+  const bowlWood = Tabletop.mat.lacquer('#9A6338', { map: canvasTex(grainTex(256, 512, 60, 31, '60,30,10', 0.3), [1, 1]), roughness: 0.34, envMapIntensity: 0.8 });
+  const bowlMesh = {}, lidMesh = {};
+  for (const c of [BLACK, WHITE]) {
+    bowlMesh[c] = new THREE.Mesh(bowlGeo, bowlWood); lidMesh[c] = new THREE.Mesh(lidGeo, bowlWood);
+    for (const m of [bowlMesh[c], lidMesh[c]]) { m.castShadow = true; m.receiveShadow = true; kit.add(m); }
+  }
+  const bowlAt = {}, lidAt = {};
+
+  // ---- what is drawn: every stone is a record { c, kind, p, position, rotation }, instanced each dirty frame
+  const onBoard = new Map(), flying = new Set(), lidStones = { [BLACK]: [], [WHITE]: [] }, heaps = { [BLACK]: [], [WHITE]: [] };
+  const hash = (p, k) => { let h = (p * 2654435761 + k * 40503) >>> 0; h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; h ^= h >>> 13; return h / 4294967296; };
+  const ptXZ = (p) => { const [x, y] = G.toXY(N, p); return [(x - half) * CELL, (y - half) * CELL]; };
+  function boardStone(c, p) {
+    const [x, z] = ptXZ(p);
+    // Hand-placed: a hair off the exact point and turned at random, so the shell's lines differ stone to stone.
+    return { c, kind: 'board', p, position: new THREE.Vector3(x + (hash(p, 1) - 0.5) * 0.08, REST, z + (hash(p, 2) - 0.5) * 0.08), rotation: new THREE.Euler(0, hash(p, 3) * 6.283, 0) };
+  }
+  // A prisoner's place in a lid: a golden-angle spiral, layer on layer.
+  function lidSlot(c, i) {
+    const inner = 4.3 * sc - R * 0.9, per = Math.max(3, Math.floor(Math.pow(inner / (R * 0.95), 2) * 1.05) + 1);
+    const k = i % per, layer = Math.floor(i / per), a = (k + layer * 0.5) * 2.39996, r = inner * Math.sqrt((k + 0.5) / per);
+    const [lx, lz] = lidAt[c];
+    return [lx + Math.cos(a) * r, 0.38 * sc + SH + layer * SH * 1.5 + hash(i, c) * 0.05, lz + Math.sin(a) * r];
+  }
+  function lidStone(c, i) {
+    const s = lidSlot(c, i);
+    return { c: 3 - c, kind: 'lid', slot: i, position: new THREE.Vector3(s[0], s[1], s[2]), rotation: new THREE.Euler((hash(i, 7) - 0.5) * 0.3, hash(i, 8) * 6.28, (hash(i, 9) - 0.5) * 0.3) };
+  }
+  function fillHeap(c) {
+    const r = rnd(c * 977 + 5), [bx, bz] = bowlAt[c], list = [];
+    for (let i = 0; i < HEAP; i++) {
+      const a = r() * 6.283, d = Math.sqrt(r()) * (3.55 * sc - R * 0.8);
+      const y = (5.75 + (1 - Math.pow(d / (3.55 * sc), 2)) * 0.55 + r() * 0.25) * sc;
+      list.push({ c, kind: 'heap', position: new THREE.Vector3(bx + Math.cos(a) * d, y, bz + Math.sin(a) * d), rotation: new THREE.Euler((r() - 0.5) * 0.7, r() * 6.28, (r() - 0.5) * 0.7) });
+    }
+    heaps[c] = list;
+  }
+
+  // ---- the goban
+  function buildBoard(n) {
+    if (goban) { kit.scene.remove(goban); kit.disposeTree(goban); }
+    N = n; B = (N - 1) * CELL + 2 * MARGIN; half = (N - 1) / 2;
+    sc = N <= 9 ? 0.62 : N <= 13 ? 0.8 : 1;
+    goban = new THREE.Group();
+    // One grain tile per side face (the side UVs run in centimetres from -B/2), so no seam shows mid-face.
+    const sideTex = canvasTex(grainTex(1024, 128, 46, 17 + N, '120,70,25'), [1 / B, 1 / 5]);
+    sideTex.offset.set(0.5, 0);
+    const side = Tabletop.mat.paintedWood('#ffffff', { map: sideTex, roughness: 0.5 });
+    side.color = col('#E4B672');
+    const slab = kit.board({ w: B, d: B, h: BLOCK, radius: 0.35, bevel: 0.2, draw: drawGoban, side });
+    slab.position.y = LEG; goban.add(slab);
+    // Four short turned feet, merged into one mesh.
+    const feet = [], ins = Math.min(3.2, B * 0.14);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      feet.push(lathe([[0, 0], [1.0, 0], [1.3, 0.35], [1.38, 0.8], [1.2, 1.25], [0.95, LEG + 0.1], [0, LEG + 0.1]], hi ? 24 : 14).translate(sx * (B / 2 - ins), 0, sz * (B / 2 - ins)));
+    }
+    const fm = new THREE.Mesh(Tabletop.geo.merge(feet), Tabletop.mat.paintedWood('#6E4526', { roughness: 0.55 }));
+    feet.forEach((g) => g.dispose());
+    fm.castShadow = true; goban.add(fm);
+    kit.add(goban);
+    for (const c of [BLACK, WHITE]) { bowlMesh[c].scale.setScalar(sc); lidMesh[c].scale.setScalar(sc); }
+    // 1.8 mm: two pixels or more on a phone, where a thinner strip breaks up into dashes
+    crossH.scale.set((N - 1) * CELL, 1, 0.18); crossV.scale.set(0.18, 1, (N - 1) * CELL);
+    const ext = B / 2 + 1.6 + 12.2 * sc;
+    kit.setDesk({ w: Math.round(2 * ext + 24), d: Math.round(2 * ext + 24) });
+    lay = '';
+  }
+  // Bowls go beside the board on a wide stage and above / below it on a tall one: the near one is the
+  // player's (Black in a two-player game), its lid between it and the board's middle, the other side mirrored.
+  function placeBowls() {
+    const a = (canvas.clientWidth || 1) / (canvas.clientHeight || 1), want = a >= 1 ? 'side' : 'ends';
+    lay = want;
+    const rb = 6.0 * sc, rl = 5.3 * sc, gap = 1.6;
+    for (const c of [BLACK, WHITE]) {
+      const sg = c === nearC ? 1 : -1;
+      let bx, bz, lx, lz;
+      if (lay === 'side') { bx = sg * (B / 2 + gap + rb); bz = sg * B * 0.22; lx = bx; lz = bz - sg * (rb + gap * 0.6 + rl); }
+      else { bz = sg * (B / 2 + gap + rb); bx = sg * B * 0.22; lz = bz; lx = bx - sg * (rb + gap * 0.6 + rl); }
+      bowlMesh[c].position.set(bx, 0, bz); lidMesh[c].position.set(lx, 0, lz);
+      bowlAt[c] = [bx, bz]; lidAt[c] = [lx, lz];
+      fillHeap(c);
+      lidStones[c].forEach((v) => { const s = lidSlot(c, v.slot); v.position.set(s[0], s[1], s[2]); });
+    }
+    dirty = true;
+  }
+  // The camera frames the board and as much of the bowls as the stage has room for beside it: on a phone
+  // the board keeps its full width and the bowls peek in from the edges rather than shrinking the grid.
+  function fit(instant) {
+    const a = (canvas.clientWidth || 1) / (canvas.clientHeight || 1), full = B + 2 * (1.6 + 12 * sc) + 1;
+    // How much of the bowls to frame: most of them on a big stage; on a phone the board comes first and the
+    // bowls take only the room left over beside it (top-down), or peek in from the edges (angled).
+    const big = Math.max(0, Math.min(1, (Math.min(canvas.clientWidth, canvas.clientHeight) - 420) / 260));
+    const most = B + 2 * (1.6 + 12 * sc * 0.62), top = kit.rig.view === 'top';
+    let w = B + 0.6, d = B + 0.6;
+    if (lay === 'side') w = (top ? Math.min(full, Math.max(w, w * a)) : w) * (1 - big) + most * big;
+    else d = (top ? Math.min(full, Math.max(d, d / a)) : d) * (1 - big) + most * big;
+    kit.rig.fit({ w, d, h: TOP + 1, margin: big ? 0.95 : 0.975, instant });
+    if (instant) kit.rig.step(1 / 60);
+  }
+
+  // ---- keeping the drawing in step with the game
+  function sync() {
+    if (!game || game.N !== N) return;
+    const b = game.board;
+    for (const p of b.g.pts) {
+      const c = b.c[p], v = onBoard.get(p);
+      if (c === BLACK || c === WHITE) { if (!v || v.c !== c) onBoard.set(p, boardStone(c, p)); }
+      else if (v) onBoard.delete(p);
+    }
+    for (const c of [BLACK, WHITE]) {
+      const want = Math.min(LID_MAX, b.caps[c]), lid = lidStones[c];
+      let air = 0; flying.forEach((v) => { if (v.lid === c) air++; });
+      while (lid.length && lid.length + air > want) lid.pop();
+      while (lid.length + air < want) lid.push(lidStone(c, lid.length + air));
+    }
+    dirty = true;
+  }
+  // Start over from the game as it stands: new game, undo, resume, a switch into 3D. Anything mid-flight
+  // is finished and forgotten (gen), so a chained animation can never land on a board that moved on.
+  // three.js compiles a material's shader the first time it is drawn, and the ghost, the last-move ring and
+  // the crosshair start hidden: compile them up front so the first move or first ghost does not hitch.
+  let warmed = false;
+  function warm() {
+    warmed = true;
+    const hidden = [ghostMesh, ring, crossH].filter((m) => !m.visible);
+    hidden.forEach((m) => { m.visible = true; });
+    try { for (const c of [BLACK, WHITE]) { ghostMesh.material = matGhost[c]; kit.renderer.compile(kit.scene, kit.camera); } } catch (e) { /* only a warm-up */ }
+    hidden.forEach((m) => { m.visible = false; });
+  }
+  function reset() {
+    gen++; kit.finishAll();
+    const n = game ? game.N : prefs.N;
+    if (n !== N) buildBoard(n);
+    if (!warmed) warm();
+    nearC = cfg && cfg.mode === 'ai' ? cfg.human : BLACK;
+    onBoard.clear(); flying.clear(); lidStones[BLACK] = []; lidStones[WHITE] = [];
+    placeBowls(); fit(true);
+    sync(); update();
+  }
+  const wait = (ms) => kit.tween({ ms, ease: 'linear' }).promise;
+  // A move: the stone drops the last couple of centimetres, clicks as it lands and settles; then whatever it
+  // captured lifts off one stone after another and flies to the mover's lid.
+  function placed(p, mover, caps) {
+    const my = gen;
+    if (game.N !== N) { reset(); return; }
+    const air = (c) => { let n = 0; flying.forEach((v) => { if (v.lid === c) n++; }); return n; };
+    const prisoners = [];
+    for (const q of caps) {
+      const v = onBoard.get(q); if (!v) continue;
+      onBoard.delete(q);
+      v.kind = 'fly'; v.lid = mover; v.slot = lidStones[mover].length + air(mover);
+      flying.add(v); prisoners.push(v);
+    }
+    const v = boardStone(mover, p), rest = v.position.y, tx = (hash(p, 4) - 0.5) * 0.25, tz = (hash(p, 5) - 0.5) * 0.25;
+    onBoard.set(p, v);
+    v.position.y = rest + 1.7; v.rotation.x = tx; v.rotation.z = tz; dirty = true;
+    kit.tween({ ms: 150, ease: 'inQuad', update: (k) => { v.position.y = rest + 1.7 * (1 - k); v.rotation.x = tx * (1 - k); v.rotation.z = tz * (1 - k); dirty = true; } }).promise.then(() => {
+      if (my !== gen) return;
+      sfx.place();
+      kit.tween({ ms: 130, ease: 'linear', update: (k) => { v.position.y = rest + 0.09 * Math.sin(Math.PI * k) * (1 - k); dirty = true; } });
+      prisoners.forEach((s, i) => fly(s, i, my));
+    });
+  }
+  function fly(v, i, my) {
+    const a = v.position.clone(), lift = a.y + 1.5, spin = (hash(v.slot, 11) - 0.5) * 2;
+    wait(70 + i * 55).then(() => {
+      if (my !== gen) return null;
+      return kit.tween({ ms: 130, ease: 'outQuad', update: (k) => { v.position.y = a.y + (lift - a.y) * k; v.rotation.x = 0.35 * k; dirty = true; } }).promise;
+    }).then(() => {
+      if (my !== gen) return null;
+      const to = lidSlot(v.lid, v.slot), from = [v.position.x, v.position.y, v.position.z], dist = Math.hypot(to[0] - from[0], to[2] - from[2]);
+      return kit.tween({ ms: 420 + dist * 9, ease: 'inOutQuad', update: (k) => {
+        const s = M.flightSample(from, to, k, Math.max(4, dist * 0.35));
+        v.position.set(s[0], s[1], s[2]); v.rotation.x = 0.35 * (1 - k); v.rotation.z = spin * Math.sin(Math.PI * k); dirty = true;
+      } }).promise;
+    }).then(() => {
+      if (my !== gen) return;
+      flying.delete(v);
+      v.kind = 'lid'; v.rotation.set((hash(v.slot, 7) - 0.5) * 0.3, v.rotation.y, (hash(v.slot, 9) - 0.5) * 0.3);
+      if (lidStones[v.lid].length < LID_MAX) lidStones[v.lid].push(v);
+      if (i < 5) sfx.capture(1);
+      dirty = true; kit.invalidate();
+    });
+  }
+
+  const dummy = new THREE.Object3D();
+  let lastP = 0;
+  function rebuild() {
+    dirty = false;
+    const n = { [BLACK]: 0, [WHITE]: 0 }, nd = { [BLACK]: 0, [WHITE]: 0 };
+    const showDead = (phase === 'marking' || phase === 'over') && score && dead;
+    const put = (v) => {
+      dummy.position.copy(v.position); dummy.rotation.copy(v.rotation); dummy.updateMatrix();
+      if (showDead && v.kind === 'board' && dead[v.p]) deadInst[v.c].setMatrixAt(nd[v.c]++, dummy.matrix);
+      else if (n[v.c] < CAP) inst[v.c].setMatrixAt(n[v.c]++, dummy.matrix);
+    };
+    onBoard.forEach(put); flying.forEach(put);
+    for (const c of [BLACK, WHITE]) { heaps[c].forEach(put); lidStones[c].forEach(put); }
+    for (const c of [BLACK, WHITE]) {
+      inst[c].count = n[c]; inst[c].instanceMatrix.needsUpdate = true;
+      deadInst[c].count = nd[c]; deadInst[c].instanceMatrix.needsUpdate = true;
+    }
+    const lv = lastP && onBoard.get(lastP);
+    ring.visible = !!lv;
+    if (lv) {
+      // on the crown, tilted with the stone while it is still settling
+      ring.rotation.set(lv.rotation.x, 0, lv.rotation.z);
+      ring.position.set(0, SH, 0).applyEuler(ring.rotation).add(lv.position);
+      ringMat.color = col(lv.c === BLACK ? '#ffffff' : '#26262a');
+    }
+  }
+  // Called by draw(): ghost, crosshair, last move and the count's markers follow the game's state.
+  function update() {
+    if (!game || game.N !== N) { kit.invalidate(); return; }
+    sync();
+    const b = game.board, preview = ghost && phase === 'play';
+    const gAt = preview ? ghost : (hover && phase === 'play' && !thinking ? hover : 0);
+    if (gAt && b.c[gAt] === EMPTY) {
+      const [x, z] = ptXZ(gAt);
+      ghostMesh.position.set(x, REST, z); ghostMesh.material = matGhost[b.toMove];
+      matGhost[b.toMove].opacity = preview ? 0.62 : 0.4; ghostMesh.visible = true;
+    } else ghostMesh.visible = false;
+    crossH.visible = crossV.visible = !!(preview && b.c[ghost] === EMPTY);
+    if (crossH.visible) { const [x, z] = ptXZ(ghost); crossH.position.set(0, TOP + 0.02, z); crossV.position.set(x, TOP + 0.02, 0); }
+    lastP = phase === 'play' && b.last > 0 && b.c[b.last] !== EMPTY ? b.last : 0;
+    const sco = (phase === 'marking' || phase === 'over') ? score : null, nm = { [BLACK]: 0, [WHITE]: 0 };
+    if (sco) for (const p of b.g.pts) {
+      const o = sco.owner[p];
+      if (!o || (b.c[p] !== EMPTY && !(dead && dead[p]))) continue;
+      const [x, z] = ptXZ(p);
+      dummy.position.set(x, b.c[p] !== EMPTY ? REST + SH + 0.05 : TOP + 0.05, z); dummy.rotation.set(0, 0, 0); dummy.updateMatrix();
+      markInst[o].setMatrixAt(nm[o]++, dummy.matrix);
+    }
+    for (const c of [BLACK, WHITE]) { markInst[c].count = nm[c]; markInst[c].instanceMatrix.needsUpdate = true; }
+    dirty = true; kit.invalidate();
+  }
+
+  // ---- input: a tap is snapped to the nearest intersection on the plane through the stones' middles
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hitV = new THREE.Vector3();
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(TOP + SH * 0.8));
+  function pointAt(cx, cy, slack) {
+    if (!N) return 0;
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, kit.camera);
+    if (!ray.ray.intersectPlane(plane, hitV)) return 0;
+    const fx = hitV.x / CELL + half, fy = hitV.z / CELL + half, m = slack == null ? MARGIN / CELL : slack;
+    if (fx < -m || fy < -m || fx > N - 1 + m || fy > N - 1 + m) return 0;
+    return G.toPt(N, Math.max(0, Math.min(N - 1, Math.round(fx))), Math.max(0, Math.min(N - 1, Math.round(fy))));
+  }
+  // CSS px of an intersection on screen, and how far apart points look around it.
+  function screenAt(x, z) {
+    hitV.set(x, TOP + SH * 0.8, z).project(kit.camera);
+    const r = canvas.getBoundingClientRect();
+    return [r.left + ((hitV.x + 1) / 2) * r.width, r.top + ((1 - hitV.y) / 2) * r.height];
+  }
+  function screenOf(p) { const [x, z] = ptXZ(p); return screenAt(x, z); }
+  // The typical gap between neighbouring points on screen: the median over a 3x3 sample of the board of
+  // each sample's smaller gap (across or along). Angled, the far rows are smaller than this; the ghost's
+  // crosshair is there for them.
+  function spacing() {
+    const m = [];
+    for (const iy of [0, half, N - 1]) for (const ix of [0, half, N - 1]) {
+      const x = (ix - half) * CELL, z = (iy - half) * CELL, a = screenAt(x, z), dx = ix < N - 1 ? CELL : -CELL, dz = iy < N - 1 ? CELL : -CELL;
+      const bx = screenAt(x + dx, z), bz = screenAt(x, z + dz);
+      m.push(Math.min(Math.hypot(bx[0] - a[0], bx[1] - a[1]), Math.hypot(bz[0] - a[0], bz[1] - a[1])));
+    }
+    return m.sort((p, q) => p - q)[4];
+  }
+  // Ghost-then-confirm is for fingers: a mouse plays where it clicks (as in 2D), so a mouse-only screen
+  // never needs the Place button.
+  const fingers = (() => { try { return matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0; } catch (e) { return true; } })();
+  const needConfirm = () => fingers && spacing() < 32;
+  // Every drawn frame: re-instance the stones if anything moved, and when the camera has moved re-decide
+  // whether points are small enough to need the ghost-then-confirm tap.
+  let camKey = '';
+  kit.onFrame(() => {
+    if (dirty) rebuild();
+    const c = kit.rig.state, key = [c.yaw, c.pitch, c.dist, c.tx, c.tz, canvas.clientWidth, canvas.clientHeight].map((v) => v.toFixed(3)).join();
+    if (key !== camKey && N) { camKey = key; const cf = needConfirm(); if (cf !== L.confirm) { L.confirm = cf; renderHud(); } }
+    return false;
+  });
+  canvas.addEventListener('pointerdown', () => audio());
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse' || e.buttons || !game) return;
+    const p = canHumanPlay() ? pointAt(e.clientX, e.clientY) : 0, h = p && !game.illegal(p) ? p : 0;
+    if (h !== hover) { hover = h; update(); }
+  });
+  canvas.addEventListener('pointerleave', () => { if (hover) { hover = 0; update(); } });
+
+  return {
+    ok: true, kit, reset, update, placed, pointAt, screenOf, spacing,
+    resize() {
+      kit.resize();
+      const a = (canvas.clientWidth || 1) / (canvas.clientHeight || 1);
+      if (N && (a >= 1 ? 'side' : 'ends') !== lay) placeBowls();
+      if (N) fit(true);
+      if (N) L.confirm = needConfirm();
+    },
+    setCam(name, instant) { kit.rig.setView(name, { instant }); if (N) fit(!!instant); else if (instant) kit.rig.step(1 / 60); },
+    get cam() { return kit.rig.view; },
+    probe: { onBoard, flying, REST, ring },
+    get counts() { return { board: onBoard.size, flying: flying.size, lid: [lidStones[BLACK].length, lidStones[WHITE].length], inst: [inst[BLACK].count, inst[WHITE].count], dead: [deadInst[BLACK].count, deadInst[WHITE].count], marks: [markInst[BLACK].count, markInst[WHITE].count] }; },
+  };
+}
+
+// A tap on the 3D board: the same decisions as a press on the 2D canvas.
+function tap3d(x, y, ev) {
+  if (!V3 || !game) return;
+  const touch = !ev || ev.pointerType !== 'mouse';
+  const p = V3.pointAt(x, y, touch ? 1.05 : undefined);
+  if (!p) return;
+  // The kit reports a tap on pointer-up, and the browser still sends that press's click afterwards, to
+  // whatever is under the finger by then (City Tycoon found its cards closing as they opened). The one
+  // click this tap still owes is dropped.
+  const kill = (e) => { e.stopPropagation(); e.preventDefault(); off(); };
+  const off = () => { removeEventListener('click', kill, true); clearTimeout(t); };
+  addEventListener('click', kill, true);
+  const t = setTimeout(off, 600);
+  audio(); closeMenu();
+  if (phase === 'marking') { toggleDead(p); return; }
+  if (!canHumanPlay()) return;
+  if (L.confirm && touch) { if (p === ghost) tryPlay(p); else setGhost(p); return; }
+  tryPlay(p);
+}
+
+function setDim(dim, remember) {
+  if (dim === '3d' && !view3d && can3d()) {
+    // Anything that goes wrong building the scene leaves the 2D game playable rather than a blank board.
+    try { view3d = makeView3d(); } catch (e) { view3d = { ok: false, reason: String(e) }; try { console.warn('3D board failed, using 2D:', e); } catch (e2) { /* ignore */ } }
+  }
+  const on = dim === '3d' && !!view3d && view3d.ok && !lost3d;
+  document.body.classList.toggle('v3d', on);
+  V3 = on ? view3d : null;
+  if (remember) { viewPref.dim = on ? '3d' : '2d'; saveView(); }
+  L.key = ''; layout();
+  if (on) { setCam(camDefault(), false, true); V3.reset(); }
+  renderHud(); draw();
+}
+function setCam(name, remember, instant) {
+  if (!V3) return;
+  V3.setCam(name, instant);
+  if (remember) { viewPref.cam = name; saveView(); }
+  $('camBtn').textContent = name === 'top' ? 'Angled' : 'Top';
+  $('camBtn').setAttribute('aria-label', name === 'top' ? 'Tilt the camera to an angled view' : 'Look straight down at the board');
+}
+$('camBtn').addEventListener('click', () => setCam(V3 && V3.cam === 'top' ? 'angled' : 'top', true));
+$('dimBtn').addEventListener('click', () => setDim('2d', true));
+$('mView').onclick = () => { closeMenu(); setDim(V3 ? '2d' : '3d', true); };
+// A double tap on the board is two taps on a point (a ghost, then its confirmation), not the kit's
+// "reset the camera": that stays for a double click on the desk.
+$('boardBox').addEventListener('dblclick', (e) => { if (V3 && V3.pointAt(e.clientX, e.clientY, 1.05)) e.stopPropagation(); }, true);
+// Turning a phone over changes the default camera, unless someone picked one.
+addEventListener('resize', () => { if (V3 && !viewPref.cam) setCam(camDefault(), false); });
+
 // For the Playwright checks: read-only views plus the two entry points they drive.
 window.__goUI = { get game() { return game; }, get phase() { return phase; }, get cfg() { return cfg; }, get thinking() { return thinking; },
   get layout() { return Object.assign({}, L); }, get dead() { return dead; }, get score() { return score; }, stats, get thinkerMode() { return thinker.mode; }, start };
+window.__go3d = { get V3() { return V3; }, get view3d() { return view3d; }, setDim, setCam, draw };
 
+// 3D by default wherever WebGL works; 2D if that was the last choice, or as the fallback.
+if (viewPref.dim !== '2d' && can3d()) setDim('3d', false);
 layout();
 openSetup();
 })();
