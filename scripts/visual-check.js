@@ -67,6 +67,8 @@ const GAMES = [
       await p.waitForFunction(() => !document.getElementById('sStart').disabled, null, { timeout: 15000 }).catch(() => {});
       await p.click('#sStart'); await p.waitForTimeout(900);
     } },
+  // Whodunit opens on its setup sheet (with Resume when a case is saved); Start goes to the house with your roll waiting.
+  { name: 'whodunit', file: 'whodunit/index.html', enter: async (p) => { await p.click('#suGo'); await p.waitForTimeout(900); } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,

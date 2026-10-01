@@ -157,6 +157,16 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "Whodunit",
+      "url": "whodunit/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

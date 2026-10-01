@@ -22,7 +22,8 @@
       "go/test/matches.js",
       "city-tycoon/test/bots.js",
       "life-journey/test/bots.js",
-      "wordsmith/test/bots.js"
+      "wordsmith/test/bots.js",
+      "whodunit/test/bots.js"
     ]
   }
 }

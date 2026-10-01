@@ -1,0 +1,1819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#16112a">
+<link rel="icon" href="../icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="dgames">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+  /* Installable, and playable with no network once a game has been opened. Registered from every page so
+     a deep link into one game works offline too, not only a visit that started at the launcher. Over
+     file:// there is no service worker and register() rejects; the catch keeps that silent. */
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('../sw.js').catch(() => {}));
+</script>
+<meta name="description" content="Whodunit: a deduction mystery in an old Indian mansion. Three to six detectives, human or computer, one sealed envelope.">
+<title>Whodunit</title>
+<!-- Yatra One for the title, room names and card names only. Offline it falls back to Georgia and every
+     size still fits: the layout is computed from the viewport, not the font. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Yatra+One&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Night outside, lamplight inside: an indigo frame, a warm sandstone house. The board is the
+       brightest thing on screen; everything around it stays dark and quiet. */
+    --bg: #16112a; --panel: #211a3b; --panel2: #2b2350; --line: #3d3468; --muted: #a79fc8; --fg: #f6f1ff;
+    --gold: #f2c14e; --good: #4cc38a; --bad: #ff6b6b; --paper: #f7ecd6; --ink: #2b1d12;
+    --serif: "Yatra One", Georgia, "Times New Roman", serif;
+    --bs: 360px;
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; overscroll-behavior: none; }
+  body { background: radial-gradient(120% 80% at 50% 0%, #2a1f4a 0%, var(--bg) 60%); }
+  button, select, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:disabled { opacity: .42; cursor: default; }
+
+  /* ---- frame: JS sets --bs and portrait/landscape (see layout()) ---- */
+  #app { position: fixed; inset: 0; display: grid; gap: 6px; justify-content: center;
+    padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); }
+  #app.portrait { grid-template-areas: "top" "board" "side"; grid-template-columns: var(--bs); grid-template-rows: 46px var(--bs) minmax(0, 1fr); }
+  /* Landscape keeps a 52px lane on the left for the back button, so it never sits on the board. */
+  #app.landscape { grid-template-areas: "gut board top" "gut board side"; grid-template-columns: 46px var(--bs) minmax(250px, 440px);
+    grid-template-rows: 46px minmax(0, 1fr); align-content: center; height: 100%; }
+  #app.landscape #side, #app.landscape #top { width: 100%; }
+  #top { grid-area: top; display: flex; align-items: center; gap: 6px; min-width: 0; }
+  #app.portrait #top { padding-left: 52px; }
+  #boardWrap { grid-area: board; width: var(--bs); height: var(--bs); position: relative; }
+  #side { grid-area: side; display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
+  .logo { font-family: var(--serif); font-weight: 400; font-size: 23px; margin: 0; color: var(--gold); line-height: 1; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .logo small { display: block; font-family: "Segoe UI", system-ui, sans-serif; font-size: 9.5px; letter-spacing: 1.2px; color: var(--muted); text-transform: uppercase; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
+  .iconbtn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); display: grid; place-items: center; flex: none; padding: 0; position: relative; }
+  .iconbtn svg { width: 22px; height: 22px; }
+  .iconbtn .dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+
+  /* ---- board ---- */
+  #board { width: 100%; height: 100%; display: block; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+    filter: drop-shadow(0 10px 28px rgba(0,0,0,.55)); }
+  #board .lit { animation: glow 1.3s ease-in-out infinite alternate; }
+  @keyframes glow { from { opacity: .55; } to { opacity: 1; } }
+  #board .me-ring { animation: ring 1.1s ease-in-out infinite alternate; }
+  @keyframes ring { from { stroke-opacity: .35; } to { stroke-opacity: 1; } }
+
+  /* ---- side panel ---- */
+  #status { flex: none; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+  #status .tok { width: 26px; height: 26px; border-radius: 50%; flex: none; border: 2px solid #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: #fff; }
+  #status .txt { flex: 1; min-width: 0; font-size: 14px; line-height: 1.25; }
+  #status .txt b { color: var(--gold); font-weight: 600; }
+  .dice { display: flex; gap: 4px; flex: none; }
+  .die { width: 30px; height: 30px; border-radius: 7px; background: #fbf4e4; display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 4px; box-shadow: inset 0 -2px 0 rgba(0,0,0,.2); }
+  .die i { width: 5px; height: 5px; border-radius: 50%; background: #3a2412; place-self: center; visibility: hidden; }
+  .die i.on { visibility: visible; }
+  .die.roll { animation: tumble .5s ease-out; }
+  @keyframes tumble { 0% { transform: rotate(-200deg) scale(.6); } 100% { transform: none; } }
+  #actions { flex: none; display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn { min-height: 44px; min-width: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel2); font-weight: 600; font-size: 15px; flex: 1 1 auto; }
+  .btn.primary { background: linear-gradient(#f6cf6a, #e3a937); color: #2b1a05; border-color: #f6d27c; }
+  .btn.danger { background: #4a1f33; border-color: #7a3352; color: #ffd5df; }
+  .btn.ghost { background: transparent; }
+  .hint { flex: 1 1 100%; font-size: 13px; color: var(--muted); padding: 2px 4px; }
+  #hand { flex: none; display: flex; gap: 5px; align-items: stretch; min-height: 0; }
+  #hand .lab { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); text-align: center; }
+  #hand .mini { flex: 1 1 0; max-width: 64px; min-width: 0; }
+  @media (min-width: 1000px) and (min-height: 700px) { #hand .mini { max-width: 86px; height: 104px; } .card.mini .nm { font-size: 12px; } }
+  #hand .hid { flex: 1; font-size: 13px; color: var(--muted); display: grid; place-items: center; border: 1px dashed var(--line); border-radius: 10px; min-height: 52px; }
+  #logMini { flex: 1 1 auto; min-height: 0; overflow: hidden; border-radius: 12px; background: rgba(0,0,0,.18); padding: 6px 10px; font-size: 13px; line-height: 1.35; color: #d9d2f0; display: flex; flex-direction: column; justify-content: flex-start; gap: 5px; cursor: pointer; }
+  #logMini:empty { display: none; }
+  .lg .nm { font-weight: 600; }
+  .lg .muted { color: var(--muted); }
+  .lg .seen { color: var(--gold); }
+
+  /* ---- cards ---- */
+  .card { --c: #888; position: relative; border-radius: 9px; background: var(--paper); color: var(--ink); overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0,0,0,.35), inset 0 0 0 2px var(--c); display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .card .band { width: 100%; background: var(--c); color: #fff; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; padding: 2px 0 1px; font-weight: 700; }
+  .card .art { flex: 1; width: 100%; display: grid; place-items: center; min-height: 0; padding: 3px; }
+  .card .art svg { width: 100%; height: 100%; max-width: 92px; }
+  .card .nm { font-family: var(--serif); font-size: 13px; line-height: 1.05; padding: 0 3px; }
+  .card .sub { font-size: 10px; color: #6b5a48; padding: 1px 3px 4px; }
+  .card.mini { height: 72px; border-radius: 7px; }
+  .card.mini .band { display: none; }
+  .card.mini .nm { font-size: 10.5px; font-family: "Segoe UI", system-ui, sans-serif; font-weight: 600; padding-bottom: 4px; }
+  .card.mini .sub { display: none; }
+  .card.big { width: 168px; height: 236px; border-radius: 14px; }
+  .card.big .band { font-size: 11px; padding: 4px 0 3px; }
+  .card.big .nm { font-size: 22px; }
+  .card.big .sub { font-size: 13px; padding-bottom: 10px; }
+  .t-wea { --c: #6d4c2f; } .t-room { --c: #2f6e74; }
+  .card.out { opacity: .38; filter: grayscale(.6); }
+
+  /* ---- sheets (dialogs) ---- */
+  /* Sheets keep clear of the fixed back button: below it in portrait, to its right in landscape. */
+  .veil { position: fixed; inset: 0; z-index: 30; background: rgba(8, 5, 20, .62); display: flex; align-items: flex-end; justify-content: center; padding-top: 58px; }
+  @media (orientation: landscape) { .veil { padding-top: 0; padding-left: 58px; } }
+  .sheet { width: 100%; max-width: 560px; max-height: calc(100% - 8px); background: var(--panel); border: 1px solid var(--line); border-bottom: 0;
+    border-radius: 18px 18px 0 0; display: flex; flex-direction: column; box-shadow: 0 -10px 40px rgba(0,0,0,.5); animation: rise .22s ease-out; }
+  @keyframes rise { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .sheet header { display: flex; align-items: center; gap: 8px; padding: 8px 8px 6px 16px; flex: none; }
+  .sheet header h2 { font-family: var(--serif); font-weight: 400; font-size: 20px; margin: 0; flex: 1; color: var(--gold); line-height: 1.15; }
+  .sheet .body { overflow-y: auto; padding: 0 14px 10px; min-height: 0; flex: 1 1 auto; overscroll-behavior: contain; }
+  .sheet footer { display: flex; gap: 8px; padding: 8px 14px max(10px, env(safe-area-inset-bottom)); flex: none; border-top: 1px solid var(--line); }
+  .sheet p { margin: 6px 0; line-height: 1.45; font-size: 14px; color: #ddd6f5; }
+  .sec { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin: 8px 2px 5px; }
+  .pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .pick.rooms { grid-template-columns: repeat(3, 1fr); }
+  .opt { min-height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); display: flex; align-items: center; gap: 6px; padding: 4px 6px; text-align: left; font-size: 13px; line-height: 1.1; min-width: 0; }
+  .opt svg { width: 30px; height: 30px; flex: none; }
+  .opt span { min-width: 0; overflow-wrap: break-word; hyphens: manual; }
+  .opt[aria-pressed="true"] { border-color: var(--gold); background: #4a3b1c; box-shadow: 0 0 0 2px var(--gold) inset; }
+  .opt.struck span { text-decoration: line-through; color: var(--muted); }
+  .opt .tag { font-size: 10px; color: var(--muted); display: block; }
+  .veil.wide .sheet { max-width: 760px; }
+  @media (min-width: 900px), (min-height: 560px) and (min-width: 600px) {
+    .veil { align-items: center; }
+    .sheet { border-radius: 18px; border-bottom: 1px solid var(--line); max-height: min(92%, 760px); }
+  }
+  /* Landscape phones: six across, so a picker is two short rows rather than four tall ones. */
+  @media (orientation: landscape) and (max-height: 500px) {
+    .pick { grid-template-columns: repeat(6, 1fr); }
+    .pick.rooms { grid-template-columns: repeat(5, 1fr); }
+    .opt { min-height: 44px; font-size: 11.5px; gap: 4px; padding: 3px 4px; }
+    .sheet .lead { display: none; }
+    .opt svg { width: 24px; height: 24px; }
+    .sheet header { padding-top: 4px; padding-bottom: 2px; }
+    .sheet header h2 { font-size: 17px; }
+    .sec { margin: 4px 2px 3px; }
+    .sheet footer { padding-top: 5px; padding-bottom: max(5px, env(safe-area-inset-bottom)); }
+  }
+  /* Notebook: a drawer on the right on wide screens, a sheet from the bottom on phones. */
+  #noteVeil.drawer { align-items: stretch; justify-content: flex-end; background: rgba(8,5,20,.35); }
+  #noteVeil.drawer .sheet { max-width: 440px; max-height: none; height: 100%; border-radius: 18px 0 0 18px; border: 1px solid var(--line); animation: slide .22s ease-out; }
+  @keyframes slide { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .nb { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+  .nb th { position: sticky; top: 0; background: var(--panel); z-index: 1; font-size: 11px; font-weight: 600; padding: 4px 0 6px; color: #e8e2ff; }
+  .nb th .tok { display: block; margin: 0 auto 2px; width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff; }
+  .nb th.cname { width: 34%; text-align: left; padding-left: 4px; }
+  .nb td { border-bottom: 1px solid rgba(255,255,255,.07); padding: 0; height: 44px; }
+  .nb td.cname { font-size: 13px; line-height: 1.1; padding: 0 4px; }
+  .nb td.cname.no { text-decoration: line-through; color: var(--muted); }
+  .nb td.cname.yes { color: var(--gold); font-weight: 700; }
+  .nb tr.grp td { height: 26px; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); padding: 8px 4px 0; border: 0; }
+  .nb button { width: 100%; height: 44px; min-width: 0; border: 0; background: transparent; font-size: 18px; font-weight: 700; padding: 0; border-left: 1px solid rgba(255,255,255,.06); }
+  .nb button.a-yes { color: #0f2a1c; background: var(--good); }
+  .nb button.a-no { color: #8d86ad; background: rgba(0,0,0,.22); }
+  .nb button.m-yes { color: var(--good); } .nb button.m-no { color: #ff9a9a; } .nb button.m-q { color: var(--gold); }
+  .nb tr.mine td.cname::after { content: " (yours)"; color: var(--muted); font-size: 11px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
+  .seg button { flex: 1; min-height: 44px; border: 0; background: transparent; font-size: 13px; padding: 0 6px; }
+  .seg button[aria-pressed="true"] { background: var(--panel2); color: var(--gold); font-weight: 700; }
+  .legend { font-size: 12px; color: var(--muted); margin: 6px 0 8px; line-height: 1.4; }
+
+  /* ---- setup ---- */
+  #setup .seat { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  #setup .seat .who { width: 44px; height: 44px; border-radius: 50%; border: 2px solid #fff; color: #fff; font-weight: 700; flex: none; padding: 0; }
+  #setup .seat .nm { flex: 1; min-width: 0; font-size: 14px; line-height: 1.15; }
+  #setup .seat .nm small { display: block; color: var(--muted); font-size: 11px; }
+  #setup select { min-height: 44px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line); padding: 0 8px; flex: none; width: 112px; }
+  #setup .x { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: transparent; flex: none; }
+  #setup .story { font-style: italic; color: #e3dcf7; }
+  .row2 { display: flex; gap: 8px; align-items: center; margin: 4px 0 8px; }
+  .row2 > span { width: 92px; font-size: 13px; color: var(--muted); flex: none; }
+  .row2 .seg { flex: 1; }
+
+  /* ---- pass-and-play cover ---- */
+  #cover { position: fixed; inset: 0; z-index: 60; background: radial-gradient(circle at 50% 35%, #33275e, #120d24 70%); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; }
+  #cover .tok { width: 74px; height: 74px; border-radius: 50%; border: 3px solid #fff; display: grid; place-items: center; font-size: 30px; font-weight: 700; color: #fff; }
+  #cover h2 { font-family: var(--serif); font-weight: 400; font-size: 28px; margin: 0; color: var(--gold); }
+  #cover p { margin: 0; color: var(--muted); max-width: 320px; line-height: 1.4; }
+  #cover .btn { flex: none; padding: 0 28px; }
+
+  /* ---- the private card reveal and the final reveal ---- */
+  #reveal { position: fixed; inset: 0; z-index: 40; background: rgba(12,8,28,.95); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; text-align: center; }
+  #reveal h2 { font-family: var(--serif); font-weight: 400; font-size: 22px; margin: 0; color: var(--gold); }
+  #reveal p { margin: 0; color: #ddd6f5; max-width: 360px; line-height: 1.4; font-size: 14px; }
+  .flip { perspective: 900px; }
+  .flip .inner { position: relative; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.3,.7,.3,1); }
+  .flip.on .inner { transform: rotateY(180deg); }
+  .flip .back, .flip .face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+  .flip .face { position: absolute; inset: 0; transform: rotateY(180deg); }
+  .cardback { border-radius: 14px; background: #3b1630; box-shadow: 0 6px 18px rgba(0,0,0,.5), inset 0 0 0 3px #d9a441; display: grid; place-items: center; overflow: hidden; }
+  .cardback svg { width: 100%; height: 100%; }
+  .trio { display: flex; gap: 10px; justify-content: center; }
+  .trio .flip, .trio .card.big, .trio .cardback { width: var(--cw, 150px); height: calc(var(--cw, 150px) * 1.4); }
+  .trio .card.big .nm { font-size: calc(var(--cw, 150px) * .13); }
+  .trio .card.big .sub { font-size: calc(var(--cw, 150px) * .08); }
+  .story { font-size: 14px; line-height: 1.5; color: #e6dff9; max-width: 560px; }
+  #final .verdict { font-family: var(--serif); font-size: 20px; color: var(--gold); text-align: center; margin: 8px 0 4px; line-height: 1.25; }
+  #final .who { text-align: center; color: var(--muted); font-size: 14px; margin-bottom: 4px; }
+  .toast { position: fixed; left: 50%; top: 58px; transform: translateX(-50%); z-index: 70; background: #2b2350; border: 1px solid var(--gold); color: var(--fg); padding: 8px 14px; border-radius: 12px; font-size: 14px; max-width: 90vw; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+  @media (prefers-reduced-motion: reduce) {
+    #board .lit, #board .me-ring, .die.roll, .sheet, #noteVeil.drawer .sheet { animation: none; }
+    .flip .inner { transition: none; }
+  }
+</style>
+</head>
+<body>
+<style>
+  /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
+     ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
+     A dark disc with a light ring reads on a bright pastel scene and on a black one without being
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
+  .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
+    font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
+</style>
+<a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
+<div id="app" class="portrait">
+  <header id="top">
+    <h1 class="logo">Whodunit<small>murder in the old house</small></h1>
+    <button class="iconbtn" id="btnLog" aria-label="Case log" title="Case log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></button>
+    <button class="iconbtn" id="btnNote" aria-label="Detective notebook" title="Detective notebook"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3h12a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2z"/><path d="M5 19a2 2 0 0 1 2-2h12M9 7h6M9 11h6"/></svg><i class="dot" id="noteDot" hidden></i></button>
+    <button class="iconbtn" id="btnMenu" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </header>
+  <div id="boardWrap"><svg id="board" viewBox="-3 -3 196 196" aria-label="The house: rooms and the gallery between them"></svg></div>
+  <section id="side">
+    <div id="status"></div>
+    <div id="actions"></div>
+    <div id="hand"></div>
+    <div id="logMini" title="Open the case log"></div>
+  </section>
+</div>
+
+<div class="veil" id="setupVeil"><div class="sheet" id="setup"></div></div>
+<div class="veil" id="dlgVeil" hidden><div class="sheet" id="dlg"></div></div>
+<div class="veil" id="noteVeil" hidden><div class="sheet" id="note"></div></div>
+<div id="cover" hidden></div>
+<div id="reveal" hidden></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+'use strict';
+// Whodunit — pure logic. Rules, the board graph, the deduction engine and the computer detectives.
+// Nothing above the UI marker touches the DOM, a clock or Math.random: the tests lift this section into
+// node's vm and play whole games with it.
+
+const VERSION = 1;
+const W = 19, H = 19;
+const MAX_TURNS = 900;
+
+// ---- the cast, the weapons and the house (all original to this game) ----
+const SUSPECTS = [
+  { id: 'devika', name: 'Devika', title: 'the Dowager', color: '#b3243c', start: [6, 0],
+    blurb: 'The old man\'s widow. She has run this house for thirty years and has no plans to stop.',
+    motive: 'Devika had found the new will, the one that left the house to a stranger.' },
+  { id: 'kabir', name: 'Kabir', title: 'the Nephew', color: '#e27a1c', start: [18, 6],
+    blurb: 'Charming, idle and the heir — or so he thought. Owes money in three cities.',
+    motive: 'Kabir owed the moneylenders more than his inheritance was worth, and the old man had refused him one last time.' },
+  { id: 'meera', name: 'Meera', title: 'the Singer', color: '#178f88', start: [18, 12],
+    blurb: 'Sang at every feast for twelve years. Was promised her freedom from the house this winter.',
+    motive: 'Meera had been promised her release from the house, and that evening the promise was taken back.' },
+  { id: 'harish', name: 'Harish', title: 'the Accountant', color: '#c49a1a', start: [12, 18],
+    blurb: 'Keeps the rent books in a hand nobody else can read. The yearly audit is due on Monday.',
+    motive: 'Harish had been skimming the rents for twenty years, and the old man had sent for the books.' },
+  { id: 'farida', name: 'Dr Farida', title: 'the Physician', color: '#3b5cc4', start: [6, 18],
+    blurb: 'The family doctor, called in for the old man\'s heart. Knows every bottle in the house.',
+    motive: 'Dr Farida had signed a certificate she should not have, and the old man had started asking about it.' },
+  { id: 'gopal', name: 'Gopal', title: 'the Gardener', color: '#3f8c3a', start: [0, 12],
+    blurb: 'Has tended the courtyard since he was a boy. Hears everything; says almost nothing.',
+    motive: 'Gopal had heard the old man say the garden would be sold, and his father\'s grave with it.' },
+];
+const WEAPONS = [
+  { id: 'sweets', name: 'Poisoned Sweets', deed: 'The sweets were his one weakness, and someone had laced the box with something bitter.' },
+  { id: 'scarf', name: 'Silk Scarf', deed: 'A silk scarf, light enough to hide in a sleeve, was pulled tight from behind.' },
+  { id: 'lamp', name: 'Brass Lamp', deed: 'The heavy brass lamp came down once, and the oil put the flame out.' },
+  { id: 'cane', name: 'Walking Cane', deed: 'His own silver-topped walking cane was the last thing he saw.' },
+  { id: 'musket', name: 'Old Musket', deed: 'The old musket from the hall, unfired for forty years, was fired once — and the thunder covered it.' },
+  { id: 'cobra', name: 'Cobra', deed: 'A cobra, let out of a snake-charmer\'s basket, was waiting where he always sat.' },
+];
+// Rooms are rectangles [x0, y0, x1, y1] inclusive; every other square is the gallery (corridor).
+// A door is [room edge square x, y, gallery square x, y]. Passages join opposite corners.
+const ROOMS = [
+  { id: 'terrace', name: 'Rooftop Terrace', rect: [0, 0, 4, 4], doors: [[4, 2, 5, 2], [2, 4, 2, 5]], passage: 8,
+    scene: 'It happened on the Rooftop Terrace, under the kites, where nobody below could hear.' },
+  { id: 'library', name: 'Library', rect: [7, 0, 11, 4], doors: [[7, 3, 6, 3], [9, 4, 9, 5]], passage: -1,
+    scene: 'They found him in the Library, the lamp still burning over his ledgers.' },
+  { id: 'prayer', name: 'Prayer Room', rect: [14, 0, 18, 4], doors: [[14, 2, 13, 2], [16, 4, 16, 5]], passage: 6,
+    scene: 'It was done in the Prayer Room, among the marigolds and the smoke of the evening lamp.' },
+  { id: 'hall', name: 'Grand Hall', rect: [0, 7, 4, 11], doors: [[4, 9, 5, 9], [1, 7, 1, 6]], passage: -1,
+    scene: 'It was done in the Grand Hall, beneath the portraits of his grandfathers.' },
+  { id: 'courtyard', name: 'Courtyard', rect: [7, 7, 11, 11], doors: [[9, 7, 9, 6], [9, 11, 9, 12], [7, 9, 6, 9], [11, 9, 12, 9]], passage: -1,
+    scene: 'It happened in the Courtyard, by the tulsi planter, in the open, under every window in the house.' },
+  { id: 'music', name: 'Music Room', rect: [14, 7, 18, 11], doors: [[14, 9, 13, 9], [17, 11, 17, 12]], passage: -1,
+    scene: 'It was done in the Music Room, while the tanpura still hummed on its stand.' },
+  { id: 'stables', name: 'Stables', rect: [0, 14, 4, 18], doors: [[2, 14, 2, 13], [4, 16, 5, 16]], passage: 2,
+    scene: 'It happened in the Stables, where the horses stamped and no voice would carry.' },
+  { id: 'kitchen', name: 'Kitchen', rect: [7, 14, 11, 18], doors: [[9, 14, 9, 13], [11, 17, 12, 17]], passage: -1,
+    scene: 'It was done in the Kitchen, after the feast, when the fires were banked for the night.' },
+  { id: 'cellar', name: 'Cellar', rect: [14, 14, 18, 18], doors: [[16, 14, 16, 13], [14, 15, 13, 15]], passage: 0,
+    scene: 'It happened down in the Cellar, among the pickling jars, where the walls are three feet thick.' },
+];
+const VICTIM = 'Govind Narayan, master of the house';
+const NS = SUSPECTS.length, NW = WEAPONS.length, NR = ROOMS.length, NC = NS + NW + NR;
+// Card ids: suspects 0..5, weapons 6..11, rooms 12..20.
+const cardType = (c) => (c < NS ? 0 : c < NS + NW ? 1 : 2);
+const cardName = (c) => (c < NS ? SUSPECTS[c].name : c < NS + NW ? WEAPONS[c - NS].name : ROOMS[c - NS - NW].name);
+const roomCard = (r) => NS + NW + r;
+const weaponCard = (w) => NS + w;
+
+// ---- board graph ----
+const cellId = (x, y) => y * W + x;
+const ROOM_AT = new Int8Array(W * H).fill(-1);
+ROOMS.forEach((R, r) => { for (let y = R.rect[1]; y <= R.rect[3]; y++) for (let x = R.rect[0]; x <= R.rect[2]; x++) ROOM_AT[cellId(x, y)] = r; });
+const isCorr = (x, y) => x >= 0 && y >= 0 && x < W && y < H && ROOM_AT[cellId(x, y)] < 0;
+const NEIGH = [];
+for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+  const n = [];
+  if (isCorr(x, y)) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (isCorr(x + dx, y + dy)) n.push(cellId(x + dx, y + dy));
+  NEIGH.push(n);
+}
+// DOORS_AT[cell] = rooms you can step into from that gallery square.
+const DOORS_AT = Array.from({ length: W * H }, () => []);
+ROOMS.forEach((R, r) => R.doors.forEach((d) => DOORS_AT[cellId(d[2], d[3])].push(r)));
+// DIST[r][cell]: steps from a gallery square to be inside room r, ignoring other tokens.
+const DIST = ROOMS.map((R) => {
+  const d = new Array(W * H).fill(Infinity), q = [];
+  R.doors.forEach((dr) => { const c = cellId(dr[2], dr[3]); d[c] = 1; q.push(c); });
+  for (let i = 0; i < q.length; i++) for (const nb of NEIGH[q[i]]) if (d[nb] === Infinity) { d[nb] = d[q[i]] + 1; q.push(nb); }
+  return d;
+});
+// ROOM_DIST[a][b]: steps from inside room a to inside room b by the gallery (secret passages excluded).
+const ROOM_DIST = ROOMS.map((A) => ROOMS.map((B, b) => Math.min(...A.doors.map((dr) => 1 + DIST[b][cellId(dr[2], dr[3])]))));
+
+// ---- random numbers (seeded; the state lives in the save) ----
+function rnd(S) {
+  let t = (S.rng = (S.rng + 0x6D2B79F5) >>> 0);
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+const ri = (S, n) => Math.floor(rnd(S) * n);
+function shuffle(S, a) { for (let i = a.length - 1; i > 0; i--) { const j = ri(S, i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+// ================================================================== the deduction engine
+// Generic over the card set, so the tests can check it on small games by brute force. Knowledge is a
+// matrix card x owner (players 0..P-1, then the envelope at P) holding +1 (certainly there), -1
+// (certainly not) or 0 (unknown), plus "player p holds at least one of these" clauses and "these three
+// are not all in the envelope" facts. Every rule below is an entailment, so nothing it marks can be false
+// while the observations are true; propagate() runs them to a fixed point.
+function makeSpec(typeSizes, handSizes) {
+  const type = [], typeCards = typeSizes.map(() => []);
+  let c = 0;
+  typeSizes.forEach((n, t) => { for (let i = 0; i < n; i++) { type.push(t); typeCards[t].push(c++); } });
+  return { n: c, type, typeCards, P: handSizes.length, hand: handSizes.slice() };
+}
+function newK(spec) { return { spec, O: spec.P + 1, m: new Int8Array(spec.n * (spec.P + 1)), clauses: [], notall: [], bad: false }; }
+const kget = (K, c, o) => K.m[c * K.O + o];
+function kset(K, c, o, v) {
+  const i = c * K.O + o, cur = K.m[i];
+  if (cur === v) return false;
+  if (cur !== 0) { K.bad = true; return false; }
+  K.m[i] = v; return true;
+}
+const kclone = (K) => ({ spec: K.spec, O: K.O, m: K.m.slice(), clauses: K.clauses, notall: K.notall, bad: K.bad });
+// What each level is allowed to reason with.
+const RULES = {
+  cards: { hand: false, clauses: false, probe: false },   // notebook: only cards you hold or were shown
+  passes: { hand: false, clauses: false, probe: false },  // notebook: + who could not answer
+  easy: { hand: false, clauses: false, probe: false },
+  normal: { hand: true, clauses: true, probe: false },
+  hard: { hand: true, clauses: true, probe: true },
+};
+
+function propagate(K, rules) {
+  const { spec } = K, O = K.O, P = spec.P, E = P, m = K.m;
+  let changed = true;
+  while (changed && !K.bad) {
+    changed = false;
+    // 1. Each card has exactly one owner.
+    for (let c = 0; c < spec.n; c++) {
+      let ny = 0, yo = -1, nn = 0, uo = -1;
+      for (let o = 0; o < O; o++) { const v = m[c * O + o]; if (v === 1) { ny++; yo = o; } else if (v === -1) nn++; else uo = o; }
+      if (ny > 1 || nn === O) { K.bad = true; return K; }
+      if (ny === 1) { if (nn < O - 1) for (let o = 0; o < O; o++) if (o !== yo && m[c * O + o] === 0) { m[c * O + o] = -1; changed = true; } }
+      else if (nn === O - 1) { m[c * O + uo] = 1; changed = true; }
+    }
+    // 2. The envelope holds exactly one card of each type.
+    for (const cards of spec.typeCards) {
+      let ny = 0, nu = 0, uc = -1;
+      for (const c of cards) { const v = m[c * O + E]; if (v === 1) ny++; else if (v === 0) { nu++; uc = c; } }
+      if (ny > 1 || (ny === 0 && nu === 0)) { K.bad = true; return K; }
+      if (ny === 1 && nu > 0) { for (const c of cards) if (m[c * O + E] === 0) m[c * O + E] = -1; changed = true; }
+      else if (ny === 0 && nu === 1) { m[uc * O + E] = 1; changed = true; }
+    }
+    // 3. Each player holds exactly hand[p] cards.
+    if (rules.hand) for (let p = 0; p < P; p++) {
+      let ny = 0, nu = 0;
+      for (let c = 0; c < spec.n; c++) { const v = m[c * O + p]; if (v === 1) ny++; else if (v === 0) nu++; }
+      const h = spec.hand[p];
+      if (ny > h || ny + nu < h) { K.bad = true; return K; }
+      if (nu > 0 && (ny === h || ny + nu === h)) {
+        const val = ny === h ? -1 : 1;
+        for (let c = 0; c < spec.n; c++) if (m[c * O + p] === 0) m[c * O + p] = val;
+        changed = true;
+      }
+    }
+    if (rules.clauses) {
+      // 4. "p showed somebody one of these": if only one could still be p's, it is.
+      for (const cl of K.clauses) {
+        let sat = false, live = 0, lc = -1;
+        for (const c of cl.cards) { const v = m[c * O + cl.p]; if (v === 1) { sat = true; break; } if (v === 0) { live++; lc = c; } }
+        if (sat) continue;
+        if (live === 0) { K.bad = true; return K; }
+        if (live === 1) { m[lc * O + cl.p] = 1; changed = true; }
+      }
+      // 5. A wrong accusation: those three are not all in the envelope.
+      for (const cards of K.notall) {
+        let ny = 0, uc = -1, nu = 0;
+        for (const c of cards) { const v = m[c * O + E]; if (v === 1) ny++; else if (v === 0) { nu++; uc = c; } }
+        if (ny === 3) { K.bad = true; return K; }
+        if (ny === 2 && nu === 1) { m[uc * O + E] = -1; changed = true; }
+      }
+    }
+  }
+  return K;
+}
+// Failed-literal probing: suppose card c is owner o's; if the rules then reach a contradiction, it is not.
+// Still only entailments, just found one level deeper. Repeats until a full sweep learns nothing.
+function probe(K, rules) {
+  const O = K.O, n = K.spec.n;
+  let again = true;
+  while (again && !K.bad) {
+    again = false;
+    for (let c = 0; c < n; c++) for (let o = 0; o < O; o++) {
+      if (K.m[c * O + o] !== 0) continue;
+      const K2 = kclone(K);
+      K2.m[c * O + o] = 1;
+      propagate(K2, rules);
+      if (K2.bad) { K.m[c * O + o] = -1; propagate(K, rules); again = true; if (K.bad) return K; }
+    }
+  }
+  return K;
+}
+// One observation, from one player's point of view. `level` says how much of it they bother to use.
+function applyObs(K, ob, viewer, level) {
+  switch (ob.t) {
+    case 'hand': for (let c = 0; c < K.spec.n; c++) kset(K, c, viewer, ob.cards.indexOf(c) >= 0 ? 1 : -1); break;
+    case 'show': kset(K, ob.card, ob.p, 1); break;
+    case 'pass':
+      if (level === 'cards') break;
+      if (level === 'easy' && ob.by !== viewer) break;
+      for (const c of ob.cards) kset(K, c, ob.p, -1);
+      break;
+    case 'showx': if (level === 'hard') K.clauses.push({ p: ob.p, cards: ob.cards.slice() }); break;
+    case 'accwrong': if (level === 'normal' || level === 'hard') K.notall.push(ob.cards.slice()); break;
+    default: break;
+  }
+}
+function deduce(spec, obs, viewer, level) {
+  const K = newK(spec), rules = RULES[level];
+  for (const ob of obs) applyObs(K, ob, viewer, level);
+  propagate(K, rules);
+  if (rules.probe) probe(K, rules);
+  return K;
+}
+// The envelope's card of each type, if known; null otherwise.
+function solvedFrom(K) {
+  const E = K.spec.P, out = [];
+  for (const cards of K.spec.typeCards) { const c = cards.find((x) => kget(K, x, E) === 1); if (c === undefined) return null; out.push(c); }
+  return out;
+}
+const envCandidates = (K, t) => K.spec.typeCards[t].filter((c) => kget(K, c, K.spec.P) !== -1);
+
+// ================================================================== game state
+function gameSpec(S) { return makeSpec([NS, NW, NR], S.players.map((p) => p.hand.length)); }
+
+function newGame(o) {
+  const n = o.players.length;
+  if (n < 3 || n > 6) throw new Error('3 to 6 players');
+  const S = {
+    v: VERSION, seed: o.seed >>> 0, rng: (o.seed >>> 0) || 1, dice: o.dice === 2 ? 2 : 1,
+    players: [], envelope: null, pos: [], wpos: [], cur: 0, phase: 'start', turn: 1,
+    roll: 0, faces: [], targets: [], sugg: null, pending: null, lastMove: null,
+    log: [], obs: [], winner: -1, endReason: '', note: '', notes: {},
+  };
+  const used = new Set(o.players.map((p) => p.suspect).filter((x) => x >= 0));
+  S.players = o.players.map((p) => {
+    let s = p.suspect;
+    if (!(s >= 0)) { s = 0; while (used.has(s)) s++; used.add(s); }
+    return { name: p.name || SUSPECTS[s].name, kind: p.kind, suspect: s, hand: [], out: false, summoned: false, shown: [], turns: 0 };
+  });
+  for (let i = 0; i < 20; i++) rnd(S);
+  S.envelope = [ri(S, NS), NS + ri(S, NW), NS + NW + ri(S, NR)];
+  const rest = shuffle(S, Array.from({ length: NC }, (_, c) => c).filter((c) => S.envelope.indexOf(c) < 0));
+  rest.forEach((c, i) => S.players[i % n].hand.push(c));
+  S.players.forEach((P) => P.hand.sort((a, b) => a - b));
+  S.pos = SUSPECTS.map((s) => ({ r: -1, x: s.start[0], y: s.start[1] }));
+  S.wpos = shuffle(S, ROOMS.map((_, r) => r).filter((r) => r !== 4)).slice(0, NW);
+  S.obs = S.players.map((P) => [{ t: 'hand', cards: P.hand.slice() }]);
+  return S;
+}
+
+const curP = (S) => S.players[S.cur];
+const posOf = (S, p) => S.pos[S.players[p].suspect];
+const roomOf = (S, p) => posOf(S, p).r;
+const keyOfPos = (q) => (q.r >= 0 ? 'r' + q.r : 'c' + cellId(q.x, q.y));
+
+// Where `p` can go with `steps`: every gallery square within that many steps, and every room whose
+// door is within steps-1 (stepping in is the last step). Other tokens block gallery squares; rooms
+// hold any number. You cannot end in the room you started in.
+function reach(S, p, steps) {
+  const me = S.players[p].suspect, from = S.pos[me];
+  const blocked = new Set();
+  S.pos.forEach((q, i) => { if (i !== me && q.r < 0) blocked.add(cellId(q.x, q.y)); });
+  const dist = new Map(), parent = new Map(), rooms = new Map();
+  const queue = [];
+  const startKey = keyOfPos(from);
+  if (from.r >= 0) {
+    for (const d of ROOMS[from.r].doors) {
+      const c = cellId(d[2], d[3]);
+      if (!blocked.has(c) && !dist.has(c)) { dist.set(c, 1); parent.set('c' + c, startKey); queue.push(c); }
+    }
+  } else { const c = cellId(from.x, from.y); dist.set(c, 0); queue.push(c); }
+  for (let i = 0; i < queue.length; i++) {
+    const c = queue[i], d = dist.get(c);
+    if (d < steps) {
+      for (const r of DOORS_AT[c]) if (r !== from.r && !rooms.has(r)) { rooms.set(r, d + 1); parent.set('r' + r, 'c' + c); }
+      for (const nb of NEIGH[c]) if (!blocked.has(nb) && !dist.has(nb)) { dist.set(nb, d + 1); parent.set('c' + nb, 'c' + c); queue.push(nb); }
+    }
+  }
+  const out = new Map();
+  dist.forEach((d, c) => { if (d >= 1) out.set('c' + c, d); });
+  rooms.forEach((d, r) => out.set('r' + r, d));
+  return { targets: out, parent, startKey };
+}
+function pathTo(R, key) {
+  const path = [key];
+  let k = key;
+  while (R.parent.has(k)) { k = R.parent.get(k); path.unshift(k); }
+  return path;
+}
+
+function addLog(S, e) { S.log.push(e); if (S.log.length > 400) S.log.splice(0, S.log.length - 400); }
+
+function roll(S) {
+  if (S.phase !== 'start') return false;
+  const P = curP(S);
+  S.faces = [];
+  for (let i = 0; i < S.dice; i++) S.faces.push(1 + ri(S, 6));
+  S.roll = S.faces.reduce((a, b) => a + b, 0);
+  P.summoned = false;
+  const R = reach(S, S.cur, S.roll);
+  S.targets = Array.from(R.targets.keys());
+  if (!S.targets.length) { S.phase = 'end'; S.note = 'boxed'; } else S.phase = 'move';
+  return true;
+}
+function setPos(S, suspect, key) {
+  if (key[0] === 'r') S.pos[suspect] = { r: +key.slice(1) };
+  else { const c = +key.slice(1); S.pos[suspect] = { r: -1, x: c % W, y: Math.floor(c / W) }; }
+}
+function moveTo(S, key) {
+  if (S.phase !== 'move' || S.targets.indexOf(key) < 0) return false;
+  const R = reach(S, S.cur, S.roll);
+  const path = pathTo(R, key);
+  const me = curP(S).suspect;
+  setPos(S, me, key);
+  S.lastMove = { who: me, path };
+  S.targets = [];
+  S.phase = key[0] === 'r' ? 'suggest' : 'end';
+  return true;
+}
+function canPassage(S) { const r = roomOf(S, S.cur); return S.phase === 'start' && r >= 0 && ROOMS[r].passage >= 0; }
+function takePassage(S) {
+  if (!canPassage(S)) return false;
+  const P = curP(S), r = roomOf(S, S.cur), to = ROOMS[r].passage;
+  P.summoned = false;
+  S.pos[P.suspect] = { r: to };
+  S.lastMove = { who: P.suspect, path: ['r' + r, 'r' + to], passage: true };
+  S.phase = 'suggest';
+  return true;
+}
+function canStay(S) { return S.phase === 'start' && curP(S).summoned && roomOf(S, S.cur) >= 0; }
+function stay(S) { if (!canStay(S)) return false; curP(S).summoned = false; S.phase = 'suggest'; return true; }
+function skipSuggest(S) { if (S.phase !== 'suggest') return false; S.phase = 'end'; return true; }
+
+// A suggestion, made from inside a room: the named suspect and weapon are brought to it, then the
+// players to the left answer in turn until one can show a card.
+function suggest(S, s, w) {
+  if (S.phase !== 'suggest') return false;
+  if (!(s >= 0 && s < NS && w >= 0 && w < NW)) return false;
+  const r = roomOf(S, S.cur);
+  const cards = [s, weaponCard(w), roomCard(r)];
+  if (S.pos[s].r !== r) {
+    S.pos[s] = { r };
+    S.players.forEach((P, j) => { if (P.suspect === s && j !== S.cur) P.summoned = true; });
+    S.lastSummon = { who: s, room: r };
+  } else S.lastSummon = null;
+  S.wpos[w] = r;
+  S.sugg = { by: S.cur, cards, passes: [], shownBy: -1, next: (S.cur + 1) % S.players.length };
+  return continueRefute(S);
+}
+function continueRefute(S) {
+  const g = S.sugg, n = S.players.length;
+  while (g.next !== g.by) {
+    const q = g.next;
+    const match = S.players[q].hand.filter((c) => g.cards.indexOf(c) >= 0);
+    if (!match.length) {
+      g.passes.push(q);
+      S.obs.forEach((o) => o.push({ t: 'pass', p: q, by: g.by, cards: g.cards.slice() }));
+      g.next = (q + 1) % n;
+      continue;
+    }
+    S.pending = { q, match };
+    S.phase = 'refute';
+    if (S.players[q].kind !== 'human') return refute(S, aiChooseShow(S, q, match));
+    return true;
+  }
+  addLog(S, { t: 'suggest', by: g.by, cards: g.cards.slice(), passes: g.passes.slice(), shownBy: -1, turn: S.turn });
+  S.phase = 'reveal';
+  S.pending = null;
+  return true;
+}
+// The refuter shows exactly one card, to the suggester only. Everybody else learns that one of the three
+// was shown, not which.
+function refute(S, card) {
+  if (S.phase !== 'refute' || !S.pending || S.pending.match.indexOf(card) < 0) return false;
+  const g = S.sugg, q = S.pending.q;
+  g.shownBy = q;
+  g.card = card;
+  S.obs.forEach((o, j) => {
+    if (j === g.by) o.push({ t: 'show', p: q, card, turn: S.turn });
+    else o.push({ t: 'showx', p: q, to: g.by, cards: g.cards.slice() });
+  });
+  S.players[q].shown.push([g.by, card]);
+  addLog(S, { t: 'suggest', by: g.by, cards: g.cards.slice(), passes: g.passes.slice(), shownBy: q, turn: S.turn });
+  S.pending = null;
+  S.phase = 'reveal';
+  return true;
+}
+function ackReveal(S) { if (S.phase !== 'reveal') return false; S.phase = 'end'; return true; }
+const canAccuse = (S) => (S.phase === 'start' || S.phase === 'suggest' || S.phase === 'end') && !curP(S).out;
+
+function accuse(S, cards) {
+  if (!canAccuse(S)) return false;
+  const P = curP(S);
+  const ok = cards[0] === S.envelope[0] && cards[1] === S.envelope[1] && cards[2] === S.envelope[2];
+  addLog(S, { t: 'accuse', by: S.cur, cards: cards.slice(), ok, turn: S.turn });
+  P.turns++;
+  if (ok) { S.winner = S.cur; S.phase = 'over'; S.endReason = 'solved'; return true; }
+  P.out = true;
+  S.obs.forEach((o) => o.push({ t: 'accwrong', p: S.cur, cards: cards.slice() }));
+  // An eliminated detective's token steps into the nearest room so it never blocks the gallery.
+  const q = S.pos[P.suspect];
+  if (q.r < 0) {
+    const c = cellId(q.x, q.y);
+    let best = 0; ROOMS.forEach((_, r) => { if (DIST[r][c] < DIST[best][c]) best = r; });
+    S.pos[P.suspect] = { r: best };
+  }
+  if (S.players.every((x) => x.out)) { S.phase = 'over'; S.endReason = 'nobody'; return true; }
+  nextTurn(S, true);
+  return true;
+}
+function endTurn(S) { if (S.phase !== 'end') return false; curP(S).turns++; nextTurn(S); return true; }
+function nextTurn(S) {
+  S.note = '';
+  S.roll = 0; S.faces = []; S.targets = []; S.sugg = null; S.pending = null;
+  const n = S.players.length;
+  let j = S.cur;
+  do { j = (j + 1) % n; } while (S.players[j].out);
+  S.cur = j;
+  S.turn++;
+  S.phase = 'start';
+  if (S.turn > MAX_TURNS) { S.phase = 'over'; S.endReason = 'cap'; }
+}
+
+// ---- the notebook: what one player knows, from their own observations only ----
+// `help`: 'cards' (cards you hold or were shown), 'passes' (+ who could not answer), 'full' (everything
+// the Hard detective would work out from the same observations). Reads S.obs[p] and the public hand
+// sizes, nothing else.
+function notebook(S, p, help) {
+  const level = help === 'full' ? 'hard' : help === 'passes' ? 'passes' : 'cards';
+  const K = deduce(gameSpec(S), S.obs[p], p, level);
+  const rows = [];
+  for (let c = 0; c < NC; c++) {
+    const row = [];
+    for (let o = 0; o <= S.players.length; o++) row.push(kget(K, c, o));
+    rows.push(row);
+  }
+  return rows; // rows[card][owner], owner === players.length is the envelope
+}
+
+// ================================================================== computer detectives
+const KCACHE = new WeakMap();
+// A human seat is only ever played by the computer in browser checks ("autoplay"); it plays as Hard.
+const levelOf = (S, p) => (S.players[p].kind === 'human' ? 'hard' : S.players[p].kind);
+function know(S, p) {
+  const level = levelOf(S, p);
+  let cache = KCACHE.get(S);
+  if (!cache) { cache = []; KCACHE.set(S, cache); }
+  const e = cache[p], obs = S.obs[p];
+  if (e && e.level === level && e.len === obs.length) return e.K;
+  let K;
+  if (e && e.level === level && e.len < obs.length) {
+    K = e.K;
+    for (let i = e.len; i < obs.length; i++) applyObs(K, obs[i], p, level);
+    propagate(K, RULES[level]);
+    if (RULES[level].probe) probe(K, RULES[level]);
+  } else K = deduce(gameSpec(S), obs, p, level);
+  cache[p] = { level, len: obs.length, K };
+  return K;
+}
+
+// Rough chance that owner o holds card c, given the knowledge: certain cells are 0 or 1; an unknown
+// card is spread over its possible owners in proportion to how many unknown slots each has left.
+function ownerProbs(K) {
+  const { spec } = K, O = K.O, P = spec.P;
+  const slots = [];
+  for (let o = 0; o < P; o++) {
+    let ny = 0, nu = 0;
+    for (let c = 0; c < spec.n; c++) { const v = kget(K, c, o); if (v === 1) ny++; else if (v === 0) nu++; }
+    slots.push(nu ? Math.max(0, spec.hand[o] - ny) / nu : 0);
+  }
+  const envW = spec.typeCards.map((cards) => { const nu = cards.filter((c) => kget(K, c, P) === 0).length; return nu ? 1 / nu : 0; });
+  const pr = [];
+  for (let c = 0; c < spec.n; c++) {
+    const row = new Array(O).fill(0);
+    let sum = 0;
+    for (let o = 0; o < O; o++) {
+      const v = kget(K, c, o);
+      if (v === 1) { row.fill(0); row[o] = 1; sum = 1; break; }
+      if (v === 0) { row[o] = o === P ? envW[spec.type[c]] : slots[o]; sum += row[o]; }
+    }
+    if (sum > 0) for (let o = 0; o < O; o++) row[o] /= sum;
+    pr.push(row);
+  }
+  return pr;
+}
+const entropy = (row) => row.reduce((h, p) => (p > 0 ? h - p * Math.log2(p) : h), 0);
+
+// Expected information from suggesting these three cards: walk the answering order, weigh "this player
+// shows one" (we learn that card's owner) against "this player passes", and nobody answering at all
+// (every card we do not hold is in the envelope).
+// `seen[q]` holds the cards q has already shown p: computers re-show those first, so a suggestion
+// containing one is answered by q with nothing new.
+function suggestionValue(S, p, cards, pr, H, seen) {
+  const n = S.players.length;
+  let reachP = 1, val = 0;
+  for (let k = 1; k < n; k++) {
+    const q = (p + k) % n;
+    if (seen && cards.some((c) => seen[q].has(c))) { reachP = 0; break; }
+    let none = 1, sp = 0, gain = 0, passGain = 0;
+    for (const c of cards) {
+      const x = pr[c][q];
+      none *= 1 - x; sp += x; gain += x * H[c];
+      if (x > 0 && x < 1) passGain += -Math.log2(1 - x) * 0.5;
+    }
+    const pRef = 1 - none;
+    val += reachP * (pRef * (sp > 0 ? gain / sp : 0) + none * passGain);
+    reachP *= none;
+  }
+  let allGain = 0;
+  for (const c of cards) if (pr[c][p] < 1) allGain += H[c];
+  return val + reachP * allGain;
+}
+
+function seenBy(S, p) {
+  const seen = S.players.map(() => new Set());
+  for (const o of S.obs[p]) if (o.t === 'show') seen[o.p].add(o.card);
+  return seen;
+}
+// A detective is stuck when its last three answered suggestions each showed it a card it had already
+// seen. Then it plans like Hard (which models re-shows) whatever its level: a safety net under the
+// heuristics, so no table of computers can circle for ever.
+function stuck(S, p) {
+  const known = new Set();
+  let run = 0;
+  for (const e of S.log) {
+    if (e.t !== 'suggest' || e.by !== p) continue;
+    if (e.shownBy < 0) { run = 0; continue; }
+    const ob = S.obs[p].find((o) => o.t === 'show' && o.turn === e.turn);
+    if (!ob) continue;
+    if (known.has(ob.card)) run++; else { run = 0; known.add(ob.card); }
+  }
+  return run >= 3;
+}
+const planLevel = (S, p) => (levelOf(S, p) !== 'hard' && stuck(S, p) ? 'hard' : levelOf(S, p));
+
+// Best suspect and weapon to name in room r, for player p at their level.
+function chooseSuggestion(S, p, r) {
+  const P = S.players[p], K = know(S, p), E = S.players.length, lvl = planLevel(S, p);
+  const unknownT = (t) => K.spec.typeCards[t].filter((c) => kget(K, c, E) === 0);
+  const pick = (arr) => arr[ri(S, arr.length)];
+  if (lvl === 'easy') {
+    const cand = (t) => { const a = envCandidates(K, t); return a.length ? a : K.spec.typeCards[t]; };
+    return { s: pick(cand(0)), w: pick(cand(1)) - NS };
+  }
+  if (lvl === 'normal') {
+    const one = (t) => {
+      const u = unknownT(t);
+      if (u.length) return pick(u);
+      const mine = P.hand.filter((c) => cardType(c) === t);
+      return mine.length ? pick(mine) : envCandidates(K, t)[0];
+    };
+    return { s: one(0), w: one(1) - NS };
+  }
+  const pr = ownerProbs(K), H = pr.map(entropy), seen = seenBy(S, p);
+  let best = null, bv = -1;
+  for (let s = 0; s < NS; s++) for (let w = 0; w < NW; w++) {
+    const v = suggestionValue(S, p, [s, weaponCard(w), roomCard(r)], pr, H, seen) + rnd(S) * 1e-6;
+    if (v > bv) { bv = v; best = { s, w }; }
+  }
+  return best;
+}
+// How much p wants to be in room r right now.
+function roomScore(S, p, r, ctx) {
+  const lvl = ctx.lvl;
+  if (lvl === 'hard') {
+    if (ctx.scores[r] === undefined) {
+      let bv = 0;
+      for (let s = 0; s < NS; s++) for (let w = 0; w < NW; w++) bv = Math.max(bv, suggestionValue(S, p, [s, weaponCard(w), roomCard(r)], ctx.pr, ctx.H, ctx.seen));
+      ctx.scores[r] = bv + 0.05;
+    }
+    return ctx.scores[r];
+  }
+  // Normal and Easy: a room whose card is still open is worth visiting; any other room only while a
+  // suspect or weapon is still open (it is somewhere to ask from). Once those are settled a known room
+  // is worth nearly nothing — scoring it 1 had two detectives riding a secret passage back and forth
+  // for 900 turns, asking about their own cards.
+  // A known room held by somebody else is worse still: if they answer first they will keep showing that
+  // same room card (computers re-show what you have seen), and two Normals once rode the Prayer Room –
+  // Stables passage for 900 turns doing exactly that. So: a room you hold yourself beats one held
+  // elsewhere, and a room you have just suggested in is discounted, so nobody circles.
+  const K = ctx.K, E = S.players.length;
+  if (ctx.sw === undefined) ctx.sw = [0, 1].some((t) => K.spec.typeCards[t].some((c) => kget(K, c, E) === 0));
+  const open = kget(K, roomCard(r), E) === 0;
+  const recent = ctx.recent.indexOf(r) >= 0 ? 0.3 : 1;
+  if (lvl === 'normal') return recent * (open ? 3 : !ctx.sw ? 0.05 : kget(K, roomCard(r), p) === 1 ? 1.2 : 0.4);
+  if (ctx.scores[r] === undefined) ctx.scores[r] = recent * ((open ? 1.5 : ctx.sw ? 0.6 : 0.05) + rnd(S));
+  return ctx.scores[r];
+}
+function plannerCtx(S, p) {
+  const K = know(S, p), ctx = { K, scores: [], recent: [], lvl: planLevel(S, p) };
+  for (let i = S.log.length - 1; i >= 0 && ctx.recent.length < 2; i--) if (S.log[i].t === 'suggest' && S.log[i].by === p) ctx.recent.push(S.log[i].cards[2] - NS - NW);
+  if (ctx.lvl === 'hard') { ctx.pr = ownerProbs(K); ctx.H = ctx.pr.map(entropy); ctx.seen = seenBy(S, p); }
+  return ctx;
+}
+const GAMMA = 0.55;
+function nodeValue(S, p, key, ctx) {
+  const avg = 3.5 * S.dice;
+  if (key[0] === 'r') return roomScore(S, p, +key.slice(1), ctx);
+  const c = +key.slice(1);
+  let best = 0;
+  for (let r = 0; r < NR; r++) best = Math.max(best, roomScore(S, p, r, ctx) * Math.pow(GAMMA, Math.ceil(DIST[r][c] / avg)));
+  return best;
+}
+// Expected value of rolling from where p stands: the best place reachable for each possible roll.
+function rollValue(S, p, ctx) {
+  const R = reach(S, p, 6 * S.dice);
+  const byDist = [];
+  R.targets.forEach((d, key) => { const v = nodeValue(S, p, key, ctx); for (let k = d; k <= 6 * S.dice; k++) byDist[k] = Math.max(byDist[k] || 0, v); });
+  let ev = 0;
+  if (S.dice === 1) for (let k = 1; k <= 6; k++) ev += (byDist[k] || 0) / 6;
+  else for (let a = 1; a <= 6; a++) for (let b = 1; b <= 6; b++) ev += (byDist[a + b] || 0) / 36;
+  return ev;
+}
+
+function aiChooseShow(S, q, match) {
+  const P = S.players[q], by = S.sugg.by;
+  if (P.kind === 'easy' || P.kind === 'human') return match[ri(S, match.length)];
+  // Show something this suggester has already seen from us, then something already shown to others.
+  const seenBy = match.filter((c) => P.shown.some(([t, x]) => t === by && x === c));
+  if (seenBy.length) return seenBy[0];
+  const count = (c) => P.shown.filter(([, x]) => x === c).length;
+  const sorted = match.slice().sort((a, b) => count(b) - count(a));
+  if (count(sorted[0]) > 0) return sorted[0];
+  return match[ri(S, match.length)];
+}
+
+// Should p accuse now? Normal and Hard only when certain. Easy also gambles when it is down to a couple
+// of possibilities — which is how Easy loses games.
+function accusation(S, p) {
+  const K = know(S, p);
+  const sol = solvedFrom(K);
+  if (sol) return sol;
+  if (levelOf(S, p) === 'easy') {
+    const c = [0, 1, 2].map((t) => envCandidates(K, t));
+    const combos = c[0].length * c[1].length * c[2].length;
+    if (combos <= 3 && rnd(S) < 0.4) return c.map((a) => a[ri(S, a.length)]);
+  }
+  return null;
+}
+
+// One decision for whoever has to act next (the current player, or the refuter). Returns false when it
+// is a human's move.
+function aiStep(S, force) {
+  if (S.phase === 'over') return false;
+  if (S.phase === 'refute') {
+    const q = S.pending.q;
+    if (S.players[q].kind === 'human' && !force) return false;
+    return refute(S, aiChooseShow(S, q, S.pending.match));
+  }
+  const p = S.cur, P = curP(S);
+  if (P.kind === 'human' && !force) return false;
+  switch (S.phase) {
+    case 'start': {
+      const acc = accusation(S, p);
+      if (acc) return accuse(S, acc);
+      const ctx = plannerCtx(S, p);
+      const here = roomOf(S, p);
+      const rv = rollValue(S, p, ctx);
+      const stayV = canStay(S) ? roomScore(S, p, here, ctx) : -1;
+      const passV = canPassage(S) ? roomScore(S, p, ROOMS[here].passage, ctx) : -1;
+      if (stayV >= rv && stayV >= passV && stayV > 0) return stay(S);
+      if (passV > rv && passV > 0) return takePassage(S);
+      return roll(S);
+    }
+    case 'move': {
+      const ctx = plannerCtx(S, p);
+      let best = S.targets[0], bv = -1;
+      for (const key of S.targets) {
+        const v = nodeValue(S, p, key, ctx) + rnd(S) * 1e-6;
+        if (v > bv) { bv = v; best = key; }
+      }
+      return moveTo(S, best);
+    }
+    case 'suggest': {
+      const g = chooseSuggestion(S, p, roomOf(S, p));
+      return suggest(S, g.s, g.w);
+    }
+    case 'reveal': return ackReveal(S);
+    case 'end': {
+      const acc = accusation(S, p);
+      if (acc) return accuse(S, acc);
+      return endTurn(S);
+    }
+    default: return false;
+  }
+}
+
+// A whole computer game, for the tests and the reports.
+function simulate(seed, kinds, opts) {
+  opts = opts || {};
+  const S = newGame({ seed, dice: opts.dice || 1, players: kinds.map((k, i) => ({ name: 'P' + i, kind: k })) });
+  let steps = 0;
+  while (S.phase !== 'over' && steps < 20000) {
+    if (!aiStep(S)) break;
+    steps++;
+    if (opts.onStep) opts.onStep(S);
+  }
+  S.steps = steps;
+  return S;
+}
+
+// ---- save / resume ----
+function serialize(S) { return JSON.stringify(S); }
+function deserialize(text) {
+  let S;
+  try { S = JSON.parse(text); } catch (e) { return null; }
+  try {
+    if (!S || typeof S !== 'object' || S.v !== VERSION) return null;
+    const n = S.players && S.players.length;
+    if (!(n >= 3 && n <= 6)) return null;
+    if (!Array.isArray(S.envelope) || S.envelope.length !== 3) return null;
+    if (cardType(S.envelope[0]) !== 0 || cardType(S.envelope[1]) !== 1 || cardType(S.envelope[2]) !== 2) return null;
+    const seen = new Set(S.envelope);
+    for (const P of S.players) {
+      if (!Array.isArray(P.hand) || !['human', 'easy', 'normal', 'hard'].includes(P.kind)) return null;
+      if (!(P.suspect >= 0 && P.suspect < NS) || !Array.isArray(P.shown)) return null;
+      for (const c of P.hand) { if (!(c >= 0 && c < NC) || seen.has(c)) return null; seen.add(c); }
+    }
+    if (seen.size !== NC) return null;
+    if (!Array.isArray(S.pos) || S.pos.length !== NS || !Array.isArray(S.wpos) || S.wpos.length !== NW) return null;
+    for (const q of S.pos) {
+      if (q.r >= 0) { if (q.r >= NR) return null; } else if (!isCorr(q.x, q.y)) return null;
+    }
+    if (!Array.isArray(S.obs) || S.obs.length !== n || !Array.isArray(S.log)) return null;
+    if (!['start', 'move', 'suggest', 'refute', 'reveal', 'end', 'over'].includes(S.phase)) return null;
+    if (!(S.cur >= 0 && S.cur < n) || typeof S.rng !== 'number') return null;
+    if (S.phase === 'refute' && !(S.pending && S.sugg)) return null;
+    if (S.phase === 'move' && !Array.isArray(S.targets)) return null;
+    for (let p = 0; p < n; p++) if (deduce(gameSpec(S), S.obs[p], p, 'normal').bad) return null;
+    if (!S.notes || typeof S.notes !== 'object' || Array.isArray(S.notes)) S.notes = {};
+    return S;
+  } catch (e) { return null; }
+}
+
+const api = {
+  VERSION, W, H, SUSPECTS, WEAPONS, ROOMS, VICTIM, NS, NW, NR, NC, MAX_TURNS, ROOM_AT, DIST, ROOM_DIST, DOORS_AT,
+  cardType, cardName, roomCard, weaponCard, cellId, isCorr,
+  makeSpec, newK, kget, kset, propagate, probe, applyObs, deduce, solvedFrom, envCandidates, RULES,
+  newGame, gameSpec, reach, pathTo, roll, moveTo, canPassage, takePassage, canStay, stay, skipSuggest, suggest, refute,
+  ackReveal, canAccuse, accuse, endTurn, notebook, know, aiStep, aiChooseShow, accusation, chooseSuggestion,
+  ownerProbs, suggestionValue, simulate, serialize, deserialize, rnd, roomOf, posOf, keyOfPos,
+};
+globalThis.__whodunit = api;
+// ---------- UI ----------
+(function () {
+const M = globalThis.__whodunit;
+const { SUSPECTS, WEAPONS, ROOMS, NS, NW, NR, NC, W } = M;
+const $ = (id) => document.getElementById(id);
+const SAVE_KEY = 'dgames.whodunit.save', OPTS_KEY = 'dgames.whodunit.opts';
+const SVGNS = 'http://www.w3.org/2000/svg';
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ------------------------------------------------------------------ art
+// Small hand-drawn glyphs, 32x32, for the weapon and room cards and the tokens on the board.
+const ICON = {
+  sweets: '<rect x="4" y="16" width="24" height="11" rx="2" fill="#b8323a"/><rect x="4" y="16" width="24" height="3" fill="#8e2129"/><circle cx="10" cy="14" r="4.4" fill="#f0a93a"/><circle cx="22" cy="14" r="4.4" fill="#f0a93a"/><circle cx="16" cy="10.5" r="4.6" fill="#f7c35a"/><circle cx="15" cy="9" r="1" fill="#fff6" /><path d="M13 21h6" stroke="#f7d27a" stroke-width="1.4"/>',
+  scarf: '<path d="M3 11c5-6 9 4 15-1s9-3 11-2l-2 6c-3-1-5 1-9 3s-10-3-13 0z" fill="#d43a78"/><path d="M5 12c4-3 8 3 13-1" stroke="#ff9cc4" stroke-width="1.2" fill="none"/><path d="M5 15l-1 9M8 16l0 9M11 17l1 8" stroke="#d43a78" stroke-width="1.6" stroke-linecap="round"/>',
+  lamp: '<path d="M3 17h26c-2 7-8 9-13 9S5 24 3 17z" fill="#c38a29"/><path d="M3 17h26" stroke="#8a5d14" stroke-width="1.4"/><path d="M26 17l4-3" stroke="#c38a29" stroke-width="2.4" stroke-linecap="round"/><path d="M16 3c4 4 4 8 0 11-4-3-4-7 0-11z" fill="#ffb12e"/><path d="M16 8c1.5 2 1.5 4 0 5.5-1.5-1.5-1.5-3.5 0-5.5z" fill="#fff3b0"/>',
+  cane: '<path d="M11 29V11a6 6 0 0 1 12 0v2" stroke="#6b4423" stroke-width="3.2" fill="none" stroke-linecap="round"/><circle cx="23" cy="13.5" r="2.4" fill="#cfd3d8"/><path d="M11 25h0" stroke="#cfd3d8" stroke-width="3.4"/>',
+  musket: '<path d="M2 22l13-5 3 0 11-6 1 2-10 6-2 3-5 1-4 4-6 1z" fill="#7a5130"/><path d="M14 16l16-8" stroke="#5b5f66" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="19" r="1.3" fill="#2b2b2b"/>',
+  cobra: '<path d="M7 29c9 0 15-3 13-8s-11-4-8-11" stroke="#3b6a2c" stroke-width="4.2" fill="none" stroke-linecap="round"/><ellipse cx="13.5" cy="8" rx="7" ry="5.6" fill="#4f8c3b"/><ellipse cx="13.5" cy="9" rx="3.6" ry="3.2" fill="#e2d38a"/><circle cx="11.6" cy="6.6" r="1" fill="#111"/><circle cx="15.4" cy="6.6" r="1" fill="#111"/><path d="M13.5 12.5v2.5l-1 1M13.5 15l1 1" stroke="#c0392b" stroke-width=".8" fill="none"/>',
+  terrace: '<path d="M16 2l10 11-10 14L6 13z" fill="#e2483f"/><path d="M16 2v25M6 13h20" stroke="#fff" stroke-width="1"/><path d="M16 27c3 2-1 3 2 5" stroke="#333" fill="none"/>',
+  library: '<rect x="4" y="7" width="5" height="20" fill="#2f5d8a"/><rect x="10" y="4" width="5" height="23" fill="#9b2f2f"/><rect x="16" y="9" width="5" height="18" fill="#2f7a4a"/><rect x="21" y="8" width="5" height="19" transform="rotate(12 23 17)" fill="#c08a2a"/><rect x="3" y="27" width="26" height="2" fill="#5b3a22"/>',
+  prayer: '<path d="M16 3a2.2 2.2 0 0 1 2.2 2.2C23 6.6 24 11 24 19l2.5 4H5.5L8 19c0-8 1-12.4 5.8-13.8A2.2 2.2 0 0 1 16 3z" fill="#e3a628"/><circle cx="16" cy="26.5" r="2.4" fill="#9c6c14"/><path d="M11 12c1-3 3-4 5-4" stroke="#fff6" stroke-width="1.4" fill="none"/>',
+  hall: '<path d="M4 29V14a12 12 0 0 1 24 0v15h-5V14a7 7 0 0 0-14 0v15z" fill="#a53241"/><rect x="2" y="27" width="28" height="3" fill="#6d1f2a"/><circle cx="16" cy="6" r="1.6" fill="#f2c14e"/>',
+  courtyard: '<rect x="9" y="19" width="14" height="10" rx="1" fill="#c4683a"/><rect x="8" y="18" width="16" height="2.5" fill="#9e4f27"/><path d="M16 19V7M16 12l-6-4M16 10l5-6M16 15l-7-2M16 14l7-3" stroke="#2f7d32" stroke-width="2.4" stroke-linecap="round"/>',
+  music: '<circle cx="12" cy="22" r="8" fill="#b5651d"/><circle cx="12" cy="22" r="4.5" fill="#8a4a12"/><path d="M15 16L25 2" stroke="#7a4a1e" stroke-width="3.6" stroke-linecap="round"/><path d="M14 17L25 3M16 19l10-15" stroke="#f3e2b0" stroke-width=".6"/>',
+  stables: '<path d="M8 5v11a8 8 0 0 0 16 0V5" stroke="#7d8189" stroke-width="4.4" fill="none" stroke-linecap="round"/><circle cx="8" cy="9" r=".9" fill="#2b2b2b"/><circle cx="24" cy="9" r=".9" fill="#2b2b2b"/><circle cx="9" cy="15" r=".9" fill="#2b2b2b"/><circle cx="23" cy="15" r=".9" fill="#2b2b2b"/>',
+  kitchen: '<path d="M5 13h22v4a11 10 0 0 1-22 0z" fill="#8f8f8f"/><rect x="3" y="11" width="26" height="3.4" rx="1.7" fill="#6a6a6a"/><path d="M11 8c0-2 2-2 2-5M17 8c0-2 2-2 2-5" stroke="#d5d5d5" stroke-width="1.4" fill="none" stroke-linecap="round"/>',
+  cellar: '<path d="M11 6h10v3c4 2 6 6 6 10 0 6-5 10-11 10S5 25 5 19c0-4 2-8 6-10z" fill="#a0522d"/><rect x="10" y="3.5" width="12" height="3.4" rx="1" fill="#6b3a1e"/><path d="M8 18h16" stroke="#e8c39e" stroke-width="1.2"/>',
+};
+const WICON = ['sweets', 'scarf', 'lamp', 'cane', 'musket', 'cobra'];
+const RICON = ROOMS.map((R) => R.id);
+const ROOM_STYLE = [
+  { fill: '#a8c8cf', ink: '#17363c' }, { fill: '#7b4f33', ink: '#fdebd2' }, { fill: '#eeac45', ink: '#432504' },
+  { fill: '#8d2a36', ink: '#ffe6c8' }, { fill: '#d78656', ink: '#3b1a09' }, { fill: '#2c7a81', ink: '#e7fbfb' },
+  { fill: '#b8955c', ink: '#36220e' }, { fill: '#a19d94', ink: '#221f1a' }, { fill: '#4a4660', ink: '#ece7ff' },
+];
+const LABEL = ['Rooftop|Terrace', 'Library', 'Prayer|Room', 'Grand|Hall', 'Courtyard', 'Music|Room', 'Stables', 'Kitchen', 'Cellar'];
+const initial = (s) => SUSPECTS[s].name.replace('Dr ', '')[0];
+const icon = (k, extra) => '<svg viewBox="0 0 32 32" ' + (extra || '') + '>' + ICON[k] + '</svg>';
+function medallion(s) {
+  const S0 = SUSPECTS[s];
+  return '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="' + S0.color + '"/><circle cx="16" cy="16" r="12.2" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="1"/>' +
+    '<circle cx="16" cy="16" r="13.6" fill="none" stroke="#000" stroke-opacity=".18" stroke-width="1.6" stroke-dasharray="1.2 1.6"/>' +
+    '<text x="16" y="21.6" text-anchor="middle" font-family="Yatra One, Georgia, serif" font-size="15" fill="#fff">' + initial(s) + '</text></svg>';
+}
+const cardArt = (c) => (c < NS ? medallion(c) : c < NS + NW ? icon(WICON[c - NS]) : icon(RICON[c - NS - NW]));
+const cardSub = (c) => (c < NS ? SUSPECTS[c].title : c < NS + NW ? 'weapon' : 'room');
+function cardHTML(c, cls) {
+  const t = M.cardType(c);
+  const tc = t === 0 ? 't-sus' : t === 1 ? 't-wea' : 't-room';
+  const style = t === 0 ? ' style="--c:' + SUSPECTS[c].color + '"' : '';
+  return '<div class="card ' + tc + ' ' + (cls || '') + '"' + style + '><div class="band">' + ['Suspect', 'Weapon', 'Room'][t] + '</div><div class="art">' + cardArt(c) +
+    '</div><div class="nm">' + esc(M.cardName(c)) + '</div><div class="sub">' + esc(cardSub(c)) + '</div></div>';
+}
+const CARD_BACK = '<div class="cardback"><svg viewBox="0 0 60 84" preserveAspectRatio="xMidYMid slice"><defs><pattern id="cbj" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M4 0L8 4L4 8L0 4Z" fill="none" stroke="#d9a441" stroke-width=".7" stroke-opacity=".55"/><circle cx="4" cy="4" r=".9" fill="#d9a441" fill-opacity=".5"/></pattern></defs><rect width="60" height="84" fill="url(#cbj)"/><circle cx="30" cy="42" r="13" fill="#3b1630" stroke="#d9a441" stroke-width="1.4"/><text x="30" y="48" text-anchor="middle" font-family="Yatra One, Georgia, serif" font-size="17" fill="#f2c14e">?</text></svg></div>';
+
+// ------------------------------------------------------------------ the board view
+// Everything the rest of the page asks of the board goes through these five calls, so a different view
+// (the shared 3D tabletop, later) can replace this one: render(S, current), highlight(keys),
+// animateMove(S, move, done), glide(S, suspect, done), hit(clientX, clientY, keys).
+function makeBoardView(svg) {
+  const C = 10;
+  const el = (tag, attrs, parent) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+  const isCorr = M.isCorr;
+  svg.innerHTML = '<defs>' +
+    '<pattern id="jaali" width="2.4" height="2.4" patternUnits="userSpaceOnUse"><rect width="2.4" height="2.4" fill="#5a3a20"/><path d="M1.2 .2L2.2 1.2L1.2 2.2L.2 1.2Z" fill="#f6dfae"/></pattern>' +
+    '<pattern id="weave" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0 4L4 0" stroke="#000" stroke-opacity=".07" stroke-width=".6"/></pattern>' +
+    '<radialGradient id="sky" cx="50%" cy="50%" r="70%"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>' +
+    '</defs>';
+  const base = el('g', {}, svg);
+  el('rect', { x: -3, y: -3, width: 196, height: 196, rx: 5, fill: '#3b2616' }, base);
+  el('rect', { x: -1.2, y: -1.2, width: 192.4, height: 192.4, rx: 3, fill: 'none', stroke: '#c99a55', 'stroke-width': .8 }, base);
+  // The gallery: sandstone flags with a small inlay where four meet.
+  for (let y = 0; y < 19; y++) for (let x = 0; x < 19; x++) if (isCorr(x, y)) {
+    el('rect', { x: x * C, y: y * C, width: C, height: C, fill: (x + y) % 2 ? '#e6cc9c' : '#ecd7ad', stroke: '#c9a46c', 'stroke-width': .35 }, base);
+  }
+  for (let y = 1; y < 19; y++) for (let x = 1; x < 19; x++) if (isCorr(x, y) && isCorr(x - 1, y - 1) && isCorr(x - 1, y) && isCorr(x, y - 1))
+    el('path', { d: `M${x * C} ${y * C - 1.3}L${x * C + 1.3} ${y * C}L${x * C} ${y * C + 1.3}L${x * C - 1.3} ${y * C}Z`, fill: '#b9874a' }, base);
+  // Start squares, in each suspect's colour.
+  SUSPECTS.forEach((s) => el('circle', { cx: s.start[0] * C + 5, cy: s.start[1] * C + 5, r: 4.1, fill: 'none', stroke: s.color, 'stroke-width': 1, 'stroke-dasharray': '1.4 1' }, base));
+  // Rooms.
+  ROOMS.forEach((R, r) => {
+    const [x0, y0, x1, y1] = R.rect, x = x0 * C, y = y0 * C, w = (x1 - x0 + 1) * C, h = (y1 - y0 + 1) * C;
+    const st = ROOM_STYLE[r];
+    const g = el('g', {}, base);
+    el('rect', { x, y, width: w, height: h, fill: st.fill }, g);
+    el('rect', { x, y, width: w, height: h, fill: 'url(#weave)' }, g);
+    if (r === 4) { el('rect', { x: x + 6, y: y + 6, width: w - 12, height: h - 12, fill: 'url(#sky)', stroke: '#fff', 'stroke-opacity': .35, 'stroke-width': .5, 'stroke-dasharray': '2 1.5' }, g); }
+    const ig = el('g', { transform: `translate(${x + w / 2 - 14} ${y + h / 2 - 9}) scale(.875)`, opacity: r === 4 ? .5 : .2 }, g);
+    ig.innerHTML = ICON[RICON[r]];
+    // Walls, with a carved jaali panel along each side that faces the gallery.
+    const sides = [
+      { a: [x, y], b: [x + w, y], out: [0, -1] }, { a: [x, y + h], b: [x + w, y + h], out: [0, 1] },
+      { a: [x, y], b: [x, y + h], out: [-1, 0] }, { a: [x + w, y], b: [x + w, y + h], out: [1, 0] },
+    ];
+    sides.forEach((sd) => {
+      const mx = (sd.a[0] + sd.b[0]) / 2 / C + sd.out[0] * .5, my = (sd.a[1] + sd.b[1]) / 2 / C + sd.out[1] * .5;
+      if (!isCorr(Math.floor(mx), Math.floor(my))) return;
+      const horiz = sd.a[1] === sd.b[1], len = horiz ? w : h;
+      const t = 1.7, inset = 9;
+      if (horiz) el('rect', { x: sd.a[0] + inset, y: sd.a[1] - (sd.out[1] < 0 ? 0 : t), width: len - 2 * inset, height: t, fill: 'url(#jaali)' }, g);
+      else el('rect', { x: sd.a[0] - (sd.out[0] < 0 ? 0 : t), y: sd.a[1] + inset, width: t, height: len - 2 * inset, fill: 'url(#jaali)' }, g);
+    });
+    el('rect', { x, y, width: w, height: h, fill: 'none', stroke: '#4a2c14', 'stroke-width': 1.3 }, g);
+    // Doors: a pale threshold through the wall, with a little arch.
+    R.doors.forEach((d) => {
+      const dx = d[2] - d[0], dy = d[3] - d[1];
+      const cx = d[0] * C + 5 + dx * 5, cy = d[1] * C + 5 + dy * 5;
+      if (dx) el('rect', { x: cx - 1.6, y: cy - 4, width: 3.2, height: 8, fill: '#f6e3bb', stroke: '#8a5a2b', 'stroke-width': .5 }, g);
+      else el('rect', { x: cx - 4, y: cy - 1.6, width: 8, height: 3.2, fill: '#f6e3bb', stroke: '#8a5a2b', 'stroke-width': .5 }, g);
+    });
+    // Name.
+    const lines = LABEL[r].split('|');
+    lines.forEach((ln, i) => {
+      const t = el('text', { x: x + w / 2, y: y + 7.4 + i * 5.6, 'text-anchor': 'middle', 'font-size': 5.1, fill: st.ink, 'font-family': 'Yatra One, Georgia, serif' }, g);
+      t.textContent = ln;
+    });
+    if (R.passage >= 0) {
+      // Along the bottom edge in every corner room: the top edge is where the room's name goes.
+      const to = ROOMS[R.passage], cornerX = x0 === 0 ? x + 1.5 : x + w - 1.5, cornerY = y + h - 1.6;
+      const sx = x0 === 0 ? 1 : -1, sy = -1;
+      el('path', { d: `M${cornerX} ${cornerY}h${sx * 3}v${sy * 2.2}h${sx * 3}v${sy * 2.2}h${sx * 3}`, fill: 'none', stroke: st.ink, 'stroke-width': .7, opacity: .9 }, g);
+      const t = el('text', { x: cornerX + sx * 10.5, y: cornerY + (sy < 0 ? -1.2 : 3.6), 'text-anchor': sx > 0 ? 'start' : 'end', 'font-size': 2.9, fill: st.ink, opacity: .9 }, g);
+      t.textContent = 'to ' + to.name;
+    }
+  });
+  const hl = el('g', {}, svg), wl = el('g', {}, svg), tl = el('g', {}, svg);
+  const tokens = SUSPECTS.map((s, i) => {
+    const g = el('g', { 'data-s': i }, tl);
+    el('circle', { r: 5.9, fill: 'none', stroke: '#f2c14e', 'stroke-width': 1.2, class: 'me-ring', visibility: 'hidden' }, g);
+    el('circle', { r: 4.3, fill: s.color, stroke: '#fff', 'stroke-width': .9 }, g);
+    const t = el('text', { y: 1.65, 'text-anchor': 'middle', 'font-size': 4.6, 'font-weight': 700, fill: '#fff' }, g);
+    t.textContent = initial(i);
+    return g;
+  });
+  const shown = SUSPECTS.map(() => null);
+  const place = (i, p) => { shown[i] = p; tokens[i].setAttribute('transform', `translate(${p.x.toFixed(2)} ${p.y.toFixed(2)})`); };
+  // Where each token sits: the centre of its square, or a seat inside its room.
+  function slotOf(S, s) {
+    const q = S.pos[s];
+    if (q.r < 0) return { x: q.x * C + 5, y: q.y * C + 5 };
+    const R = ROOMS[q.r], x = R.rect[0] * C, y = R.rect[1] * C;
+    const here = S.pos.map((p, i) => (p.r === q.r ? i : -1)).filter((i) => i >= 0);
+    const k = here.indexOf(s);
+    return { x: x + 9 + (k % 3) * 16, y: y + 32 + Math.floor(k / 3) * 11 };
+  }
+  const keyPoint = (S, key, s) => {
+    if (key[0] === 'c') { const c = +key.slice(1); return { x: (c % W) * C + 5, y: Math.floor(c / W) * C + 5 }; }
+    return slotOf(S, s);
+  };
+  let anim = null;
+  const view = {
+    render(S, cur) {
+      wl.innerHTML = '';
+      const per = new Array(NR).fill(0);
+      S.wpos.forEach((r, w) => {
+        const R = ROOMS[r], k = per[r]++;
+        const x = R.rect[0] * C + 3 + (k % 5) * 9, y = R.rect[1] * C + 16.8 + Math.floor(k / 5) * 7;
+        const g = el('g', { transform: `translate(${x} ${y})` }, wl);
+        el('circle', { cx: 4, cy: 3.6, r: 4.1, fill: '#fbf2df', stroke: '#6d4c2f', 'stroke-width': .5 }, g);
+        const ig = el('g', { transform: 'translate(.8 .4) scale(.2)' }, g);
+        ig.innerHTML = ICON[WICON[w]];
+      });
+      S.pos.forEach((_, i) => { if (!(anim && anim.s === i)) place(i, slotOf(S, i)); });
+      tokens.forEach((g, i) => g.querySelector('.me-ring').setAttribute('visibility', i === cur ? 'visible' : 'hidden'));
+      if (cur >= 0) tl.appendChild(tokens[cur]);
+    },
+    highlight(keys) {
+      hl.innerHTML = '';
+      if (!keys) return;
+      for (const key of keys) {
+        if (key[0] === 'c') {
+          const c = +key.slice(1);
+          el('rect', { x: (c % W) * C + .8, y: Math.floor(c / W) * C + .8, width: C - 1.6, height: C - 1.6, rx: 1.6, fill: 'rgba(242,193,78,.55)', stroke: '#b77b0c', 'stroke-width': .7, class: 'lit' }, hl);
+        } else {
+          const R = ROOMS[+key.slice(1)], x = R.rect[0] * C, y = R.rect[1] * C, w = (R.rect[2] - R.rect[0] + 1) * C, h = (R.rect[3] - R.rect[1] + 1) * C;
+          el('rect', { x: x + 1, y: y + 1, width: w - 2, height: h - 2, rx: 2, fill: 'rgba(255,226,140,.26)', stroke: '#f2c14e', 'stroke-width': 1.8, class: 'lit' }, hl);
+        }
+      }
+    },
+    animateMove(S, move, done, speed) {
+      const s = move.who;
+      const pts = move.path.map((k, i) => (i === 0 ? (shown[s] || keyPoint(S, k, s)) : keyPoint(S, k, s)));
+      if (move.passage) return view.glide(S, s, done, speed, true);
+      const per = 105 * speed;
+      anim = { s };
+      tl.appendChild(tokens[s]);
+      const t0 = performance.now();
+      const step = (now) => {
+        // A rAF timestamp is the frame's start, which can be a little before t0: clamp, or i is -1.
+        const t = Math.max(0, (now - t0) / per), i = Math.floor(t);
+        if (i >= pts.length - 1) { anim = null; place(s, pts[pts.length - 1]); done(); return; }
+        const f = t - i, e = f < .5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2;
+        place(s, { x: pts[i].x + (pts[i + 1].x - pts[i].x) * e, y: pts[i].y + (pts[i + 1].y - pts[i].y) * e });
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    },
+    // A straight glide (summoned by a suggestion), or a fade through a secret passage.
+    glide(S, s, done, speed, fade) {
+      const a = shown[s] || slotOf(S, s), b = slotOf(S, s), dur = (fade ? 700 : 520) * speed;
+      anim = { s };
+      tl.appendChild(tokens[s]);
+      const t0 = performance.now();
+      const step = (now) => {
+        const f = Math.min(1, Math.max(0, (now - t0) / dur)), e = f < .5 ? 2 * f * f : 1 - Math.pow(-2 * f + 2, 2) / 2;
+        if (fade) { tokens[s].setAttribute('opacity', String(Math.abs(1 - 2 * f))); place(s, f < .5 ? a : b); }
+        else place(s, { x: a.x + (b.x - a.x) * e, y: a.y + (b.y - a.y) * e });
+        if (f < 1) requestAnimationFrame(step); else { tokens[s].setAttribute('opacity', '1'); anim = null; place(s, b); done(); }
+      };
+      requestAnimationFrame(step);
+    },
+    // A tap, to a target key. Taps near a lit square snap to it: the squares are ~18px on a phone.
+    hit(clientX, clientY, keys) {
+      if (!keys || !keys.length) return null;
+      const pt = svg.createSVGPoint(); pt.x = clientX; pt.y = clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+      let best = null, bd = 9;
+      for (const key of keys) {
+        let d;
+        if (key[0] === 'c') { const c = +key.slice(1); d = Math.hypot(p.x - ((c % W) * C + 5), p.y - (Math.floor(c / W) * C + 5)) - 3; }
+        else {
+          const R = ROOMS[+key.slice(1)], x0 = R.rect[0] * C, y0 = R.rect[1] * C, x1 = (R.rect[2] + 1) * C, y1 = (R.rect[3] + 1) * C;
+          d = Math.hypot(Math.max(x0 - p.x, 0, p.x - x1), Math.max(y0 - p.y, 0, p.y - y1)) - 1;
+        }
+        if (d < bd) { bd = d; best = key; }
+      }
+      return best;
+    },
+    // For tests: the client point at the centre of a target key.
+    pointOf(key) {
+      let x, y;
+      if (key[0] === 'c') { const c = +key.slice(1); x = (c % W) * C + 5; y = Math.floor(c / W) * C + 5; }
+      else { const R = ROOMS[+key.slice(1)]; x = (R.rect[0] + R.rect[2] + 1) * C / 2; y = (R.rect[1] + R.rect[3] + 1) * C / 2 + 8; }
+      const pt = svg.createSVGPoint(); pt.x = x; pt.y = y;
+      const q = pt.matrixTransform(svg.getScreenCTM());
+      return { x: q.x, y: q.y };
+    },
+  };
+  return view;
+}
+
+// ------------------------------------------------------------------ state, options, save
+let S = null, view = null;
+let viewer = -1;            // the human whose hand and notebook are on screen
+let busy = false;           // an animation or a pause is running
+let timer = 0;
+let autoplay = false;       // tests: the Hard detective plays the human seats
+let notesSeen = 0;
+const DEFAULT_OPTS = { seats: [{ kind: 'human', suspect: 0 }, { kind: 'normal', suspect: 1 }, { kind: 'normal', suspect: 2 }, { kind: 'normal', suspect: 3 }], dice: 1, help: 'passes', fast: false };
+let opts = JSON.parse(JSON.stringify(DEFAULT_OPTS));
+try {
+  const o = JSON.parse(localStorage.getItem(OPTS_KEY) || 'null');
+  if (o && Array.isArray(o.seats) && o.seats.length >= 3 && o.seats.length <= 6 &&
+      o.seats.every((s) => ['human', 'easy', 'normal', 'hard'].includes(s.kind) && s.suspect >= 0 && s.suspect < NS) &&
+      new Set(o.seats.map((s) => s.suspect)).size === o.seats.length) {
+    opts = { seats: o.seats, dice: o.dice === 2 ? 2 : 1, help: ['cards', 'passes', 'full'].includes(o.help) ? o.help : 'passes', fast: !!o.fast };
+  }
+} catch (e) { /* defaults */ }
+const saveOpts = () => { try { localStorage.setItem(OPTS_KEY, JSON.stringify(opts)); } catch (e) { /* ignore */ } };
+function save() {
+  try {
+    if (!S || S.phase === 'over') localStorage.removeItem(SAVE_KEY);
+    else localStorage.setItem(SAVE_KEY, M.serialize(S));
+  } catch (e) { /* storage full or blocked: play on unsaved */ }
+}
+let badSave = false;
+function loadSave() {
+  let text = null;
+  try { text = localStorage.getItem(SAVE_KEY); } catch (e) { return null; }
+  if (!text) return null;
+  const s = M.deserialize(text);
+  if (!s) { badSave = true; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
+  return s;
+}
+const speed = () => (opts.fast ? 0.45 : 1);
+const humans = () => S.players.map((P, i) => (P.kind === 'human' ? i : -1)).filter((i) => i >= 0);
+const multi = () => humans().length > 1;
+const actor = () => (S.phase === 'refute' && S.pending ? S.pending.q : S.cur);
+const pname = (p) => S.players[p].name + (p === viewer && !multi() ? ' (you)' : '');
+const nameHTML = (p) => '<span class="nm" style="color:' + SUSPECTS[S.players[p].suspect].color + ';filter:brightness(1.45)">' + esc(p === viewer && !multi() ? 'You' : S.players[p].name) + '</span>';
+const canSeeHand = () => viewer >= 0 && (!multi() || actor() === viewer);
+
+// ------------------------------------------------------------------ layout
+function layout() {
+  const vw = innerWidth, vh = innerHeight, app = $('app');
+  const land = vw > vh;
+  let bs;
+  if (land) bs = Math.min(vh - 12, vw - 12 - 46 - 250 - 12, 780);
+  else bs = Math.min(vw - 12, vh - 12 - 46 - 12 - (vh < 700 ? 214 : 250), 640);
+  bs = Math.max(200, Math.floor(bs));
+  app.className = land ? 'landscape' : 'portrait';
+  app.style.setProperty('--bs', bs + 'px');
+  const nv = $('noteVeil');
+  nv.classList.toggle('drawer', vw >= 900);
+}
+addEventListener('resize', layout);
+
+// ------------------------------------------------------------------ panel
+function dieHTML(n, rolling) {
+  const on = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] }[n];
+  let h = '<div class="die' + (rolling ? ' roll' : '') + '">';
+  for (let i = 0; i < 9; i++) h += '<i class="' + (on.indexOf(i) >= 0 ? 'on' : '') + '"></i>';
+  return h + '</div>';
+}
+let justRolled = false;
+function renderStatus() {
+  const a = actor(), P = S.players[a], col = SUSPECTS[P.suspect].color;
+  const mine = a === viewer && P.kind === 'human';
+  let txt = '';
+  const room = M.roomOf(S, S.cur) >= 0 ? ROOMS[M.roomOf(S, S.cur)].name : '';
+  switch (S.phase) {
+    case 'start': txt = mine ? '<b>Your turn.</b> Roll, or accuse if you are sure.' : esc(pname(a)) + ' is thinking…'; if (mine && M.canStay(S)) txt = '<b>Your turn.</b> You were brought to the ' + esc(room) + ' — you may suggest here.'; break;
+    case 'move': txt = mine ? 'Rolled <b>' + S.roll + '</b> — tap a lit square or room.' : esc(pname(a)) + ' rolled ' + S.roll + '.'; break;
+    case 'suggest': txt = mine ? 'In the <b>' + esc(room) + '</b>. Make a suggestion.' : esc(pname(a)) + ' is in the ' + esc(room) + '…'; break;
+    case 'refute': txt = mine ? '<b>You must answer</b> ' + esc(S.players[S.cur].name) + '\'s suggestion.' : 'Waiting for ' + esc(pname(a)) + ' to answer…'; break;
+    case 'reveal': txt = mine ? 'See what you were shown.' : esc(pname(a)) + ' looks at the answer.'; break;
+    case 'end': txt = mine ? (S.note === 'boxed' ? 'Boxed in — no way to move. ' : '') + '<b>End your turn</b>, or accuse.' : esc(pname(a)) + ' is finishing…'; break;
+    case 'over': txt = 'The case is closed.'; break;
+  }
+  if (P.out && S.phase !== 'refute') txt += ' <span class="muted">(out)</span>';
+  let dice = '';
+  if (S.faces.length && (S.phase === 'move' || S.phase === 'end' || S.phase === 'suggest')) dice = '<div class="dice">' + S.faces.map((f) => dieHTML(f, justRolled)).join('') + '</div>';
+  justRolled = false;
+  $('status').innerHTML = '<div class="tok" style="background:' + col + '">' + initial(P.suspect) + '</div><div class="txt">' + txt + '</div>' + dice;
+}
+function renderActions() {
+  const box = $('actions');
+  box.innerHTML = '';
+  const a = actor(), mine = a === viewer && S.players[a].kind === 'human' && !busy && !autoplay;
+  const add = (label, cls, fn, id) => { const b = document.createElement('button'); b.className = 'btn ' + (cls || ''); b.innerHTML = label; if (id) b.id = id; b.onclick = fn; box.appendChild(b); return b; };
+  if (S.phase === 'over') { add('See the solution', 'primary', showFinal, 'aSolution'); add('New game', '', openSetup); return; }
+  if (!mine) return;
+  switch (S.phase) {
+    case 'start':
+      add('Roll', 'primary', () => act(() => { M.roll(S); justRolled = true; }), 'aRoll');
+      if (M.canStay(S)) add('Suggest here', '', () => act(() => M.stay(S)), 'aStay');
+      if (M.canPassage(S)) add('Passage to ' + esc(ROOMS[ROOMS[M.roomOf(S, S.cur)].passage].name), '', doPassage, 'aPassage');
+      add('Accuse…', 'danger', openAccuse, 'aAccuse');
+      break;
+    case 'move': break;
+    case 'suggest':
+      add('Suggest…', 'primary', openSuggest, 'aSuggest');
+      add('Skip', 'ghost', () => act(() => M.skipSuggest(S)), 'aSkip');
+      add('Accuse…', 'danger', openAccuse, 'aAccuse');
+      break;
+    case 'refute': add('Show a card…', 'primary', openRefute, 'aRefute'); break;
+    case 'reveal': add('See the answer', 'primary', showReveal, 'aReveal'); break;
+    case 'end':
+      add('End turn', 'primary', () => act(() => M.endTurn(S)), 'aEnd');
+      add('Accuse…', 'danger', openAccuse, 'aAccuse');
+      break;
+  }
+}
+function renderHand() {
+  const box = $('hand');
+  if (!canSeeHand()) { box.innerHTML = '<div class="hid">' + (S && humans().length === 0 ? 'Watching the computers' : 'Hands are hidden') + '</div>'; return; }
+  box.innerHTML = '<div class="lab">Your cards</div>' + S.players[viewer].hand.map((c) => cardHTML(c, 'mini')).join('');
+}
+function suggestionText(e, rich) {
+  const [s, w, r] = e.cards;
+  const nm = rich ? nameHTML : (p) => esc(S.players[p].name);
+  let t = nm(e.by) + ' suggested <b>' + esc(SUSPECTS[s].name) + '</b> with the <b>' + esc(M.cardName(w)) + '</b> in the <b>' + esc(M.cardName(r)) + '</b>.';
+  if (e.passes.length) t += ' <span class="muted">' + e.passes.map((q) => esc(S.players[q].name)).join(', ') + (e.passes.length > 1 ? ' couldn\'t' : ' couldn\'t') + ' answer.</span>';
+  if (e.shownBy >= 0) {
+    t += ' ' + nm(e.shownBy) + ' showed ' + (e.by === viewer && canSeeHand() ? 'you' : esc(S.players[e.by].name)) + ' a card';
+    if (e.by === viewer && canSeeHand()) {
+      const ob = S.obs[viewer].find((o) => o.t === 'show' && o.turn === e.turn);
+      if (ob) t += ': <span class="seen">' + esc(M.cardName(ob.card)) + '</span>';
+    }
+    t += '.';
+  } else t += ' <span class="seen">Nobody could answer.</span>';
+  return t;
+}
+function logLine(e) {
+  if (e.t === 'suggest') return suggestionText(e, true);
+  if (e.t === 'accuse') return nameHTML(e.by) + ' accused ' + esc(SUSPECTS[e.cards[0]].name) + ', the ' + esc(M.cardName(e.cards[1])) + ', the ' + esc(M.cardName(e.cards[2])) + ' — ' + (e.ok ? '<span class="seen">correct!</span>' : '<span class="muted">wrong, and out.</span>');
+  return '';
+}
+function renderLogMini() {
+  // Newest first, at the top, next to the hand; older lines are clipped at the bottom.
+  const items = S.log.slice(-6).reverse();
+  $('logMini').innerHTML = items.map((e, i) => '<div class="lg"' + (i ? ' style="opacity:.62"' : '') + '>' + logLine(e) + '</div>').join('');
+}
+function renderBoard() {
+  const a = actor();
+  view.render(S, S.phase === 'over' ? -1 : S.players[S.cur].suspect);
+  const mine = a === viewer && S.players[a].kind === 'human' && !autoplay;
+  view.highlight(S.phase === 'move' && mine && !busy ? S.targets : null);
+}
+// The notebook is re-derived from the viewer's observations; the pickers ask it once per option, and
+// "Full" runs the probing engine, so keep the last answer until something new is observed.
+let nbCache = { key: '', val: null };
+function notebookOf(p) {
+  const key = p + ':' + opts.help + ':' + S.obs[p].length + ':' + S.seed + ':' + S.turn;
+  if (nbCache.key !== key || nbCache.S !== S) nbCache = { key, S, val: M.notebook(S, p, opts.help) };
+  return nbCache.val;
+}
+function knownCount() {
+  if (viewer < 0) return 0;
+  const nb = notebookOf(viewer);
+  let n = 0; nb.forEach((row) => row.forEach((v) => { if (v) n++; }));
+  return n;
+}
+function renderAll() {
+  renderBoard(); renderStatus(); renderActions(); renderHand(); renderLogMini();
+  const k = canSeeHand() ? knownCount() : 0;
+  $('noteDot').hidden = !(canSeeHand() && k > notesSeen);
+}
+
+// ------------------------------------------------------------------ flow
+function act(fn) {
+  if (busy) return;
+  const before = S.lastMove;
+  fn();
+  after(before);
+}
+function after(beforeMove) {
+  save();
+  if (S.lastMove && S.lastMove !== beforeMove && view) {
+    busy = true; renderAll();
+    view.animateMove(S, S.lastMove, () => { busy = false; renderAll(); pump(); }, speed());
+    return;
+  }
+  renderAll();
+  pump();
+}
+function doPassage() { act(() => M.takePassage(S)); }
+function pump() {
+  clearTimeout(timer);
+  if (!S || busy) return;
+  if (S.phase === 'over') { renderAll(); setTimeout(showFinal, 500 * speed()); return; }
+  const a = actor(), P = S.players[a];
+  if (P.kind === 'human' && !autoplay) {
+    if (multi() && viewer !== a) { showCover(a); return; }
+    viewer = a;
+    renderAll();
+    if (S.phase === 'suggest' && !dialogOpen()) openSuggest();
+    else if (S.phase === 'refute' && !dialogOpen()) openRefute();
+    else if (S.phase === 'reveal' && $('reveal').hidden) showReveal();
+    return;
+  }
+  const delay = { start: 650, move: 350, suggest: 700, refute: 600, reveal: 300, end: 450 }[S.phase] || 400;
+  timer = setTimeout(aiTick, delay * speed() * (autoplay ? 0.3 : 1));
+}
+function aiTick() {
+  if (!S || busy || S.phase === 'over') return;
+  const logLen = S.log.length, beforeMove = S.lastMove, beforeSummon = S.lastSummon;
+  const wasPhase = S.phase, by = S.cur;
+  const ok = autoplay && S.players[actor()].kind === 'human' ? M.aiStep(S, true) : M.aiStep(S);
+  if (!ok) { renderAll(); return; }
+  save();
+  const newSugg = S.log.length > logLen && S.log[S.log.length - 1].t === 'suggest' && wasPhase === 'suggest';
+  const finish = () => {
+    if (newSugg && S.log[S.log.length - 1].by === by) {
+      const e = S.log[S.log.length - 1];
+      toast(suggestionText(e, false), 2600 * speed());
+      renderAll();
+      busy = true;
+      setTimeout(() => { busy = false; pump(); }, (S.players[by].kind === 'human' ? 400 : 1700) * speed());
+      return;
+    }
+    renderAll(); pump();
+  };
+  if (S.lastMove !== beforeMove && S.lastMove) {
+    busy = true; renderAll();
+    view.animateMove(S, S.lastMove, () => { busy = false; finish(); }, speed());
+  } else if (S.lastSummon && S.lastSummon !== beforeSummon) {
+    busy = true; renderAll();
+    view.glide(S, S.lastSummon.who, () => { busy = false; finish(); }, speed());
+  } else finish();
+}
+let toastT = 0;
+function toast(html, ms) {
+  const t = $('toast');
+  t.innerHTML = html; t.hidden = false;
+  clearTimeout(toastT);
+  toastT = setTimeout(() => { t.hidden = true; }, ms || 2200);
+}
+
+// ------------------------------------------------------------------ dialogs
+const dialogOpen = () => !$('dlgVeil').hidden;
+function openDialog(title, bodyHTML, footer, wide) {
+  const v = $('dlgVeil');
+  v.classList.toggle('wide', !!wide);
+  $('dlg').innerHTML = '<header><h2>' + title + '</h2><button class="iconbtn" id="dlgX" aria-label="Close">✕</button></header><div class="body">' + bodyHTML + '</div>' + (footer ? '<footer>' + footer + '</footer>' : '');
+  v.hidden = false;
+  $('dlgX').onclick = closeDialog;
+}
+function closeDialog() { $('dlgVeil').hidden = true; renderAll(); }
+$('dlgVeil').addEventListener('click', (e) => { if (e.target.id === 'dlgVeil') closeDialog(); });
+
+// What the viewer's notebook says about a card: 'no' = certainly not in the envelope (auto or own marks).
+function cardHint(c) {
+  if (viewer < 0) return '';
+  const nb = notebookOf(viewer);
+  const N = S.players.length;
+  if (nb[c][N] === 1) return 'yes';
+  if (nb[c][N] === -1) return 'no';
+  const marks = (S.notes && S.notes[viewer]) || {};
+  for (let p = 0; p < N; p++) if (marks[c + ':' + p] === 'y') return 'no';
+  return '';
+}
+function optHTML(c, sel, name, plain) {
+  const h = plain ? '' : cardHint(c);
+  const art = c < NS ? medallion(c) : c < NS + NW ? icon(WICON[c - NS]) : icon(RICON[c - NS - NW]);
+  return '<button class="opt' + (h === 'no' ? ' struck' : '') + '" data-c="' + c + '" data-g="' + name + '" aria-pressed="' + (sel === c) + '">' + art + '<span>' + esc(M.cardName(c)) + '</span></button>';
+}
+function wirePicks(state, onChange) {
+  $('dlg').querySelectorAll('.opt').forEach((b) => {
+    b.onclick = () => { state[b.dataset.g] = +b.dataset.c; $('dlg').querySelectorAll('.opt[data-g="' + b.dataset.g + '"]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); onChange(); };
+  });
+}
+function openSuggest() {
+  if (S.phase !== 'suggest' || actor() !== viewer) return;
+  const r = M.roomOf(S, S.cur);
+  const st = { s: -1, w: -1 };
+  const body = '<p class="lead">The suspect and the weapon you name are brought to the ' + esc(ROOMS[r].name) + '. The others answer in turn.</p>' +
+    '<div class="sec">Who?</div><div class="pick">' + SUSPECTS.map((_, s) => optHTML(s, -1, 's')).join('') + '</div>' +
+    '<div class="sec">With what?</div><div class="pick">' + WEAPONS.map((_, w) => optHTML(NS + w, -1, 'w')).join('') + '</div>';
+  openDialog('Suggest — in the ' + esc(ROOMS[r].name), body, '<button class="btn ghost" id="sgSkip">Not now</button><button class="btn primary" id="sgGo" disabled>Suggest</button>', true);
+  const go = $('sgGo');
+  wirePicks(st, () => { go.disabled = !(st.s >= 0 && st.w >= 0); });
+  $('sgSkip').onclick = closeDialog;
+  go.onclick = () => { $('dlgVeil').hidden = true; act(() => M.suggest(S, st.s, st.w - NS)); };
+}
+function openRefute() {
+  if (S.phase !== 'refute' || actor() !== viewer) return;
+  const g = S.sugg, match = S.pending.match;
+  const body = '<p>' + esc(S.players[g.by].name) + ' suggests <b>' + esc(SUSPECTS[g.cards[0]].name) + '</b> with the <b>' + esc(M.cardName(g.cards[1])) + '</b> in the <b>' + esc(M.cardName(g.cards[2])) + '</b>.</p>' +
+    '<p>You hold ' + (match.length > 1 ? 'more than one of these. Choose one to show — only ' + esc(S.players[g.by].name) + ' will see it.' : 'one of these. Only ' + esc(S.players[g.by].name) + ' will see it.') + '</p>' +
+    '<div class="pick">' + match.map((c) => optHTML(c, -1, 'c', true)).join('') + '</div>';
+  const st = { c: match.length === 1 ? match[0] : -1 };
+  openDialog('Answer the suggestion', body, '<button class="btn primary" id="rfGo"' + (st.c < 0 ? ' disabled' : '') + '>Show this card</button>', true);
+  $('dlgX').hidden = true;
+  if (st.c >= 0) $('dlg').querySelector('.opt').setAttribute('aria-pressed', 'true');
+  wirePicks(st, () => { $('rfGo').disabled = st.c < 0; });
+  $('rfGo').onclick = () => { $('dlgVeil').hidden = true; act(() => M.refute(S, st.c)); };
+}
+function openAccuse() {
+  if (!M.canAccuse(S) || actor() !== viewer) return;
+  const st = { s: -1, w: -1, r: -1 };
+  const body = '<p class="lead">Name all three. <b>Right, and you win. Wrong, and you are out</b> — you keep answering suggestions, but cannot win.</p>' +
+    '<div class="sec">Who</div><div class="pick">' + SUSPECTS.map((_, s) => optHTML(s, -1, 's')).join('') + '</div>' +
+    '<div class="sec">With</div><div class="pick">' + WEAPONS.map((_, w) => optHTML(NS + w, -1, 'w')).join('') + '</div>' +
+    '<div class="sec">Where</div><div class="pick rooms">' + ROOMS.map((_, r) => optHTML(NS + NW + r, -1, 'r')).join('') + '</div>';
+  openDialog('Accuse — wrong means you are out', body, '<button class="btn ghost" id="acNo">Not yet</button><button class="btn danger" id="acGo" disabled>Accuse</button>', true);
+  wirePicks(st, () => { $('acGo').disabled = !(st.s >= 0 && st.w >= 0 && st.r >= 0); });
+  $('acNo').onclick = closeDialog;
+  $('acGo').onclick = () => {
+    $('dlgVeil').hidden = true;
+    const p = S.cur;
+    M.accuse(S, [st.s, st.w, st.r]);
+    save();
+    if (S.phase === 'over') { renderAll(); pump(); return; }
+    showWrong(p);
+  };
+}
+function showWrong(p) {
+  const env = S.envelope;
+  const el = $('reveal');
+  el.innerHTML = '<h2>That is not what happened</h2><p>' + esc(S.players[p].name) + ' is out of the running. As the rules allow, you look inside the envelope — then put it back. You still answer suggestions.</p>' +
+    '<div class="trio" style="--cw:' + trioW() + 'px">' + env.map((c) => cardHTML(c, 'big')).join('') + '</div>' +
+    '<button class="btn primary" id="wrOk" style="flex:none;padding:0 26px">Go on</button>';
+  el.hidden = false;
+  $('wrOk').onclick = () => { el.hidden = true; renderAll(); pump(); };
+}
+const trioW = () => Math.floor(Math.min(150, (innerWidth - 60) / 3, (innerHeight - 260) / 1.4));
+
+// The private reveal: what the suggester was shown, flipped face up.
+function showReveal() {
+  if (S.phase !== 'reveal' || actor() !== viewer) return;
+  const g = S.sugg, el = $('reveal');
+  const passes = g.passes.length ? '<p>' + g.passes.map((q) => esc(S.players[q].name)).join(', ') + ' couldn\'t answer.</p>' : '';
+  if (g.shownBy >= 0) {
+    const cw = Math.floor(Math.min(168, (innerHeight - 220) / 1.4));
+    el.innerHTML = passes + '<h2>' + esc(S.players[g.shownBy].name) + ' shows you</h2>' +
+      '<div class="flip" id="flip" style="width:' + cw + 'px;height:' + Math.floor(cw * 1.4) + 'px"><div class="inner" style="width:100%;height:100%">' +
+      CARD_BACK.replace('class="cardback"', 'class="cardback back" style="width:100%;height:100%"') +
+      '<div class="face">' + cardHTML(g.card, 'big') + '</div></div></div>' +
+      '<p>It is noted in your notebook. Nobody else saw it.</p><button class="btn primary" id="rvOk" style="flex:none;padding:0 26px">Noted</button>';
+    el.querySelector('.face .card').style.cssText = 'width:100%;height:100%';
+    el.hidden = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => $('flip').classList.add('on')));
+  } else {
+    el.innerHTML = passes + '<h2>Nobody could answer</h2>' +
+      '<div class="trio" style="--cw:' + Math.min(110, trioW()) + 'px">' + g.cards.map((c) => cardHTML(c, 'big')).join('') + '</div>' +
+      '<p>Whichever of these you do not hold yourself must be in the envelope.</p><button class="btn primary" id="rvOk" style="flex:none;padding:0 26px">Noted</button>';
+    el.hidden = false;
+  }
+  $('rvOk').onclick = () => { el.hidden = true; act(() => M.ackReveal(S)); };
+}
+function narrative() {
+  const [s, w, r] = S.envelope;
+  return SUSPECTS[s].motive + ' ' + WEAPONS[w - NS].deed + ' ' + ROOMS[r - NS - NW].scene;
+}
+function showFinal() {
+  if (!S || S.phase !== 'over') return;
+  const el = $('reveal');
+  const [s, w, r] = S.envelope;
+  let who;
+  if (S.winner >= 0) who = (S.winner === viewer && !multi() ? 'You solved it' : esc(S.players[S.winner].name) + ' solved it') + ' on turn ' + S.turn + '.';
+  else if (S.endReason === 'nobody') who = 'Every detective accused wrongly. The case went cold.';
+  else who = 'The case went unsolved.';
+  const cw = Math.floor(Math.min(150, (innerWidth - 60) / 3, (innerHeight - 300) / 1.4));
+  el.innerHTML = '<h2>The truth</h2><div class="trio" style="--cw:' + cw + 'px">' +
+    S.envelope.map((c, i) => '<div class="flip" id="ff' + i + '"><div class="inner" style="width:100%;height:100%">' + CARD_BACK.replace('class="cardback"', 'class="cardback back" style="width:100%;height:100%"') + '<div class="face">' + cardHTML(c, 'big') + '</div></div></div>').join('') +
+    '</div><div class="verdict" id="fv" style="opacity:0;transition:opacity .6s">' + esc(SUSPECTS[s].name) + ', ' + esc(SUSPECTS[s].title) + ', with the ' + esc(M.cardName(w)) + ' in the ' + esc(M.cardName(r)) + '.</div>' +
+    '<div class="who">' + who + '</div><p class="story" id="fs" style="opacity:0;transition:opacity .6s">' + esc(narrative()) + '</p>' +
+    '<div style="display:flex;gap:8px"><button class="btn" id="fnBoard" style="flex:none;padding:0 18px">Look at the board</button><button class="btn primary" id="fnNew" style="flex:none;padding:0 22px">New case</button></div>';
+  el.querySelectorAll('.face .card').forEach((c) => { c.style.cssText = 'width:100%;height:100%'; });
+  el.hidden = false;
+  [0, 1, 2].forEach((i) => setTimeout(() => { const f = $('ff' + i); if (f) f.classList.add('on'); }, (300 + i * 650) * speed()));
+  setTimeout(() => { const v = $('fv'), t = $('fs'); if (v) v.style.opacity = 1; if (t) t.style.opacity = 1; }, 2300 * speed());
+  $('fnBoard').onclick = () => { el.hidden = true; };
+  $('fnNew').onclick = () => { el.hidden = true; openSetup(); };
+}
+
+// ------------------------------------------------------------------ notebook
+const MARK_CYCLE = { '': 'n', n: 'y', y: 'q', q: '' };
+function openNotebook() {
+  if (!S) return;
+  if (!canSeeHand()) { toast('The notebook belongs to whoever is playing — it opens on your turn.'); return; }
+  renderNotebook();
+  $('noteVeil').hidden = false;
+  notesSeen = knownCount();
+  $('noteDot').hidden = true;
+}
+function renderNotebook() {
+  const N = S.players.length, nb = notebookOf(viewer);
+  S.notes = S.notes || {};
+  const marks = S.notes[viewer] = S.notes[viewer] || {};
+  const mine = new Set(S.players[viewer].hand);
+  let h = '<header><h2>Notebook</h2><button class="iconbtn" id="nbX" aria-label="Close">✕</button></header><div class="body">' +
+    '<div class="row2"><span>Fill in</span><div class="seg" id="nbHelp">' +
+    [['cards', 'Cards seen'], ['passes', '+ Passes'], ['full', 'Full']].map(([k, l]) => '<button data-k="' + k + '" aria-pressed="' + (opts.help === k) + '">' + l + '</button>').join('') + '</div></div>' +
+    '<div class="legend">Solid marks are certain — ' + (opts.help === 'cards' ? 'your cards and cards shown to you.' : opts.help === 'passes' ? 'your cards, cards shown to you, and who could not answer.' : 'everything that follows from what you have seen.') + ' Tap any other box to pencil in ✗, ✓ or ?.</div>' +
+    '<table class="nb"><thead><tr><th class="cname">Card</th>' +
+    S.players.map((P, p) => '<th><span class="tok" style="background:' + SUSPECTS[P.suspect].color + '"></span>' + esc(p === viewer ? 'You' : P.name.replace('Dr ', '').slice(0, 6)) + '</th>').join('') + '</tr></thead><tbody>';
+  const groups = [['Suspects', 0, NS], ['Weapons', NS, NS + NW], ['Rooms', NS + NW, NC]];
+  for (const [label, a, b] of groups) {
+    h += '<tr class="grp"><td colspan="' + (N + 1) + '">' + label + '</td></tr>';
+    for (let c = a; c < b; c++) {
+      let cls = nb[c][N] === 1 ? 'yes' : nb[c][N] === -1 ? 'no' : '';
+      if (!cls) for (let p = 0; p < N; p++) if (marks[c + ':' + p] === 'y') cls = 'no';
+      h += '<tr class="' + (mine.has(c) ? 'mine' : '') + '"><td class="cname ' + cls + '">' + esc(M.cardName(c)) + '</td>';
+      for (let p = 0; p < N; p++) {
+        const v = nb[c][p];
+        if (v === 1) h += '<td><button class="a-yes" disabled aria-label="certainly has it">✓</button></td>';
+        else if (v === -1) h += '<td><button class="a-no" disabled aria-label="certainly not">✗</button></td>';
+        else {
+          const m = marks[c + ':' + p] || '';
+          h += '<td><button class="m-' + (m === 'y' ? 'yes' : m === 'n' ? 'no' : m === 'q' ? 'q' : '') + '" data-k="' + c + ':' + p + '" aria-label="your mark">' + (m === 'y' ? '✓' : m === 'n' ? '✗' : m === 'q' ? '?' : '') + '</button></td>';
+        }
+      }
+      h += '</tr>';
+    }
+  }
+  h += '</tbody></table></div>';
+  const body = $('note').querySelector('.body');
+  const top = body ? body.scrollTop : 0;
+  $('note').innerHTML = h;
+  $('note').querySelector('.body').scrollTop = top;
+  $('nbX').onclick = () => { $('noteVeil').hidden = true; renderAll(); };
+  $('note').querySelectorAll('button[data-k]').forEach((b) => {
+    if (b.closest('#nbHelp')) b.onclick = () => { opts.help = b.dataset.k; saveOpts(); renderNotebook(); };
+    else b.onclick = () => { const k = b.dataset.k; const nx = MARK_CYCLE[marks[k] || '']; if (nx) marks[k] = nx; else delete marks[k]; save(); renderNotebook(); };
+  });
+}
+$('noteVeil').addEventListener('click', (e) => { if (e.target.id === 'noteVeil') { $('noteVeil').hidden = true; renderAll(); } });
+
+function openLog() {
+  if (!S) return;
+  const items = S.log.slice().reverse();
+  openDialog('Case log', items.length ? items.map((e) => '<p class="lg">' + (e.turn ? '<span class="muted">Turn ' + e.turn + ' · </span>' : '') + logLine(e) + '</p>').join('') : '<p>No suggestions yet.</p>', '', false);
+}
+function openRules() {
+  openDialog('How to play', '<p class="story">' + esc(storyText()) + '</p>' +
+    '<p><b>The envelope</b> holds one suspect, one weapon and one room. Every other card is dealt out; a card in your hand cannot be in the envelope.</p>' +
+    '<p><b>Move</b>: roll and move up to that many squares through the gallery, or into a room through a door (stepping in ends your move). Corner rooms have secret passages to the opposite corner — taking one is your move. You cannot re-enter the room you just left in the same turn.</p>' +
+    '<p><b>Suggest</b>: when you enter a room, name a suspect and a weapon; both are brought to that room. Going round to your left, the first player holding any of the three shows you one of them, privately. Everyone sees who answered, and who could not.</p>' +
+    '<p>If a suggestion brings your token to a room, on your next turn you may suggest there without moving.</p>' +
+    '<p><b>Accuse</b> on your turn when you are sure. Right, you win; wrong, you are out — you keep answering suggestions but cannot win.</p>' +
+    '<p><b>The notebook</b> fills in what you know for certain; pencil in the rest. Computer detectives are Easy (guesses), Normal (tracks who passes) or Hard (tracks every answer and reasons it through; never accuses wrongly).</p>', '', false);
+}
+function openMenu() {
+  openDialog('Menu', '<div style="display:flex;flex-direction:column;gap:8px">' +
+    '<button class="btn" id="mNew">New game…</button><button class="btn" id="mRules">How to play</button>' +
+    '<div class="row2"><span>Speed</span><div class="seg" id="mSpeed"><button data-v="0" aria-pressed="' + !opts.fast + '">Normal</button><button data-v="1" aria-pressed="' + opts.fast + '">Fast</button></div></div></div>', '', false);
+  $('mNew').onclick = () => { closeDialog(); openSetup(); };
+  $('mRules').onclick = openRules;
+  $('mSpeed').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.fast = b.dataset.v === '1'; saveOpts(); openMenu(); }; });
+}
+$('btnNote').onclick = openNotebook;
+$('btnLog').onclick = openLog;
+$('logMini').onclick = openLog;
+$('btnMenu').onclick = openMenu;
+
+// ------------------------------------------------------------------ pass-and-play cover
+function showCover(p) {
+  const el = $('cover'), P = S.players[p];
+  const why = S.phase === 'refute' ? 'answer ' + S.players[S.cur].name + '\'s suggestion' : S.phase === 'reveal' ? 'see the answer to your suggestion' : 'take your turn';
+  el.innerHTML = '<div class="tok" style="background:' + SUSPECTS[P.suspect].color + '">' + initial(P.suspect) + '</div><h2>Pass to ' + esc(P.name) + '</h2>' +
+    '<p>Time to ' + esc(why) + '. Everyone else, look away — your cards are on the next screen.</p><button class="btn primary" id="cvGo">I am ' + esc(P.name) + '</button>';
+  el.hidden = false;
+  $('cvGo').onclick = () => { el.hidden = true; viewer = p; notesSeen = knownCount(); renderAll(); pump(); };
+}
+
+// ------------------------------------------------------------------ setup
+function storyText() {
+  return 'The monsoon feast is over. At dawn ' + M.VICTIM + ', is found dead, and the gates were barred all night. ' +
+    'Six people slept under his roof. One of them did it, with something from this house, in one of its nine rooms. The answer is sealed in an envelope. ' +
+    'Move through the house, make suggestions, note who cannot answer — and be the first to name all three.';
+}
+const KIND_LABEL = { human: 'Human', easy: 'Easy', normal: 'Normal', hard: 'Hard' };
+function openSetup() {
+  clearTimeout(timer);
+  const saved = S && S.phase !== 'over' ? S : loadSave();
+  const el = $('setup');
+  let h = '<header><h2>Whodunit</h2></header><div class="body">';
+  if (badSave) { h += '<p style="color:#ffb4b4">Your saved case could not be read, so a fresh one is ready.</p>'; badSave = false; }
+  h += '<p class="story">' + esc(storyText()) + '</p>';
+  if (saved) h += '<button class="btn primary" id="suResume" style="width:100%;margin:4px 0 8px">Resume the case in progress</button>';
+  h += '<div class="sec">Detectives (play in this order)</div><div id="seats"></div>' +
+    '<button class="btn ghost" id="suAdd" style="width:100%">+ Add a detective</button>' +
+    '<div class="sec">Options</div>' +
+    '<div class="row2"><span>Dice</span><div class="seg" id="suDice"><button data-v="1" aria-pressed="' + (opts.dice === 1) + '">One die</button><button data-v="2" aria-pressed="' + (opts.dice === 2) + '">Two (quicker)</button></div></div>' +
+    '<div class="row2"><span>Notebook</span><div class="seg" id="suHelp">' + [['cards', 'Cards seen'], ['passes', '+ Passes'], ['full', 'Full']].map(([k, l]) => '<button data-v="' + k + '" aria-pressed="' + (opts.help === k) + '">' + l + '</button>').join('') + '</div></div>' +
+    '</div><footer>' + (saved ? '<button class="btn ghost" id="suBack">Back</button>' : '') + '<button class="btn primary" id="suGo">' + (saved ? 'Start a new case' : 'Start the case') + '</button></footer>';
+  el.innerHTML = h;
+  $('setupVeil').hidden = false;
+  const drawSeats = () => {
+    $('seats').innerHTML = opts.seats.map((s, i) => '<div class="seat"><button class="who" data-i="' + i + '" style="background:' + SUSPECTS[s.suspect].color + '" aria-label="Change character">' + initial(s.suspect) + '</button>' +
+      '<div class="nm">' + esc(SUSPECTS[s.suspect].name) + '<small>' + esc(SUSPECTS[s.suspect].title) + '</small></div>' +
+      '<select data-i="' + i + '" aria-label="Who plays ' + esc(SUSPECTS[s.suspect].name) + '">' + Object.keys(KIND_LABEL).map((k) => '<option value="' + k + '"' + (k === s.kind ? ' selected' : '') + '>' + (k === 'human' ? 'Human' : 'Computer · ' + KIND_LABEL[k]) + '</option>').join('') + '</select>' +
+      (opts.seats.length > 3 ? '<button class="x" data-i="' + i + '" aria-label="Remove">✕</button>' : '') + '</div>').join('');
+    $('suAdd').hidden = opts.seats.length >= 6;
+    $('seats').querySelectorAll('.who').forEach((b) => { b.onclick = () => {
+      const i = +b.dataset.i, used = new Set(opts.seats.map((s) => s.suspect));
+      let s = opts.seats[i].suspect;
+      do { s = (s + 1) % NS; } while (used.has(s) && s !== opts.seats[i].suspect);
+      opts.seats[i].suspect = s; drawSeats();
+    }; });
+    $('seats').querySelectorAll('select').forEach((b) => { b.onchange = () => { opts.seats[+b.dataset.i].kind = b.value; }; });
+    $('seats').querySelectorAll('.x').forEach((b) => { b.onclick = () => { opts.seats.splice(+b.dataset.i, 1); drawSeats(); }; });
+  };
+  drawSeats();
+  $('suAdd').onclick = () => { const used = new Set(opts.seats.map((s) => s.suspect)); let s = 0; while (used.has(s)) s++; opts.seats.push({ kind: 'normal', suspect: s }); drawSeats(); };
+  $('suDice').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.dice = +b.dataset.v; $('suDice').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); }; });
+  $('suHelp').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.help = b.dataset.v; $('suHelp').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); }; });
+  if (saved) {
+    $('suResume').onclick = () => { $('setupVeil').hidden = true; resume(saved); };
+    if ($('suBack')) $('suBack').onclick = () => { $('setupVeil').hidden = true; resume(saved); };
+  }
+  $('suGo').onclick = () => { saveOpts(); $('setupVeil').hidden = true; startGame({ seed: (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0 }); };
+}
+function startGame(o) {
+  clearTimeout(timer);
+  const seats = o.seats || opts.seats;
+  S = M.newGame({ seed: o.seed, dice: o.dice || opts.dice, players: seats.map((s) => ({ kind: s.kind, suspect: s.suspect, name: SUSPECTS[s.suspect].name })) });
+  S.notes = {};
+  begin();
+}
+function resume(s) { S = s; S.notes = S.notes || {}; begin(); }
+function begin() {
+  busy = false;
+  $('reveal').hidden = true; $('dlgVeil').hidden = true; $('noteVeil').hidden = true; $('cover').hidden = true;
+  const hs = humans();
+  viewer = hs.length === 1 ? hs[0] : (hs.length ? (S.players[actor()].kind === 'human' ? -1 : hs[0]) : -1);
+  if (hs.length > 1) viewer = -1;
+  notesSeen = 0;
+  save();
+  layout();
+  renderAll();
+  pump();
+}
+
+// ------------------------------------------------------------------ board taps
+$('board').addEventListener('click', (e) => {
+  if (!S || busy || S.phase !== 'move' || actor() !== viewer || autoplay) return;
+  const key = view.hit(e.clientX, e.clientY, S.targets);
+  if (key) act(() => M.moveTo(S, key));
+});
+
+// ------------------------------------------------------------------ boot
+view = makeBoardView($('board'));
+layout();
+{
+  const s = loadSave();
+  if (s) { S = s; S.notes = S.notes || {}; viewer = -1; renderAll(); }
+  else { S = M.newGame({ seed: 1, players: opts.seats.map((x) => ({ kind: x.kind, suspect: x.suspect, name: SUSPECTS[x.suspect].name })) }); S.notes = {}; renderAll(); S = null; }
+  openSetup();
+}
+
+// Hooks for browser-driven checks: start a seeded game, let the Hard detective play the human seats,
+// speed things up, and read the state.
+window.__whodunitUI = {
+  start(o) { $('setupVeil').hidden = true; if (o.seats) opts.seats = o.seats; if (o.fast !== undefined) opts.fast = o.fast; startGame(o); },
+  state: () => S,
+  autoplay(on) { autoplay = !!on; renderAll(); pump(); },
+  view: () => view,
+  viewer: () => viewer,
+};
+})();
+</script>
+</body>
+</html>
