@@ -58,6 +58,8 @@ const GAMES = [
       const b = await p.locator('#cv').boundingBox(); await p.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
       await p.waitForFunction(() => window.__goUI && !window.__goUI.thinking, null, { timeout: 15000 }).catch(() => {}); await p.waitForTimeout(400);
     } },
+  // Mahanagar opens on its setup screen (or a Resume button); Start goes to the board with the first roll waiting.
+  { name: 'mahanagar', file: 'mahanagar/index.html', enter: async (p) => { await p.click('#go'); await p.waitForTimeout(900); } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,

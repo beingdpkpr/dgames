@@ -127,6 +127,16 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "Mahanagar",
+      "url": "mahanagar/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
