@@ -201,6 +201,57 @@
     .seat select { margin-left: auto; min-height: 44px; min-width: 44px; }
   }
 
+  /* ---- 3D view (body.v3d), drawn by ../lib/tabletop.js. The 2D board above stays the fallback when WebGL
+     is missing and the choice for anyone who prefers it; nothing in this block applies without .v3d. ---- */
+  #c3d { display: none; }
+  #view3 { display: none; }
+  #to3d[hidden] { display: none; }
+  body.v3d { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; display: grid;
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: 44px auto minmax(0, 1fr); justify-items: center; gap: 8px;
+    padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+  body.v3d h1 { grid-area: 1 / 1; margin: 0; align-self: center; }
+  /* Portrait: a square window as wide as the phone — the board's own shape, so top-down fills it. */
+  body.v3d #stage { grid-area: 2 / 1; width: 100%; height: min(calc(100vw - 20px), 62vh); aspect-ratio: auto; perspective: none; position: relative; min-height: 0; }
+  body.v3d #board { display: none; }
+  body.v3d #c3d { display: block; width: 100%; height: 100%; border-radius: 14px; touch-action: none; outline: none; }
+  body.v3d #view3 { display: flex; grid-area: 1 / 1; justify-self: end; align-self: center; gap: 6px; }
+  #view3 button { min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 22px; border: 1px solid rgba(43,47,92,.25);
+    background: rgba(251,250,245,.92); color: #2b2f5c; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(43,47,92,.18); -webkit-tap-highlight-color: transparent; }
+  /* The settings scroll inside this panel, never the page. Play controls come first, so a turn never
+     needs a scroll; the seats are for between games. */
+  body.v3d #side { grid-area: 3 / 1; display: block; width: min(100%, 520px); min-height: 0; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+  body.v3d #side > .bar + .bar { margin-top: 8px; }
+  body.v3d #rollBar { gap: 8px; }
+  /* Two chips a row: four of them in one column pushed the fourth and the note out of a 640px screen. */
+  body.v3d #moves { flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
+  body.v3d .chip { font-size: 13px; padding: 2px 10px; line-height: 1.2; text-align: left; }
+  body.v3d .chip i { flex: none; }
+  /* The 2D page lets these be 36px tall; here every control reaches 44. */
+  body.v3d .seat select, body.v3d #players { min-height: 44px; }
+  body.v3d #players { min-width: 56px; }
+  body.v3d #cube { display: none; }
+  /* The cube is the 3D die on the board now; this is the same button as a plain "Roll" pill. */
+  body.v3d #die { width: auto; min-width: 88px; height: 44px; margin: 0; padding: 0 18px; border-radius: 22px; perspective: none;
+    background: var(--gold); color: #0b1a2b; font: inherit; font-size: 15px; font-weight: 700; }
+  body.v3d #die::after { content: "Roll"; }
+  body.v3d #die:disabled { opacity: .4; }
+  @media (orientation: landscape) {
+    /* 40vw keeps a 667px-wide phone's board window near square instead of 295px wide by 359px tall. */
+    body.v3d { grid-template-columns: min(340px, 40vw) minmax(0, 1fr); grid-template-rows: 44px minmax(0, 1fr); gap: 6px 12px; justify-items: stretch; }
+    body.v3d h1 { grid-area: 1 / 1; justify-self: start; margin-left: 52px; font-size: 18px; }
+    body.v3d #stage { grid-area: 1 / 2 / 3 / 3; height: 100%; }
+    body.v3d #side { grid-area: 2 / 1; width: auto; max-height: none; min-height: 0; height: 100%; }
+    body.v3d #view3 { grid-area: 1 / 1; }
+    body.v3d .bar { width: auto; }
+  }
+  @media (orientation: landscape) and (max-height: 500px) {
+    body.v3d #side { display: grid; }
+    body.v3d #side > .bar + .bar { margin-top: 0; }
+    body.v3d #die { grid-area: 2 / 1; min-width: 84px; padding: 0 10px; margin: 0; align-self: start; }
+    body.v3d #moves { display: flex; }
+  }
+
   /* Someone who gets motion sick from a tilted plane can have it flat; the game is identical either way. */
   @media (prefers-reduced-motion: reduce) {
     :root { --tilt: 0deg; }
@@ -226,7 +277,8 @@
 </style>
 <a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
 <h1>LU<span>DO</span></h1>
-<div id="stage"><div id="board"></div></div>
+<div id="view3"><button id="camBtn" type="button" aria-label="Switch camera">Top</button><button id="dimBtn" type="button" title="Flat 2D board" aria-label="Switch to the flat 2D board">2D</button></div>
+<div id="stage"><div id="board"></div><canvas id="c3d" aria-label="The Ludo board in 3D: tap a highlighted token to move it, tap the die to roll"></canvas></div>
 <div id="side">
 <div class="bar"><div id="turn"></div></div>
 <div class="bar" id="rollBar">
@@ -244,6 +296,7 @@
     <select id="players"><option>2</option><option>3</option><option>4</option></select>
   </label>
   <button class="btn" id="newGame">New game</button>
+  <button class="btn" id="to3d" type="button" hidden>3D board</button>
 </div>
 <div class="bar"><div id="record"></div></div>
 </div>
@@ -254,6 +307,8 @@
   <button class="btn" id="overAgain">Play again</button>
 </div></div>
 
+<script src="../lib/three.min.js"></script>
+<script src="../lib/tabletop.js"></script>
 <script>
 'use strict';
 // ---------- RULES (pure: no DOM and no randomness anywhere in this section) ----------
@@ -579,6 +634,7 @@ function render() {
     : `<b style="color:${COLOURS[S.player]}">${name}</b> to play${lastRoll ? ' · rolled ' + lastRoll : ''}${isAiTurn() ? ' · computer' : ''}`;
   showDie(lastRoll, false);
   $('die').disabled = S.over || isAiTurn() || pending.length > 0;
+  if (V3) V3.sync(movable);
   // The cube is the only place the roll is shown, and it is pure geometry — no text for a screen reader
   // and nothing to read if the 3D transform is unsupported. This line is the value in words.
   $('dieHint').textContent = lastRoll ? 'Rolled ' + lastRoll : ($('die').disabled ? '' : 'Tap to roll');
@@ -606,6 +662,7 @@ for (let n = 1; n <= 6; n++) {
 }
 let dieSpins = 0;
 function showDie(n, tumble) {
+  if (V3 && tumble) V3.roll(n);
   if (tumble) dieSpins += 2;
   const [rx, ry] = DIE_FACE[n] || [-18, 22];   // never rolled yet: rest on a corner so it reads as a cube
   $('cube').style.transform = `rotateX(${rx + DIE_REST_X + dieSpins * 360}deg) rotateY(${ry + DIE_REST_Y + dieSpins * 360}deg)`;
@@ -656,8 +713,10 @@ const note = (t) => { $('note').textContent = t; };
 // three Hard computers: median wait 3,059 ms and a full cycle near 4,900 ms, of which the human acts for
 // about 1.5 s. One stretch ran seven computer turns with nothing to do and no way past them.
 let pendingStep = null;
-const wait = (ms, fn) => { clearTimeout(timer); pendingStep = fn; timer = setTimeout(() => { pendingStep = null; fn(); }, ms); };
-function skipWait() { if (!pendingStep || !isAiTurn()) return; clearTimeout(timer); const f = pendingStep; pendingStep = null; f(); }
+// In 3D a step also waits for the die and the hops it set off, so the next roll never starts under a piece
+// that is still in the air. A tap during a computer turn skips both the wait and the animation.
+const wait = (ms, fn) => { clearTimeout(timer); pendingStep = fn; timer = setTimeout(() => { pendingStep = null; fn(); }, ms + (V3 ? V3.busyMs() : 0)); };
+function skipWait() { if (!pendingStep || !isAiTurn()) return; clearTimeout(timer); if (V3) V3.finish(); const f = pendingStep; pendingStep = null; f(); }
 addEventListener('pointerdown', skipWait);
 
 function doRoll() {
@@ -725,17 +784,276 @@ function newGame() {
   saveOpts();
   S = newState(opts.players, first);
   rnd = Math.random; pending = []; lastRoll = 0;
+  if (V3) V3.reset();
   $('over').hidden = true;
   note('Roll a six to bring a token out.');
   renderSeats(); render();
   if (isAiTurn()) wait(300, doRoll);
 }
 
+// ---- 3D view ----
+// The same game drawn on a wooden board on Penfight's desk, by the shared kit in ../lib/tabletop.js. It only
+// ever reads S, pending and lastRoll and calls onTokenTap / doRoll — the selection rules are the 2D ones.
+// Sizes are centimetres: a 42cm board, so a square is 2.8cm and a token stands about 2.9cm tall.
+let V3 = null;
+const VIEW_KEY = 'dgames.ludo.view';
+const viewPref = (() => { try { const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; } })();
+const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(viewPref)); } catch (e) { /* ignore */ } };
+// A portrait phone opens top-down: the angled view foreshortens the far rank to a few pixels a square.
+const portraitPhone = () => innerHeight > innerWidth && innerWidth < 700;
+const camDefault = () => viewPref.cam || (portraitPhone() ? 'top' : 'angled');
+
+function makeView3d() {
+  if (!window.Tabletop) return null;
+  let q = null;
+  try { q = new URLSearchParams(location.search).get('q'); } catch (e) { /* ignore */ }
+  const kit = Tabletop.create({ canvas: $('c3d'), quality: q || 'auto', onTap: tap3d, onLost: () => setDim('2d', false) });
+  if (!kit.ok) return { ok: false, reason: kit.reason };
+  const THREE = kit.THREE, col = Tabletop.col;
+  const N = 15, CELL = 2.8, B = N * CELL, BH = 1.8;
+  // Print colours for the board face and the lacquer of the tokens: the four Ludo colours, kept saturated
+  // enough to tell apart at a glance and pulled towards Penfight's pastels.
+  const PRINT = ['#F07B7E', '#57BE8E', '#F6CB4B', '#6B97EC'];
+  const LACQ = ['#E8474E', '#2FA36C', '#F4BC1C', '#3B76E0'];
+  const INK = Tabletop.PALETTE.ink;
+  kit.setDesk({ w: 70, d: 62 });
+
+  const drawFace = (x, w, h, ppc) => {
+    const cs = w / N, at = (c) => c * cs;
+    x.fillStyle = '#FBF8F0'; x.fillRect(0, 0, w, h);
+    const cell = (c, r, fill) => { x.fillStyle = fill; x.fillRect(at(c), at(r), cs, cs); };
+    const line = Math.max(1.5, cs * 0.045);
+    // yards: the owner's colour, a white court, four token circles
+    YARD_AT.forEach(([yc, yr], p) => {
+      x.fillStyle = PRINT[p]; x.fillRect(at(yc), at(yr), cs * 6, cs * 6);
+      x.fillStyle = '#FFFDF7'; roundRect(x, at(yc + 0.8), at(yr + 0.8), cs * 4.4, cs * 4.4, cs * 0.5); x.fill();
+      for (let t = 0; t < 4; t++) {
+        const [sx, sy] = spotOf(p, t, YARD);
+        x.beginPath(); x.arc(at(sx), at(sy), cs * 0.62, 0, Math.PI * 2);
+        x.fillStyle = PRINT[p]; x.globalAlpha = 0.35; x.fill(); x.globalAlpha = 1;
+        x.lineWidth = line; x.strokeStyle = PRINT[p]; x.stroke();
+      }
+    });
+    // the ring, start squares, home runs
+    RING.forEach(([c, r], i) => { const o = START.indexOf(i); cell(c, r, o >= 0 ? PRINT[o] : '#FFFFFF'); });
+    HOME_RUN.forEach((run, p) => run.forEach(([c, r]) => cell(c, r, PRINT[p])));
+    x.strokeStyle = 'rgba(43,47,92,.42)'; x.lineWidth = line;
+    for (const [c, r] of RING) x.strokeRect(at(c), at(r), cs, cs);
+    HOME_RUN.forEach((run) => run.forEach(([c, r]) => x.strokeRect(at(c), at(r), cs, cs)));
+    // safe stars
+    RING.forEach(([c, r], i) => {
+      if (!SAFE.has(i)) return;
+      star(x, at(c + 0.5), at(r + 0.5), cs * 0.36);
+      x.fillStyle = START.indexOf(i) >= 0 ? 'rgba(255,255,255,.9)' : 'rgba(43,47,92,.55)'; x.fill();
+    });
+    // centre: four triangles, each in the colour of the run that finishes into it
+    const C = [[6, 6], [9, 6], [9, 9], [6, 9]], mid = [at(7.5), at(7.5)];
+    const tri = [[C[0], C[3]], [C[0], C[1]], [C[1], C[2]], [C[3], C[2]]];
+    tri.forEach(([a, b], p) => {
+      x.beginPath(); x.moveTo(at(a[0]), at(a[1])); x.lineTo(at(b[0]), at(b[1])); x.lineTo(mid[0], mid[1]); x.closePath();
+      x.fillStyle = PRINT[p]; x.fill(); x.strokeStyle = 'rgba(43,47,92,.42)'; x.stroke();
+    });
+    // outer keyline and the yard borders
+    x.lineWidth = line * 1.6; x.strokeStyle = 'rgba(43,47,92,.6)';
+    x.strokeRect(line, line, w - 2 * line, h - 2 * line);
+    YARD_AT.forEach(([yc, yr]) => x.strokeRect(at(yc), at(yr), cs * 6, cs * 6));
+  };
+  function roundRect(x, l, t, w, h, r) {
+    x.beginPath(); x.moveTo(l + r, t); x.arcTo(l + w, t, l + w, t + h, r); x.arcTo(l + w, t + h, l, t + h, r);
+    x.arcTo(l, t + h, l, t, r); x.arcTo(l, t, l + w, t, r); x.closePath();
+  }
+  function star(x, cx, cy, R) {
+    x.beginPath();
+    for (let i = 0; i <= 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? R * 0.45 : R; x.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+    x.closePath();
+  }
+  const board = kit.board({ w: B, d: B, h: BH, radius: 1.2, bevel: 0.3, draw: drawFace, side: Tabletop.mat.paintedWood('#E2B987') });
+  kit.add(board);
+
+  // A token: one lathe — a flared base, a waisted body, a collar and a round head.
+  const segs = kit.quality === 'high' ? 32 : 20;
+  const prof = [[0, 0], [0.98, 0], [1.04, 0.1], [1.02, 0.26], [0.86, 0.42], [0.62, 0.66], [0.48, 1.05], [0.4, 1.45], [0.38, 1.62], [0.56, 1.7], [0.58, 1.8], [0.4, 1.9]];
+  const HR = 0.56, HY = 2.36;
+  for (let i = 1; i <= 8; i++) { const a = -Math.PI / 2 + Math.PI * (i / 8) * 0.92 - 0.25; prof.push([Math.max(0.001, Math.cos(a) * HR), HY + Math.sin(a) * HR]); }
+  prof.push([0.001, HY + HR]);
+  const tokGeo = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r * 1.1, y * 1.08)), segs);
+  const tokMat = LACQ.map((c) => Tabletop.mat.lacquer(c));
+  const tok = [], at = [];
+  for (let p = 0; p < PLAYERS_MAX; p++) {
+    tok.push([]); at.push([]);
+    for (let t = 0; t < TOKENS; t++) {
+      const m = new THREE.Mesh(tokGeo, tokMat[p]);
+      m.castShadow = true; m.receiveShadow = true;
+      m.userData = { p, t, anim: false };
+      kit.add(m); kit.pick.add(m, { p, t });
+      tok[p].push(m); at[p].push(undefined);
+    }
+  }
+  // Movable markers: a gold ring printed round the token's foot. Never more than four are needed.
+  const ringGeo = new THREE.TorusGeometry(1.36, 0.14, 8, 36); ringGeo.rotateX(-Math.PI / 2);
+  const ringMat = Tabletop.mat.lacquer('#FFD54A', { emissive: col('#FFB400'), emissiveIntensity: 0.35 });
+  const rings = [0, 1, 2, 3].map(() => { const r = new THREE.Mesh(ringGeo, ringMat); r.visible = false; kit.add(r); return r; });
+
+  const die = kit.makeDie({ size: 2.3, baseY: BH });
+  die.show(1, 0.4);
+  kit.add(die.mesh);
+  kit.pick.add(die.mesh, { die: true });
+
+  const world = ([sx, sy]) => [(sx - 7.5) * CELL, BH, (sy - 7.5) * CELL];
+  const YAW = -Math.PI / 2;           // seat 1 (red, you) in the near-left corner
+  kit.rig.setYaw(YAW, true);
+  kit.rig.fit({ w: B + 1, d: B + 1, h: 3, instant: true });
+
+  let animEnd = 0;
+  const now = () => performance.now();
+  const busyUntil = (ms) => { animEnd = Math.max(animEnd, now() + ms); };
+  const stepMs = () => (isAiTurn() ? 105 : 125);
+
+  // Finished tokens: spotOf fans them within a fifth of a square, which suits a flat disc with a tick on
+  // it but would push four standing pieces into each other. Here they stand in a row along their wedge's
+  // outer edge, at a little over half size, clear of the die in the middle.
+  const HOME_SCALE = 0.6;
+  function homeSpot(p, t) {
+    const o = [-0.9, -0.3, 0.3, 0.9][t], e = 0.45;
+    const xy = [[6 + e, 7.5 + o], [7.5 + o, 6 + e], [9 - e, 7.5 + o], [7.5 + o, 9 - e]][p];
+    return world(xy);
+  }
+  function targetOf(p, t, g, seen) {
+    if (g === HOME) return homeSpot(p, t);
+    let [x, y] = spotOf(p, t, g);
+    if (onRing(g)) { const k = ringIndexOf(p, g); const n = seen.get(k) || 0; seen.set(k, n + 1); if (n) { x += n * 0.18; y += n * 0.18; } }
+    return world([x, y]);
+  }
+  function sync(movable, instant) {
+    const seen = new Map(), captured = [];
+    let moverMs = 0;
+    for (let p = 0; p < PLAYERS_MAX; p++) for (let t = 0; t < TOKENS; t++) {
+      const m = tok[p][t];
+      if (p >= S.players) { m.visible = false; at[p][t] = undefined; continue; }
+      m.visible = true;
+      const g = S.tokens[p][t], prev = at[p][t], dest = targetOf(p, t, g, seen);
+      m.userData.dest = dest;
+      if (instant || prev === undefined) { m.position.set(dest[0], dest[1], dest[2]); m.scale.setScalar(g === HOME ? HOME_SCALE : 1); }
+      else if (prev !== g) {
+        if (g === YARD) captured.push(m);
+        else {
+          const pts = [[m.position.x, m.position.y, m.position.z]];
+          if (prev === YARD) pts.push(dest);
+          else { for (let k = prev + 1; k < g; k++) pts.push(world(spotOf(p, t, k))); pts.push(dest); }
+          const ms = stepMs() * (pts.length - 1) * (prev === YARD ? 2.2 : 1);
+          moverMs = Math.max(moverMs, ms);
+          m.userData.anim = true;
+          kit.hop(m, pts, { height: prev === YARD ? 3.2 : 1.5, stepMs: ms / (pts.length - 1) }).then(() => {
+            m.userData.anim = false;
+            if (g === HOME) kit.tween({ ms: 220, ease: 'outBack', update: (k) => m.scale.setScalar(1 + (HOME_SCALE - 1) * k) });
+          });
+        }
+      } else if (!m.userData.anim && m.position.distanceTo(new THREE.Vector3(dest[0], dest[1], dest[2])) > 0.01) {
+        const a = m.position.clone();
+        kit.tween({ ms: 160, ease: 'outCubic', update: (k) => m.position.set(a.x + (dest[0] - a.x) * k, a.y, a.z + (dest[2] - a.z) * k) });
+      }
+      at[p][t] = g;
+    }
+    // A captured token waits for the capturing hop to land, shivers, then arcs back to its yard.
+    if (captured.length) {
+      const flyMs = 620;
+      busyUntil(moverMs + 260 + flyMs);
+      setTimeout(() => {
+        for (const m of captured) {
+          m.userData.anim = true;
+          kit.shake(m, { amp: 0.35, ms: 220 })
+            .then(() => kit.fly(m, m.userData.dest, { ms: flyMs, height: 9, spin: 1 }))
+            .then(() => { m.rotation.y = 0; m.userData.anim = false; });
+        }
+      }, kit.reducedMotion ? 0 : moverMs);
+    }
+    busyUntil(moverMs);
+    // markers under the tokens that can move, only on a human turn
+    let i = 0;
+    if (movable && !isAiTurn()) for (const key of movable.keys()) {
+      const [p, t] = key.split(':').map(Number), d = tok[p][t].userData.dest;
+      rings[i].position.set(d[0], BH + 0.05, d[2]); rings[i].visible = true; i++;
+    }
+    for (; i < rings.length; i++) rings[i].visible = false;
+    kit.invalidate();
+  }
+  // The die is thrown from the corner of whoever is rolling and lands in the middle of the board.
+  function roll(n) {
+    const [yc, yr] = YARD_AT[S.player];
+    const from = world([yc + 3, yr + 3]);
+    const ms = 640;
+    busyUntil(ms);
+    die.roll(n, { from: [from[0] * 0.75, from[2] * 0.75], to: [(Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.6], ms, yaw: YAW + (Math.random() - 0.5) * 0.5, height: 5 })
+;
+  }
+  function screenOf(obj) {
+    const v = obj.getWorldPosition(new THREE.Vector3()); v.y += 1.2; v.project(kit.camera);
+    const r = kit.canvas.getBoundingClientRect();
+    return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
+  }
+  return {
+    ok: true, kit, die, tok, rings, sync, roll, screenOf,
+    reset() { kit.finishAll(); for (let p = 0; p < PLAYERS_MAX; p++) for (let t = 0; t < TOKENS; t++) at[p][t] = undefined; animEnd = 0; },
+    busyMs: () => Math.max(0, animEnd - now()),
+    finish() { kit.finishAll(); animEnd = 0; },
+    setCam(name, instant) { kit.rig.setView(name, { instant }); },
+  };
+}
+
+// A tap on the board: the token under the finger if it can move, else the die if it can be rolled.
+function tap3d(x, y) {
+  if (!V3) return;
+  const hit = V3.kit.pick.at(x, y, { filter: (d) => d.die ? !$('die').disabled : (d.p === S.player && pending.some((m) => m.token === d.t) && !isAiTurn()) });
+  if (!hit) return;
+  if (hit.die) doRoll(); else onTokenTap(hit.p, hit.t);
+}
+
+let view3d = null;     // the built view, kept while switching back and forth
+function setDim(dim, remember) {
+  if (dim === '3d' && !view3d) {
+    // Anything that goes wrong building the scene leaves the 2D game playable rather than a blank page.
+    try { view3d = makeView3d(); } catch (e) { view3d = { ok: false, reason: String(e) }; try { console.warn('3D view failed, using 2D:', e); } catch (e2) { /* ignore */ } }
+    if (!view3d || !view3d.ok) {
+      // No WebGL (or ?no3d): the 2D board is the game, and the 3D button goes away rather than failing.
+      $('to3d').hidden = true;
+      V3 = null; document.body.classList.remove('v3d');
+      return;
+    }
+  }
+  const on = dim === '3d' && view3d && view3d.ok;
+  document.body.classList.toggle('v3d', !!on);
+  V3 = on ? view3d : null;
+  $('to3d').hidden = on || (view3d && !view3d.ok);
+  if (remember) { viewPref.dim = on ? '3d' : '2d'; saveView(); }
+  if (on) {
+    V3.kit.resize();
+    setCam(camDefault(), false, true);
+    V3.reset(); render();
+  }
+}
+function setCam(name, remember, instant) {
+  if (!V3) return;
+  V3.setCam(name, instant);
+  if (remember) { viewPref.cam = name; saveView(); }
+  $('camBtn').textContent = name === 'top' ? 'Angled' : 'Top';
+  $('camBtn').setAttribute('aria-label', name === 'top' ? 'Tilt the camera to an angled view' : 'Look straight down at the board');
+}
+$('camBtn').addEventListener('click', () => setCam(V3 && V3.kit.rig.view === 'top' ? 'angled' : 'top', true));
+$('dimBtn').addEventListener('click', () => setDim('2d', true));
+$('to3d').addEventListener('click', () => setDim('3d', true));
+// Turning a phone over changes the default camera, unless someone picked one.
+addEventListener('resize', () => { if (V3 && !viewPref.cam) setCam(camDefault(), false); });
+// For the browser checks: read the state, force the dice, drive a turn. Nothing in the game uses it.
+globalThis.__ludo3d = { get V3() { return V3; }, get S() { return S; }, get pending() { return pending; }, setDim, setCam, render, doRoll, choose,
+  setRnd(f) { rnd = f; } };
+
 buildBoard();
 $('die').addEventListener('click', doRoll);
 $('newGame').addEventListener('click', newGame);
 $('overAgain').addEventListener('click', newGame);
 $('players').addEventListener('change', newGame);
+$('to3d').hidden = !window.Tabletop;
+if (viewPref.dim !== '2d') setDim('3d', false);
 newGame();
 </script>
 </body>

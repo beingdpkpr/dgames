@@ -12,6 +12,12 @@
 // Only the shell is precached. The games are cached the first time each is opened, because Rush Lane
 // alone is 1 MB and precaching the lot would spend several megabytes of someone's mobile data on games
 // they may never open. The trade: a game has to be visited once before it works offline.
+//
+// The one exception is lib/: three.js and the tabletop kit that every 3D board game loads by <script src>.
+// Precached because a game page is cached separately from the library it loads — a player who opened Ludo
+// before it went 3D has the old page cached, gets the new page on the next visit, and if that visit is
+// offline the page would find no library. About 165 KB gzipped, shared by every tabletop game. (Even then
+// a game whose library is missing falls back to its 2D board rather than breaking.)
 const VERSION = 'dgames-v1';
 const SHELL = [
   './',
@@ -21,6 +27,8 @@ const SHELL = [
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
   './icons/apple-touch-icon.png',
+  './lib/three.min.js',
+  './lib/tabletop.js',
 ];
 
 self.addEventListener('install', (e) => {

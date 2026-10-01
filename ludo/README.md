@@ -2,9 +2,22 @@
 
 Classic Indian Ludo for two to four players on one device. Seat 1 is you; every other seat is a human or a computer at Easy, Normal or Hard, the same way Dots & Boxes does it.
 
-Open `index.html` directly. No dependencies, nothing fetched from the network.
+Open `index.html` directly; nothing is fetched from the network. The 3D board needs the shared `../lib/` folder beside it (three.js and the tabletop kit); without it the game simply plays on the 2D board.
 
 Controls: tap the die to roll, then tap a highlighted token or one of the move buttons under the board. When there is only one legal move it plays itself after a beat. Everything is tap-driven, so the phone and the desktop play the same way.
+
+## 3D board
+
+The default view is a wooden Ludo board on Penfight's light-wood desk, drawn by the shared kit in `../lib/tabletop.js`: glossy turned tokens in the four colours, a printed board face (yards, track, home runs, the eight safe-square stars, the centre triangles), a die thrown from the roller's corner that tumbles to the value the game rolled, tokens hopping square by square, and a captured token shivering and arcing back to its yard once the capturing hop lands. Finished tokens stand in a row on their own wedge of the centre at a little over half size.
+
+- **Tap** a token with a gold ring under it to move it, or tap the die (or the Roll button) to roll. Picking is generous: a tap within about 26px of a movable token's centre counts, so the small squares of a phone board are still easy to hit. Only tokens that can move, and only on your turn, are candidates — the 2D rules exactly.
+- **Drag** to swing the camera a little (about 30 degrees either way, and between a low angle and straight down); **pinch** or the mouse wheel zooms; double-click resets. A press that moves less than 9px is a tap, so orbiting never moves a token by accident.
+- **Top / Angled** switches the camera. A portrait phone opens top-down: on a 360x640 phone the angled view squeezes the 15 rows into about 200px of height (13px a row on average, less at the far edge), while top-down gives every square about 22px, the same as the 2D board. Landscape and desktop open angled. A choice you make is remembered.
+- **2D** switches to the original flat board, which is unchanged; **3D board** (next to New game) switches back. Remembered in `dgames.ludo.view`.
+- You (Red) sit at the near-left corner in 3D, so the board is the 2D board turned a quarter.
+- With no WebGL, or with `?no3d` on the URL, the 2D board is the only view and the 3D button is not shown. Reduced-motion turns the throws and hops into jumps.
+- A tap during a computer turn skips both the wait and the animation in flight. Animations: the throw 0.64s, 105-125ms a square for a hop; the game's next step waits for them, so a token is never still in the air when the next die is thrown.
+- Rendering is on demand: frames are drawn only while something moves, so a board waiting for your tap costs nothing. Phones default to the kit's low quality (1.25x pixel ratio cap, 1024px shadow map), desktops to high (2x, 2048px soft shadows); `?q=low` or `?q=high` overrides. About 25 draw calls a frame including the shadow pass.
 
 ## Rules implemented
 
