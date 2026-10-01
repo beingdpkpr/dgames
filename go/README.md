@@ -58,4 +58,13 @@ The goban is drawn once per size: a warm gradient, broad soft figure bands, a fe
 
 - `node test/rules.js`: captures (including two chains at once), suicide vs capture-first, ko, positional superko on a triple ko that simple ko cannot see, passes, area scoring on hand-built finished boards (dead stones marked and unmarked, a seki), the dead-stone proposal (seki alive, a dead stone found), handicap placement, undo restoring Zobrist keys and the superko record, the O(1) atari bookkeeping against brute force on 30k chains, SGF, and the back button being byte-identical to tetris's.
 - `node test/ai.js`: at every level, captures four stones whose capture decides the game, pulls its own four out of atari, passes rather than fill its own eyes, never considers a superko-illegal move, and Easy wins 4/4 seeded games against a random mover.
-- `node test/matches.js [n] [m]`: a report, not a test (~40 min). Every level against a random mover, and level against level.
+- `node test/matches.js [n] [m]`: a report, not a test (~48 min). Every level against a random mover, and level against level. Last run (9×9, colours alternating, seeded):
+
+| Match | Result | Own-eye fills |
+|---|---|---|
+| Easy vs random | 20/20 | 0 |
+| Medium vs random | 20/20 | 0 |
+| Hard vs random | 20/20 | 0 |
+| Medium vs Easy | 10/10 | 0 |
+| Hard vs Medium | 7/10 (all 10 ended by the loser resigning) | 0 |
+| Hard vs Easy | 10/10 | 0 |
