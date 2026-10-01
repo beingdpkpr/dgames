@@ -31,6 +31,8 @@
     --paper: #f6eedc; --paper2: #efe3c8; --ink: #2b2118; --grid: #b9a582; --teal: #0f3d3b; --teal2: #165754;
     --e: 30px; --c: 45px; --bs: 360px;
     --serif: "Rozha One", Georgia, "Times New Roman", serif;
+    /* Paper for the spaces: a faint fibre noise and a linen weave, both too quiet to compete with text. */
+    --tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .42 0 0 0 0 .32 0 0 0 0 .18 0 0 0 .55 -.2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"), repeating-linear-gradient(0deg, rgba(110,80,40,.035) 0 1px, transparent 1px 3px), repeating-linear-gradient(90deg, rgba(110,80,40,.03) 0 1px, transparent 1px 3px);
   }
   [hidden] { display: none !important; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -56,68 +58,154 @@
   .iconbtn svg { width: 22px; height: 22px; }
 
   /* ---- the board ---- */
+  /* The DOM/SVG board view (makeDomBoard in the script). The corner spaces round themselves rather than
+     the board clipping them, so tokens lifted in a hop are never cut off at the board's edge. */
   #board { position: relative; width: var(--bs); height: var(--bs); flex: none; display: grid;
     grid-template-columns: var(--c) repeat(9, var(--e)) var(--c); grid-template-rows: var(--c) repeat(9, var(--e)) var(--c);
-    background: var(--paper2); border-radius: calc(var(--e) * .28); box-shadow: 0 10px 40px rgba(0,0,0,.5), 0 0 0 2px #8f7b58;
+    background: #cdb98f; border-radius: calc(var(--e) * .28); box-shadow: 0 10px 40px rgba(0,0,0,.5), 0 0 0 2px #8f7b58;
     color: var(--ink); user-select: none; -webkit-user-select: none; }
-  .sp { position: relative; border: .5px solid var(--grid); background: var(--paper); overflow: hidden; cursor: pointer; padding: 0; color: var(--ink); font: inherit; }
+
+  /* Spaces read upright on the screen on every side. Each space is a colour band on the edge that faces
+     the centre, a body with the name and price, and (once owned) a strip in the owner's colour on the
+     outer edge. Nothing is rotated, so no name is ever upside down. */
+  .sp { position: relative; border: .5px solid var(--grid); background: var(--tex), var(--paper); overflow: hidden; cursor: pointer; padding: 0;
+    color: var(--ink); font: inherit; display: flex; align-items: stretch; text-align: center; }
+  .sp.s-bottom { flex-direction: column; } .sp.s-top { flex-direction: column-reverse; }
+  .sp.s-left { flex-direction: row-reverse; } .sp.s-right { flex-direction: row; }
   .sp:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; z-index: 2; }
-  .sp .in { position: absolute; left: 50%; top: 50%; width: var(--e); height: var(--c); transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
-    display: flex; flex-direction: column; align-items: center; }
-  .sp.corner .in { width: var(--c); height: var(--c); justify-content: center; }
-  .sp.s-left { --rot: 90deg; } .sp.s-top { --rot: 180deg; } .sp.s-right { --rot: -90deg; }
-  .sp.corner { --rot: 0deg; }
-  .band { width: 100%; height: 24%; flex: none; position: relative; border-bottom: .5px solid rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; gap: 1px; }
-  .lbl { font-size: calc(var(--e) * .18); line-height: 1.05; text-align: center; font-weight: 600; padding: 1px 1px 0; word-break: break-word; hyphens: auto; color: #3a2c1d; }
-  .price { font-size: calc(var(--e) * .24); font-weight: 700; margin-top: auto; margin-bottom: 9%; color: #4a3925; }
-  .sp .ico { width: 62%; height: 38%; margin-top: 8%; flex: none; }
-  .sp.corner .ico { width: 58%; height: 58%; margin: 0; }
-  .sp.corner .lbl { font-size: calc(var(--e) * .24); font-weight: 800; letter-spacing: .3px; }
-  .sp .lbl.small { display: none; }
-  #board.roomy .sp .lbl.small { display: block; }
-  /* Owner marker: a disc in the owner's colour at the outer edge, so it never mixes with the group band
-     at the inner edge even when owner and group are both red. */
-  .owner { position: absolute; bottom: 4%; left: 50%; width: min(34%, 15px); aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%;
-    border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.45); }
+  .band { flex: none; position: relative; background: linear-gradient(rgba(255,255,255,.22), rgba(0,0,0,.1)), var(--g); box-shadow: inset 0 0 0 .5px rgba(0,0,0,.35); }
+  .s-top .band, .s-bottom .band { height: var(--bt); }
+  .s-left .band, .s-right .band { width: var(--bt); }
+  .sp .body { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: max(1px, calc(var(--e) * .04)); padding: 2px 1px; overflow: hidden; }
+  .sp.ownable.s-bottom .body { padding-bottom: var(--ot); } .sp.ownable.s-top .body { padding-top: var(--ot); }
+  .sp.ownable.s-left .body { padding-left: var(--ot); } .sp.ownable.s-right .body { padding-right: var(--ot); }
+  .lbl { display: none; font-size: 10px; line-height: 1.08; font-weight: 650; color: #3a2c1d; max-width: 100%; hyphens: manual; overflow-wrap: normal; }
+  #board.roomy .lbl { display: block; }
+  .price { font-size: max(9px, calc(var(--e) * .3)); font-weight: 700; color: #4a3925; line-height: 1; white-space: nowrap; }
+  #board.roomy .price { font-size: max(10px, calc(var(--e) * .19)); }
+  .sp .ico { width: calc(var(--e) * .62); height: calc(var(--e) * .5); flex: none; }
+  #board.roomy .sp .ico { width: calc(var(--e) * .42); height: calc(var(--e) * .34); }
+  /* Ownership: a strip in the owner's colour along the outer edge, with a dark keyline so even the light
+     player colours hold 3:1 against the cream. A strip cannot be mistaken for a standing token. */
   .sp.owned .price { visibility: hidden; }
-  .sp.mort::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(45deg, rgba(60,40,20,.28) 0 3px, transparent 3px 7px); pointer-events: none; }
-  .house { width: 18%; aspect-ratio: 1; background: #2ecc71; border: 1px solid #0b5e2e; border-radius: 1.5px; }
-  .hotel { width: 52%; height: 62%; background: #e74c3c; border: 1px solid #7a1a12; border-radius: 2px; }
-  .sp.pop { animation: pop .5s ease-out; }
-  @keyframes pop { 0% { filter: brightness(1.6); } 100% { filter: none; } }
+  /* A white inner keyline makes it read as a ribbon, distinct from the solid colour band of the city. */
+  .own { display: none; position: absolute; background: var(--oc); box-shadow: inset 0 0 0 1px rgba(25,15,5,.8), inset 0 0 0 2px rgba(255,255,255,.85); pointer-events: none; }
+  .sp.owned .own { display: block; }
+  #board:not(.roomy) .own { box-shadow: inset 0 0 0 1px rgba(25,15,5,.8); }
+  .s-bottom .own { left: 0; right: 0; bottom: 0; height: var(--ot); }
+  .s-top .own { left: 0; right: 0; top: 0; height: var(--ot); }
+  .s-left .own { top: 0; bottom: 0; left: 0; width: var(--ot); }
+  .s-right .own { top: 0; bottom: 0; right: 0; width: var(--ot); }
+  /* Mortgaged: the space greys out and carries a small M; the name stays readable underneath. */
+  .mk { display: none; position: absolute; right: 2px; top: 2px; width: max(12px, calc(var(--e) * .27)); height: max(12px, calc(var(--e) * .27));
+    border-radius: 50%; background: #8e2b2b; color: #fff; font-weight: 800; font-size: max(8px, calc(var(--e) * .16)); line-height: 1;
+    box-shadow: 0 0 0 1.5px #fff, 0 1px 3px rgba(0,0,0,.45); place-items: center; }
+  .sp.mort .mk { display: grid; }
+  /* The M sits in a corner away from the owner strip. */
+  .s-top .body .mk { top: auto; bottom: 2px; } .s-right .body .mk { right: auto; left: 2px; }
+  /* The paper and the band go grey; the name and price stay at full contrast (5.2:1) so they still read. */
+  .sp.mort { background: var(--tex), #e9e5dd; }
+  .sp.mort .ico { filter: grayscale(1); opacity: .5; }
+  .sp.mort .band { background: #bdb7ac; }
+  .band .mk { right: auto; top: 50%; bottom: auto; left: 50%; transform: translate(-50%, -50%); }
+  .sp.mort .lbl, .sp.mort .price { color: #645d55; }
+  /* The flash a space gives when something lands on it (animated from the script, opacity only). */
+  .sp::after { content: ""; position: absolute; inset: 0; background: var(--gc, rgba(255,224,110,.7)); opacity: 0; pointer-events: none; }
   .sp.hilite { box-shadow: inset 0 0 0 3px var(--gold); z-index: 1; }
+
+  /* corners: four designed tiles */
+  .sp.corner { display: block; }
+  .sp.corner .cbody { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: max(1px, calc(var(--e) * .06)); }
+  .medal { width: calc(var(--c) * .54); height: calc(var(--c) * .54); border-radius: 50%; display: grid; place-items: center; background: #fffaf0;
+    box-shadow: 0 0 0 1px rgba(110,70,30,.4), 0 0 0 max(2px, calc(var(--e) * .07)) rgba(255,255,255,.6), 0 0 0 max(3px, calc(var(--e) * .095)) rgba(150,100,40,.35); }
+  .medal svg { width: 74%; height: 74%; }
+  .c-jail .medal { border-radius: 16%; }
+  .clbl { font-weight: 800; font-size: max(7.5px, calc(var(--e) * .21)); letter-spacing: .5px; color: #3a2c1d; line-height: 1.05; }
+  .clbl .wide { display: none; } #board.roomy .clbl .wide { display: inline; }
+  .csub { display: none; font-size: calc(var(--e) * .15); font-weight: 600; color: #5a4630; }
+  #board.roomy .csub { display: block; }
+  .c-go { background: radial-gradient(circle at 50% 40%, rgba(255,205,120,.6), transparent 70%), var(--tex), #f9e7c4; border-bottom-right-radius: calc(var(--e) * .28); }
+  .c-jail { background: var(--tex), #f1e3c6; border-bottom-left-radius: calc(var(--e) * .28); }
+  .c-parking { background: radial-gradient(circle at 50% 40%, rgba(190,220,150,.65), transparent 70%), var(--tex), #eef0d8; border-top-left-radius: calc(var(--e) * .28); }
+  .c-gotojail { background: radial-gradient(circle at 50% 40%, rgba(250,170,150,.55), transparent 70%), var(--tex), #f7e2d8; border-top-right-radius: calc(var(--e) * .28); }
+  .c-jail .lane { position: absolute; left: 0; top: 0; bottom: 0; width: 36%; background: rgba(150,110,60,.14); border-right: 1px dashed rgba(90,60,30,.45); }
+  .c-jail .cbody { left: 36%; }
 
   /* centre */
   #center { grid-column: 2 / 11; grid-row: 2 / 11; position: relative; overflow: hidden;
-    background: radial-gradient(circle at 50% 45%, var(--teal2), var(--teal) 70%); border: .5px solid var(--grid);
+    background: radial-gradient(circle at 50% 40%, #1c6762, var(--teal) 72%); border: .5px solid var(--grid);
     display: flex; flex-direction: column; align-items: center; justify-content: center; color: #f6f0e0; }
-  #center .orn { position: absolute; inset: 6%; opacity: .16; pointer-events: none; }
+  #center .deco { position: absolute; pointer-events: none; }
+  #center .jaali { inset: 0; opacity: .1; background-size: calc(var(--e) * 1.2) calc(var(--e) * 1.2); background-position: center;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Cg fill='none' stroke='%23ffd54a' stroke-width='1.1'%3E%3Crect x='11' y='11' width='18' height='18'/%3E%3Crect x='11' y='11' width='18' height='18' transform='rotate(45 20 20)'/%3E%3Cpath d='M0 0l7.3 7.3M40 0l-7.3 7.3M0 40l7.3-7.3M40 40l-7.3-7.3'/%3E%3Ccircle cx='20' cy='20' r='3'/%3E%3C/g%3E%3C/svg%3E");
+    -webkit-mask-image: radial-gradient(circle at 50% 42%, transparent 30%, #000 80%); mask-image: radial-gradient(circle at 50% 42%, transparent 30%, #000 80%); }
+  #center .orn { inset: 6%; opacity: .13; }
+  #center .sky { left: calc(var(--e) * .2); bottom: calc(var(--e) * .2); width: calc(100% - var(--e) * .4); height: calc(var(--e) * 1.7); color: #072624; fill: currentColor; opacity: .92; }
+  #center .frame { inset: calc(var(--e) * .2); border: 1px solid rgba(255,213,74,.45); border-radius: calc(var(--e) * .16); }
+  #center .frame::after { content: ""; position: absolute; inset: calc(var(--e) * .08); border: 1px solid rgba(255,213,74,.17); border-radius: calc(var(--e) * .1); }
+  #center > .brand, #center > .tag, #center > .rule, #dice { position: relative; }
+  /* An empty slot in the centre's column: the shared status and log text (#hud) is laid over it. */
+  #center .ctext { flex: none; width: 100%; height: calc(var(--e) * 1.95); }
   .brand { font-family: var(--serif); color: var(--gold); font-size: calc(var(--e) * 1.05); letter-spacing: calc(var(--e) * .05); line-height: 1; text-shadow: 0 2px 0 rgba(0,0,0,.35); }
   .tag { font-size: calc(var(--e) * .3); letter-spacing: 3px; text-transform: uppercase; color: #cfe3dc; margin-top: 4px; }
-  #dice { display: flex; gap: calc(var(--e) * .45); margin: calc(var(--e) * .45) 0 calc(var(--e) * .3); perspective: 600px; }
-  .die { width: calc(var(--e) * 1.05); height: calc(var(--e) * 1.05); position: relative; transform-style: preserve-3d; }
-  .face { position: absolute; inset: 0; background: #fffdf7; border-radius: 18%; box-shadow: inset 0 0 0 1px #d7cdb8, inset 0 -3px 5px rgba(0,0,0,.12);
+  .rule { width: calc(var(--e) * 2.6); height: 1px; margin-top: calc(var(--e) * .16); background: linear-gradient(90deg, transparent, rgba(255,213,74,.75), transparent); }
+  .rule::after { content: ""; position: absolute; left: 50%; top: 50%; width: calc(var(--e) * .13); height: calc(var(--e) * .13); background: var(--gold); transform: translate(-50%, -50%) rotate(45deg); }
+  /* Dice: real cubes, each with its own small perspective, turned to show three faces. */
+  #dice { display: flex; gap: calc(var(--e) * .55); margin: calc(var(--e) * .42) 0 calc(var(--e) * .32); }
+  .dpos { position: relative; width: calc(var(--e) * 1.05); height: calc(var(--e) * 1.05); perspective: calc(var(--e) * 9); }
+  .dshadow { position: absolute; left: -6%; right: -16%; bottom: -20%; height: 36%; border-radius: 50%; background: radial-gradient(closest-side, rgba(0,0,0,.5), rgba(0,0,0,0)); }
+  .dslot { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateX(-20deg) rotateY(-26deg); }
+  .die { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; }
+  .face { position: absolute; inset: 0; background: radial-gradient(circle at 32% 28%, #ffffff, #f2e9d6 75%); border-radius: 15%;
+    box-shadow: inset 0 0 0 1px #c8b995, inset 0 -2px 4px rgba(0,0,0,.14);
     display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 14%; backface-visibility: hidden; }
-  .pip { width: 72%; aspect-ratio: 1; border-radius: 50%; background: #2b2118; place-self: center; }
-  .pip.r { background: #c0392b; }
+  .pip { width: 74%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #5b4a3a, #1d140b 70%); place-self: center; }
+  .pip.r { background: radial-gradient(circle at 40% 35%, #e86a5e, #a3261b 70%); }
+  /* The shared layer over the board's centre: status, latest log lines, the deed on offer, drawn cards.
+     It belongs to the game, not to the board view, so any renderer gets the same text and cards. */
+  #hud { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 30; pointer-events: none; color: #f6f0e0; }
+  #hudtext { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
   #status { font-size: calc(var(--e) * .36); font-weight: 600; text-align: center; padding: 0 8%; min-height: 1.3em; color: #fff; }
-  #logmini { font-size: calc(var(--e) * .28); color: #bcd6cf; text-align: center; padding: 0 9%; margin-top: 4px; line-height: 1.35; max-height: 4.2em; overflow: hidden; }
-  #logmini div:not(:last-child) { opacity: .55; }
-  #focus { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 3; }
+  #logmini { font-size: calc(var(--e) * .28); color: #c4ddd6; text-align: center; padding: 0 9%; margin-top: 4px; line-height: 1.35; max-height: 4.2em; overflow: hidden; }
+  #logmini div:last-child { color: #fff; }
+  #focus { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 3; pointer-events: none; }
   #focus .deed { width: min(62%, calc(var(--e) * 5.2)); }
   #focus .auction { position: absolute; bottom: 7%; left: 0; right: 0; text-align: center; font-size: calc(var(--e) * .36); font-weight: 700; color: #fff; }
   #focus.auctioning { flex-direction: column; justify-content: flex-start; padding-top: 7%; }
 
+  /* ---- buildings ---- */
+  /* Houses and hotels stand on the colour band: little drawn buildings with a roof, always upright. They
+     live in their own layer over the spaces, so a new one can drop in without touching the space. */
+  #blds, #tokens { position: absolute; inset: 0; pointer-events: none; }
+  #blds { z-index: 3; } #tokens { z-index: 4; }
+  .bl { position: absolute; display: flex; align-items: center; justify-content: center; }
+  .bl.v { flex-direction: column; }
+  .bl svg { flex: none; width: var(--hs); height: var(--hs); overflow: visible; transform-origin: 50% 100%; }
+  .bl:not(.v) svg + svg { margin-left: var(--hm); }
+  .bl.v svg + svg { margin-top: var(--hm); }
+  .bl svg.hotel { width: calc(var(--hs) * 1.3); height: calc(var(--hs) * 1.08); }
+
   /* ---- tokens ---- */
-  #tokens { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
-  .tok { position: absolute; left: 0; top: 0; width: var(--tk); height: var(--tk); margin: calc(var(--tk) / -2) 0 0 calc(var(--tk) / -2); border-radius: 50%;
-    border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,.5); display: grid; place-items: center; will-change: transform; }
-  .tok svg { width: 64%; height: 64%; fill: #fff; }
-  .tok.cur { box-shadow: 0 0 0 2px var(--gold), 0 3px 8px rgba(0,0,0,.6); z-index: 2; }
+  /* A token is a standing pawn in the player's colour with the player's symbol on its head, a shadow on
+     the board under it, and a gold ring on the board under whoever is to move. The element itself is a
+     point at the middle of the pawn's base; the pawn stands up from it. */
+  .tok { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+  .tok.moving { z-index: 99999 !important; }
+  .tok .shd { position: absolute; left: calc(var(--tk) * -.46); top: calc(var(--tk) * -.14); width: calc(var(--tk) * .92); height: calc(var(--tk) * .28); border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(15,8,0,.55), rgba(15,8,0,0)); }
+  .tok .ring { position: absolute; left: calc(var(--tk) * -.6); top: calc(var(--tk) * -.19); width: calc(var(--tk) * 1.2); height: calc(var(--tk) * .38); border-radius: 50%;
+    border: 2px solid var(--gold); background: rgba(255,213,74,.25); opacity: 0; box-sizing: border-box; }
+  .tok.cur .ring { opacity: 1; animation: ring 1.8s ease-in-out infinite; }
+  @keyframes ring { 50% { opacity: .4; } }
+  .tok .stand { position: absolute; left: calc(var(--tk) / -2); top: calc(var(--tk) * -1.3); width: var(--tk); height: calc(var(--tk) * 1.45);
+    transform-origin: 50% 89.7%; will-change: transform; }
+  .tok .stand svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .tok .pc { fill: var(--pc); stroke: #1b120a; stroke-width: 1.6; stroke-linejoin: round; }
   .tok.out { display: none; }
 
   /* ---- cards ---- */
-  #cardShow { position: absolute; inset: 0; display: grid; place-items: center; z-index: 6; perspective: 900px; cursor: pointer; }
+  #cardShow { position: absolute; inset: 0; display: grid; place-items: center; z-index: 6; perspective: 900px; cursor: pointer; pointer-events: auto; }
   .card3 { width: min(76%, calc(var(--e) * 6.6)); aspect-ratio: 1.55; position: relative; transform-style: preserve-3d; }
   .card3 .side { position: absolute; inset: 0; border-radius: 10px; backface-visibility: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6% 8%; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
   .card3 .back { transform: rotateY(180deg); }
@@ -247,6 +335,33 @@
   .rules { font-size: 14px; line-height: 1.5; color: #d9e4f1; }
   .rules h3 { font-size: 14px; color: var(--gold); margin: 10px 0 2px; }
   .rules p { margin: 0 0 6px; }
+  /* ---- announcements ---- */
+  /* A fixed overlay above the board for ownership moments. It catches a tap only while something plays,
+     and a tap finishes it at once. */
+  #fx { position: fixed; inset: 0; z-index: 45; }
+  .fxdeed { position: fixed; left: 0; top: 0; width: 150px; background: #fffdf6; color: var(--ink); border-radius: 9px; border: 1px solid #cdbb94;
+    box-shadow: 0 12px 30px rgba(0,0,0,.55); overflow: hidden; text-align: center; will-change: transform, opacity; }
+  .fxdeed .hd { padding: 8px 8px 7px; }
+  .fxdeed .city { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+  .fxdeed .nm { font-family: var(--serif); font-size: 19px; line-height: 1.1; }
+  .fxdeed .ft { padding: 8px 8px 30px; font-weight: 700; font-size: 14px; color: #4a3925; }
+  .fxdeed.small { width: 116px; } .fxdeed.small .nm { font-size: 15px; } .fxdeed.small .ft { padding: 4px 6px 6px; font-size: 12px; }
+  .fxdeed .stampw { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; justify-content: center; }
+  .stamp { background: var(--sc); color: var(--st); border-radius: 7px; padding: 2px 10px 3px; box-shadow: 0 0 0 2px #fffdf6, 0 0 0 4px var(--sc), 0 4px 10px rgba(0,0,0,.35);
+    display: flex; flex-direction: column; align-items: center; line-height: 1.05; will-change: transform, opacity; }
+  .stamp b { font-size: 16px; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; }
+  .stamp span { font-size: 11px; font-weight: 700; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .coin { position: fixed; left: 0; top: 0; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; display: grid; place-items: center;
+    background: radial-gradient(circle at 35% 30%, #fff3b0, #f2b829 60%, #b8860b); color: #4a3100; font-size: 12px; font-weight: 800; box-shadow: 0 1px 3px rgba(0,0,0,.5); will-change: transform, opacity; }
+  .setban { position: fixed; left: 0; top: 0; padding: 10px 22px 12px; border-radius: 16px; background: rgba(8,18,30,.95); border: 2px solid var(--gold); color: #fff;
+    text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,.6); white-space: nowrap; will-change: transform, opacity; }
+  .setban b { display: block; font-family: var(--serif); font-weight: 400; font-size: 27px; color: var(--gold); line-height: 1.15; border-bottom: 4px solid var(--g); padding-bottom: 4px; margin: 2px 0 5px; }
+  .setban small { display: block; font-size: 12.5px; color: #d8e4f2; }
+
+  /* Motion off: no tumbling, hopping or pulsing; the game is identical, every change still shows. */
+  @media (prefers-reduced-motion: reduce) {
+    .tok.cur .ring, .sheet { animation: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -289,6 +404,27 @@
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
     <!-- A rangoli-ish ring for the board's centre: concentric dotted circles and petals, drawn faint. -->
     <symbol id="orn" viewBox="0 0 200 200"><g fill="none" stroke="#ffd54a" stroke-width="1.2"><circle cx="100" cy="100" r="96" stroke-dasharray="2 5"/><circle cx="100" cy="100" r="84"/><circle cx="100" cy="100" r="60" stroke-dasharray="1 4"/></g><g fill="#ffd54a"><path id="pt" d="M100 16c6 10 6 18 0 26-6-8-6-16 0-26z"/><use href="#pt" transform="rotate(30 100 100)"/><use href="#pt" transform="rotate(60 100 100)"/><use href="#pt" transform="rotate(90 100 100)"/><use href="#pt" transform="rotate(120 100 100)"/><use href="#pt" transform="rotate(150 100 100)"/><use href="#pt" transform="rotate(180 100 100)"/><use href="#pt" transform="rotate(210 100 100)"/><use href="#pt" transform="rotate(240 100 100)"/><use href="#pt" transform="rotate(270 100 100)"/><use href="#pt" transform="rotate(300 100 100)"/><use href="#pt" transform="rotate(330 100 100)"/></g></symbol>
+    <!-- Buildings that stand on the colour band: a green house and a red hotel, both with a roof. -->
+    <symbol id="b-house" viewBox="0 0 20 20"><path d="M3.5 9.5h13v9h-13z" fill="#36b860" stroke="#0b3a1c" stroke-width="1.3" stroke-linejoin="round"/><path d="M1.2 10.2 10 2l8.8 8.2z" fill="#1e7a3f" stroke="#0b3a1c" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.4 13.2h3.2v5.3H8.4z" fill="#0b3a1c"/><path d="M5 11.8h2.2V14H5z" fill="#d8f5c8"/></symbol>
+    <symbol id="b-hotel" viewBox="0 0 24 20"><path d="M2.5 8h19v11h-19z" fill="#e0453a" stroke="#4a0c08" stroke-width="1.3" stroke-linejoin="round"/><path d="M1 8.6 12 1.5l11 7.1z" fill="#9b1f17" stroke="#4a0c08" stroke-width="1.3" stroke-linejoin="round"/><path d="M5 10.5h2.4v2.4H5zM10.8 10.5h2.4v2.4h-2.4zM16.6 10.5h2.4v2.4h-2.4zM5 14.6h2.4V17H5zM16.6 14.6h2.4V17h-2.4z" fill="#ffe7a3"/><path d="M10.6 14.4h2.8V19h-2.8z" fill="#4a0c08"/></symbol>
+    <!-- The centre's skyline, all drawn here: a four-minaret gate, a sea-front arch, a temple spire, a
+         cantilever bridge and a domed memorial, standing on one ground line. -->
+    <symbol id="skyline" viewBox="0 0 400 84">
+      <path d="M0 82h400v2H0z"/>
+      <path d="M16 84V26h7v58zM65 84V26h7v58zM15 26a4.5 4.5 0 0 1 9 0zM64 26a4.5 4.5 0 0 1 9 0zM19 21.5h1V15h-1zM68 21.5h1V15h-1zM14.5 44h10v2h-10zM63.5 44h10v2h-10zM14.5 60h10v2h-10zM63.5 60h10v2h-10z"/>
+      <path d="M23 84V44h42v40h-9V66a12 12 0 0 0-24 0v18zM27 44v-7h34v7zM36 37a8 5 0 0 1 16 0z"/>
+      <path d="M74 84V70h18v14z"/>
+      <path d="M92 84V40h66v44h-20V62a13 13 0 0 0-26 0v22zM92 40V30h8v10zM150 40V30h8v10zM91.5 30a4.5 4.5 0 0 1 9 0zM149.5 30a4.5 4.5 0 0 1 9 0zM108 40v-6h34v6zM117 34a8 6 0 0 1 16 0z"/>
+      <path d="M158 84v-10h14v10z"/>
+      <path d="M172 84V66h6v-4h4C184 46 189 30 192 20h1V11h2v9h1c3 10 8 26 10 42h4v4h6v18zM195 11l6 2-6 2z"/>
+      <path d="M216 84v-12h6v12z"/>
+      <path d="M246 84V34h6v50zM300 84V34h6v50zM222 68h108v3H222z"/>
+      <path d="M222 68 249 34l27 22 27-22 27 34M249 34l13 34M303 34l-13 34M235 52l6 16M317 52l-6 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M330 84v-8h8v8z"/>
+      <path d="M338 84V60h60v24zM350 60V50h36v10zM352 50c0-14 32-14 32 0zM367.5 40h1v-9h-1zM364 41a4 3 0 0 1 8 0zM338 60v-6h7v6zM391 60v-6h7v6zM337.5 54a4 4 0 0 1 8 0zM390.5 54a4 4 0 0 1 8 0z"/>
+    </symbol>
+    <!-- The frame of the jail corner: a barred window. -->
+    <symbol id="c-jail" viewBox="0 0 24 24"><rect x="2.5" y="2.5" width="19" height="19" rx="2" fill="#f2a43a" stroke="#3a2c1d" stroke-width="1.6"/><path d="M7.2 3v18M12 3v18M16.8 3v18" stroke="#2b2118" stroke-width="1.9"/><path d="M3 12h18" stroke="#2b2118" stroke-width="1.4"/></symbol>
   </defs>
 </svg>
 
@@ -305,9 +441,11 @@
   </div>
 </div>
 
+<div id="hud"><div id="hudtext"><div id="status"></div><div id="logmini"></div></div><div id="focus" hidden></div><div id="cardShow" hidden></div></div>
 <div id="setup" hidden></div>
 <div id="veil" class="veil" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
 <div id="toast" role="status" hidden></div>
+<div id="fx" hidden></div>
 
 <script>
 'use strict';
@@ -1542,7 +1680,7 @@ let tokAt = [];          // where each token is drawn, which lags the state whil
 let sheetRefresh = null; // re-render function of the open sheet, called after every change
 let lastHumanActor = -1;
 let gen = 0;             // bumped by every new or resumed game, so animation left over from the last one stops
-const geom = { bs: 360, e: 30, c: 45, tk: 16, port: true };
+let shownOwn = [];       // which owner each space shows, which lags the state while ownership animates
 
 // ---------------------------------------------------------------- options
 function loadOpts() {
@@ -1586,95 +1724,347 @@ function readSave() {
   return s;
 }
 
-// ---------------------------------------------------------------- board geometry
-// The board is 12 edge-widths square: 9 edge spaces plus two corners of 1.5 each. On a 360 px phone that
-// is a 29 px edge space, too narrow for a name, so the board carries colour, icon and price, and a tap
-// opens the full deed.
-function cellRC(i) {
-  if (i <= 10) return { row: 11, col: 11 - i, side: 'bottom' };
-  if (i < 20) return { row: 11 - (i - 10), col: 1, side: 'left' };
-  if (i <= 30) return { row: 1, col: 1 + (i - 20), side: 'top' };
-  return { row: 1 + (i - 30), col: 11, side: 'right' };
-}
-const trackStart = (k) => (k === 1 ? 0 : geom.c + (k - 2) * geom.e);
-const trackSize = (k) => (k === 1 || k === 11 ? geom.c : geom.e);
-function cellBox(i) {
-  const { row, col } = cellRC(i);
-  return { x: trackStart(col), y: trackStart(row), w: trackSize(col), h: trackSize(row) };
-}
-// Where token p sits on space i, given who else is there. Tokens line up along the long axis of a space.
-function tokenXY(p, i, inJail, others) {
-  const b = cellBox(i), u = geom.tk * 0.62;
-  const list = others.slice().sort((a, z) => a - z);
-  const k = Math.max(0, list.indexOf(p)), n = Math.max(1, list.length);
-  if (i === M.JAIL) {
-    if (inJail) {
-      const gx = (k % 2) - 0.5 * (Math.min(n, 2) - 1), gy = Math.floor(k / 2) - 0.5 * (Math.ceil(n / 2) - 1);
-      return { x: b.x + b.w * 0.62 + gx * u, y: b.y + b.h * 0.38 + gy * u };
-    }
-    return { x: b.x + b.w * 0.16 + (k % 3) * u * 0.0, y: b.y + b.h * 0.2 + k * u * 0.62 };
-  }
-  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-  const along = (k - (n - 1) / 2) * u * (n > 3 ? 0.62 : 0.9);
-  const perp = n > 3 ? (k % 2 ? 0.28 : -0.28) * u : 0;
-  return b.w >= b.h ? { x: cx + along, y: cy + perp } : { x: cx + perp, y: cy + along };
-}
+// ---------------------------------------------------------------- the board view
+// The game flow talks to the board only through the object makeDomBoard() returns, so another renderer
+// (a Three.js board, say) can stand in for this DOM/SVG one by returning the same methods. Everything
+// outside the view is shared by any renderer and placed with the rectangles the view reports: the
+// players' panel and buttons, the status and log over the centre (#hud), the deed and card overlays,
+// the ownership announcements (#fx) and every dialog.
+//
+//   mount(host, o)            build inside host. o.onTap(i): space i was tapped. o.speed(): animation
+//                             time multiplier (0.5 Fast, ~0 in tests). o.reduced(): reduced motion is on.
+//   resize(bs)                lay the board out as a bs-pixel square
+//   reset()                   a new or resumed game: forget what was drawn (nothing animates in)
+//   drawSpace(S, i)           owner, mortgage and buildings of space i; buildings added since the last
+//                             draw drop in
+//   drawTokens(S, at)         every token where at[p] = { i, jail } says; the player to move is marked
+//   moveToken(p, from, path)  async: hop token p from `from` ({ i, jail }) along path (space indices)
+//   jumpToken(p, from, to)    async: token p straight into jail space `to`
+//   rollDice(d), setDice(d)   async tumble to d = [a, b] / show d at rest
+//   pulse(i)                  a brief flash on space i (a change landed there)
+//   glow(list, color, ms)     the spaces in list light up together in color
+//   spaceRect(i), centreRect(), textRect()   screen rectangles (DOMRect-like) of space i, of the board's
+//                             centre, and of the slot in the centre where the shared status text goes
+function makeDomBoard() {
+  const g = { bs: 360, e: 30, c: 45, tk: 20, bt: 11, ot: 7, hs: 8 };
+  const cells = [], blds = [], drawn = [];
+  let host = null, o = null, center = null, ctext = null, tokLayer = null;
+  const wait = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms * o.speed())));
 
-// ---------------------------------------------------------------- building the board
-const board = $('board');
-const cells = [];
-function iconFor(sp) {
-  const map = { go: 'i-start', jail: 'i-jail', parking: 'i-chai', gotojail: 'i-siren', station: 'i-train', kismat: 'i-kismat', khazana: 'i-khazana' };
-  if (sp.type === 'utility') return sp.i === 12 ? 'i-bulb' : 'i-drop';
-  if (sp.type === 'tax') return sp.i === 4 ? 'i-tax' : 'i-gem';
-  return map[sp.type] || '';
-}
-function buildBoard() {
-  board.innerHTML = '';
-  for (const sp of M.SPACES) {
-    const { row, col, side } = cellRC(sp.i);
-    const b = document.createElement('button');
-    const corner = sp.i % 10 === 0;
-    b.className = 'sp s-' + side + (corner ? ' corner' : '');
-    b.style.gridRow = row; b.style.gridColumn = col;
-    b.setAttribute('aria-label', sp.name);
-    let h = '<div class="in">';
-    if (sp.type === 'street') {
-      h += '<div class="band" style="background:' + M.GROUPS[sp.group].color + '"></div><div class="lbl small">' + esc(sp.short) + '</div><div class="price">' + sp.price + '</div>';
-    } else if (corner) {
-      const label = { go: 'START', jail: 'JAIL', parking: 'CHAI', gotojail: 'TO JAIL' }[sp.type];
-      h += '<svg class="ico"><use href="#' + iconFor(sp) + '"/></svg><div class="lbl">' + label + '</div>';
-    } else {
-      h += '<svg class="ico"><use href="#' + iconFor(sp) + '"/></svg><div class="lbl small">' + esc(sp.short) + '</div>' + (sp.price ? '<div class="price">' + sp.price + '</div>' : sp.amount ? '<div class="price">' + sp.amount + '</div>' : '');
+  // ---- geometry: 12 edge-widths square, 9 edge spaces plus two corners of 1.5 each
+  function cellRC(i) {
+    if (i <= 10) return { row: 11, col: 11 - i, side: 'bottom' };
+    if (i < 20) return { row: 11 - (i - 10), col: 1, side: 'left' };
+    if (i <= 30) return { row: 1, col: 1 + (i - 20), side: 'top' };
+    return { row: 1 + (i - 30), col: 11, side: 'right' };
+  }
+  const trackStart = (k) => (k === 1 ? 0 : g.c + (k - 2) * g.e);
+  const trackSize = (k) => (k === 1 || k === 11 ? g.c : g.e);
+  function cellBox(i) { const { row, col } = cellRC(i); return { x: trackStart(col), y: trackStart(row), w: trackSize(col), h: trackSize(row) }; }
+  // The colour band of a street: the edge of the space that faces the centre.
+  function bandBox(i) {
+    const b = cellBox(i), side = cellRC(i).side, t = g.bt;
+    if (side === 'bottom') return { x: b.x, y: b.y, w: b.w, h: t, v: false };
+    if (side === 'top') return { x: b.x, y: b.y + b.h - t, w: b.w, h: t, v: false };
+    if (side === 'left') return { x: b.x + b.w - t, y: b.y, w: t, h: b.h, v: true };
+    return { x: b.x, y: b.y, w: t, h: b.h, v: true };
+  }
+  // Where token p stands on space i, given who else is there: the point under the middle of its base.
+  // One token stands in the middle of the space; several form a small staggered queue along the space's
+  // long axis, alternating sides, so every head stays in view.
+  function tokenXY(p, i, inJail, others) {
+    const b = cellBox(i), W = g.tk, lift = W * 0.55;
+    const list = others.slice().sort((a, z) => a - z);
+    const k = Math.max(0, list.indexOf(p)), n = Math.max(1, list.length);
+    if (i === M.JAIL) {
+      if (inJail) {
+        const cols = Math.min(n, 2), gx = (k % 2) - 0.5 * (cols - 1), gy = Math.floor(k / 2) - 0.5 * (Math.ceil(n / 2) - 1);
+        return { x: b.x + b.w * 0.68 + gx * W * 0.5, y: b.y + b.h * 0.42 + lift * 0.5 + gy * W * 0.36 };
+      }
+      // Just visiting: a queue down the lane on the jail's outer side.
+      return { x: b.x + Math.max(W * 0.5, b.w * 0.18), y: b.y + b.h * 0.3 + lift * 0.5 + k * W * 0.3 };
     }
-    h += '</div><div class="owner" hidden></div>';
-    b.innerHTML = h;
-    b.addEventListener('click', () => openSpace(sp.i));
-    board.appendChild(b);
-    cells[sp.i] = b;
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2 + lift;
+    if (n === 1) return { x: cx, y: cy };
+    const vert = b.h > b.w;
+    const d = vert ? W * 0.34 : W * 0.52, pp = vert ? W * 0.24 : W * 0.1;
+    const along = (k - (n - 1) / 2) * d, perp = (k % 2 ? 1 : -1) * pp;
+    return vert ? { x: cx + perp, y: cy + along } : { x: cx + along, y: cy + perp };
   }
-  const center = document.createElement('div');
-  center.id = 'center';
-  center.innerHTML = '<svg class="orn" viewBox="0 0 200 200"><use href="#orn"/></svg>' +
-    '<div class="brand">Mahanagar</div><div class="tag">Buy the city</div>' +
-    '<div id="dice">' + dieHTML('d1') + dieHTML('d2') + '</div>' +
-    '<div id="status"></div><div id="logmini"></div><div id="focus" hidden></div><div id="cardShow" hidden></div>';
-  board.appendChild(center);
-  const tl = document.createElement('div'); tl.id = 'tokens'; board.appendChild(tl);
-}
-const PIPS = { 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9] };
-const FACE_T = { 1: 'rotateY(0deg)', 6: 'rotateY(180deg)', 2: 'rotateY(90deg)', 5: 'rotateY(-90deg)', 3: 'rotateX(90deg)', 4: 'rotateX(-90deg)' };
-const SHOW_T = { 1: [0, 0], 6: [0, 180], 2: [0, -90], 5: [0, 90], 3: [-90, 0], 4: [90, 0] };
-function dieHTML(id) {
-  let h = '<div class="die" id="' + id + '">';
-  for (let f = 1; f <= 6; f++) {
-    h += '<div class="face" style="transform:' + FACE_T[f] + ' translateZ(calc(var(--e) * .525))">';
-    for (let k = 1; k <= 9; k++) h += PIPS[f].includes(k) ? '<span class="pip' + (f === 1 ? ' r' : '') + '" style="grid-area:' + (Math.floor((k - 1) / 3) + 1) + '/' + ((k - 1) % 3 + 1) + '"></span>' : '';
-    h += '</div>';
+
+  // ---- building
+  function iconFor(sp) {
+    const map = { go: 'i-start', jail: 'i-jail', parking: 'i-chai', gotojail: 'i-siren', station: 'i-train', kismat: 'i-kismat', khazana: 'i-khazana' };
+    if (sp.type === 'utility') return sp.i === 12 ? 'i-bulb' : 'i-drop';
+    if (sp.type === 'tax') return sp.i === 4 ? 'i-tax' : 'i-gem';
+    return map[sp.type] || '';
   }
-  return h + '</div>';
+  function cornerHTML(sp) {
+    const t = sp.type;
+    if (t === 'jail') return '<div class="lane" aria-hidden="true"></div><div class="cbody"><span class="medal"><svg viewBox="0 0 24 24"><use href="#c-jail"/></svg></span><div class="clbl">JAIL</div></div>';
+    const art = { go: 'i-start', parking: 'i-chai', gotojail: 'i-siren' }[t];
+    const lbl = { go: 'START', parking: 'CHAI<span class="wide"> BREAK</span>', gotojail: 'TO JAIL' }[t];
+    const sub = { go: 'collect ' + rupees(M.SALARY), parking: 'a free rest', gotojail: 'do not pass Start' }[t];
+    return '<div class="cbody"><span class="medal"><svg viewBox="0 0 24 24"><use href="#' + art + '"/></svg></span><div class="clbl">' + lbl + '</div><div class="csub">' + sub + '</div></div>';
+  }
+  const PIPS = { 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9] };
+  const FACE_T = { 1: 'rotateY(0deg)', 6: 'rotateY(180deg)', 2: 'rotateY(90deg)', 5: 'rotateY(-90deg)', 3: 'rotateX(90deg)', 4: 'rotateX(-90deg)' };
+  const SHOW_T = { 1: [0, 0], 6: [0, 180], 2: [0, -90], 5: [0, 90], 3: [-90, 0], 4: [90, 0] };
+  function dieHTML(id) {
+    let h = '<div class="dpos"><div class="dshadow"></div><div class="dslot"><div class="die" id="' + id + '">';
+    for (let f = 1; f <= 6; f++) {
+      h += '<div class="face" style="transform:' + FACE_T[f] + ' translateZ(calc(var(--e) * .525))">';
+      for (let k = 1; k <= 9; k++) h += PIPS[f].includes(k) ? '<span class="pip' + (f === 1 ? ' r' : '') + '" style="grid-area:' + (Math.floor((k - 1) / 3) + 1) + '/' + ((k - 1) % 3 + 1) + '"></span>' : '';
+      h += '</div>';
+    }
+    return h + '</div></div></div>';
+  }
+  // The same list of transform functions in every dice frame, so the spins interpolate as rotations. (A
+  // frame with an extra translate made the browser fall back to matrix interpolation, dropping turns.)
+  const dieT = (ty, rx, ry) => 'translateY(' + ty + 'px) rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)';
+  function setDie(id, v) { const [x, y] = SHOW_T[v] || [0, 0]; $(id).style.transform = dieT(0, x, y); }
+  function mount(h, opts) {
+    host = h; o = opts;
+    host.innerHTML = '';
+    for (const sp of M.SPACES) {
+      const { row, col, side } = cellRC(sp.i);
+      const b = document.createElement('button');
+      const corner = sp.i % 10 === 0;
+      b.className = 'sp s-' + side + (corner ? ' corner c-' + sp.type : '') + (M.isOwnable(sp.i) ? ' ownable' : '');
+      b.style.gridRow = row; b.style.gridColumn = col;
+      b.setAttribute('aria-label', sp.name);
+      let html;
+      if (corner) html = cornerHTML(sp);
+      else {
+        const amt = sp.price || sp.amount;
+        // The mortgage M goes on a street's band (a mortgaged street has no buildings, so the band is
+        // free) and in a corner of a station or utility, never over a name.
+        const mk = '<span class="mk" aria-hidden="true">M</span>';
+        const inner = '<div class="lbl">' + esc(BOARD_NAME[sp.i] || sp.name) + '</div>' + (amt ? '<div class="price">₹' + amt + '</div>' : '');
+        html = sp.type === 'street'
+          ? '<div class="band" style="--g:' + M.GROUPS[sp.group].color + '">' + mk + '</div><div class="body">' + inner + '</div>'
+          : '<div class="body"><svg class="ico"><use href="#' + iconFor(sp) + '"/></svg>' + inner + mk + '</div>';
+        html += '<div class="own"></div>';
+      }
+      b.innerHTML = html;
+      b.addEventListener('click', () => o.onTap(sp.i));
+      host.appendChild(b);
+      cells[sp.i] = b;
+    }
+    center = document.createElement('div');
+    center.id = 'center';
+    center.innerHTML = '<div class="deco jaali" aria-hidden="true"></div><svg class="deco orn" viewBox="0 0 200 200" aria-hidden="true"><use href="#orn"/></svg>' +
+      '<svg class="deco sky" viewBox="0 0 400 84" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><use href="#skyline" width="400" height="84"/></svg><div class="deco frame" aria-hidden="true"></div>' +
+      '<div class="brand">Mahanagar</div><div class="tag">Buy the city</div><div class="rule" aria-hidden="true"></div>' +
+      '<div id="dice">' + dieHTML('d1') + dieHTML('d2') + '</div><div class="ctext"></div>';
+    host.appendChild(center);
+    ctext = center.querySelector('.ctext');
+    const bl = document.createElement('div'); bl.id = 'blds'; host.appendChild(bl);
+    for (const sp of M.SPACES) {
+      if (sp.type !== 'street') continue;
+      const d = document.createElement('div'); d.className = 'bl'; d.dataset.n = '0'; bl.appendChild(d); blds[sp.i] = d;
+    }
+    tokLayer = document.createElement('div'); tokLayer.id = 'tokens'; host.appendChild(tokLayer);
+  }
+
+  // ---- size
+  // Names get the largest size, up to a cap, at which every word fits the width and the lines fit the
+  // height. Runs on resize only. Below 40 px a space has no room for a name at all; it shows the price.
+  function fitLabels() {
+    if (!host.classList.contains('roomy')) return;
+    const max = Math.min(13, g.e * 0.19);
+    for (const c of cells) {
+      const l = c.querySelector('.lbl');
+      if (!l) continue;
+      const body = l.parentNode, cs = getComputedStyle(body);
+      const avail = body.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      const gap = parseFloat(cs.rowGap) || 0;
+      const need = () => { let s = 0, n = 0; for (const k of body.children) if (!k.classList.contains('mk')) { s += k.offsetHeight; n++; } return s + gap * (n - 1); };
+      let fs = max;
+      l.style.fontSize = fs + 'px';
+      while (fs > 8 && (need() > avail + 0.5 || l.scrollWidth > l.clientWidth + 0.5)) { fs -= 0.5; l.style.fontSize = fs + 'px'; }
+    }
+  }
+  function resize(bs) {
+    const e = Math.max(20, Math.floor(bs / 12));
+    g.e = e; g.c = e * 1.5; g.bs = e * 12;
+    // Token width (a pawn is 1.45 times as tall); band, owner ribbon and house sizes follow the space.
+    g.tk = Math.max(20, Math.round(e * (e >= 40 ? 0.62 : 0.72)));
+    g.bt = Math.max(11, Math.round(g.c * 0.26));
+    g.ot = Math.max(7, Math.round(g.c * 0.13));
+    g.hs = Math.min(g.bt * 0.92, Math.max(8, (e - 2) / (e >= 40 ? 4.2 : 3.2)));
+    const hm = Math.min(0, (e - 2 - 4 * g.hs) / 3);
+    const st = host.style;
+    st.setProperty('--e', e + 'px'); st.setProperty('--c', g.c + 'px'); st.setProperty('--bs', g.bs + 'px'); st.setProperty('--tk', g.tk + 'px');
+    st.setProperty('--bt', g.bt + 'px'); st.setProperty('--ot', g.ot + 'px'); st.setProperty('--hs', g.hs + 'px'); st.setProperty('--hm', hm + 'px');
+    host.classList.toggle('roomy', e >= 40);
+    for (const i of M.OWNABLE) {
+      const d = blds[i];
+      if (!d) continue;
+      const r = bandBox(i);
+      d.className = 'bl' + (r.v ? ' v' : '');
+      d.style.left = r.x + 'px'; d.style.top = r.y + 'px'; d.style.width = r.w + 'px'; d.style.height = r.h + 'px';
+    }
+    fitLabels();
+  }
+
+  // ---- spaces
+  const HOUSE_SVG = '<svg viewBox="0 0 20 20"><use href="#b-house"/></svg>';
+  function drawBlds(i, h) {
+    const d = blds[i];
+    const was = drawn[i] == null ? h : drawn[i];
+    drawn[i] = h;
+    if (+d.dataset.n === h) return;
+    d.dataset.n = h;
+    d.innerHTML = h === 5 ? '<svg class="hotel" viewBox="0 0 24 20"><use href="#b-hotel"/></svg>' : HOUSE_SVG.repeat(h);
+    // A new building drops onto the band with a small bounce.
+    if (h > was && o.speed() >= 0.05 && !o.reduced()) {
+      const news = h === 5 ? [d.firstChild] : [...d.children].slice(was);
+      const up = g.hs * 2.4;
+      news.forEach((el, k) => el.animate([{ transform: 'translateY(' + -up + 'px)', opacity: 0, easing: 'ease-in' }, { transform: 'translateY(0px)', opacity: 1, offset: 0.55, easing: 'ease-out' },
+        { transform: 'translateY(' + -g.hs * 0.35 + 'px)', offset: 0.75, easing: 'ease-in' }, { transform: 'translateY(0px)', opacity: 1 }], { duration: 420 * o.speed(), delay: k * 60 * o.speed(), fill: 'backwards' }));
+    }
+  }
+  function drawSpace(S, i) {
+    const b = cells[i], sp = M.SPACES[i];
+    if (!M.isOwnable(i)) return;
+    const ow = S.own[i];
+    b.classList.toggle('owned', ow >= 0);
+    if (ow >= 0) b.style.setProperty('--oc', COLORS[ow]);
+    b.classList.toggle('mort', !!S.mort[i]);
+    const h = sp.type === 'street' ? S.houses[i] : 0;
+    if (sp.type === 'street') drawBlds(i, h);
+    const label = sp.name + (ow >= 0 ? ', owned by ' + S.players[ow].name : '') + (h === 5 ? ', hotel' : h ? ', ' + h + ' house' + (h > 1 ? 's' : '') : '') + (S.mort[i] ? ', mortgaged' : '');
+    if (b.getAttribute('aria-label') !== label) b.setAttribute('aria-label', label);
+  }
+  // Flashes animate the space's ::after overlay directly (opacity only), so they never force a layout.
+  function pulse(i) {
+    cells[i].style.removeProperty('--gc');
+    if (o.reduced()) return;
+    cells[i].animate([{ opacity: 1 }, { opacity: 0 }], { duration: 550, easing: 'ease-out', pseudoElement: '::after' });
+  }
+  function glow(list, color, ms) {
+    for (const j of list) {
+      cells[j].style.setProperty('--gc', color);
+      cells[j].animate([{ opacity: 0 }, { opacity: 0.8, offset: 0.25 }, { opacity: 0.8, offset: 0.7 }, { opacity: 0 }], { duration: ms, easing: 'ease-in-out', pseudoElement: '::after' });
+    }
+  }
+
+  // ---- tokens: a standing pawn (base, body, collar, a head carrying the player's symbol), drawn here
+  function pawnHTML(p) {
+    return '<div class="shd"></div><div class="ring"></div><div class="stand"><svg viewBox="0 0 40 58" aria-hidden="true">' +
+      '<g class="pc"><path d="M5.5 48c0-3.4 3.4-5.6 7.2-5.6h14.6c3.8 0 7.2 2.2 7.2 5.6 0 2.9-6.4 4.2-14.5 4.2S5.5 50.9 5.5 48z"/>' +
+      '<path d="M12.6 43c2-5.2 3.1-10.6 3.5-16.4h7.8c.4 5.8 1.5 11.2 3.5 16.4z"/>' +
+      '<ellipse cx="20" cy="26.8" rx="8" ry="2.8"/><circle cx="20" cy="14" r="12.2"/></g>' +
+      '<circle cx="20" cy="14" r="9.7" fill="none" stroke="#fff" stroke-opacity=".85" stroke-width="1.3"/>' +
+      '<path d="M15 41c1.3-4 2-8.4 2.3-13h2c-.3 4.8-1 9.2-2.2 13z" fill="#fff" opacity=".3"/>' +
+      '<ellipse cx="15" cy="8.4" rx="4.6" ry="2.5" fill="#fff" opacity=".32"/>' +
+      '<svg x="12" y="6" width="16" height="16" viewBox="0 0 24 24" fill="#fff" stroke="#1b120a" stroke-width="1.1" paint-order="stroke"><use href="#g' + p + '"/></svg></svg></div>';
+  }
+  function tokenEls(n) {
+    if (tokLayer.childElementCount !== n) {
+      tokLayer.innerHTML = '';
+      for (let p = 0; p < n; p++) {
+        const t = document.createElement('div');
+        t.className = 'tok'; t.style.setProperty('--pc', COLORS[p]); t.innerHTML = pawnHTML(p); t.dataset.p = p;
+        tokLayer.appendChild(t);
+      }
+    }
+    return tokLayer.children;
+  }
+  function drawTokens(S, at) {
+    const els = tokenEls(S.players.length);
+    S.players.forEach((P, p) => {
+      const a = at[p] || { i: P.pos, jail: P.jail };
+      const here = S.players.map((Q, q) => q).filter((q) => !S.players[q].out && at[q] && at[q].i === a.i && at[q].jail === a.jail);
+      const { x, y } = tokenXY(p, a.i, a.jail, here);
+      const cur = p === S.cur && S.phase !== 'over';
+      els[p].style.transform = 'translate(' + x + 'px,' + y + 'px)';
+      // Nearer the bottom of the screen draws in front, as on a table; whoever is to move stays on top.
+      els[p].style.zIndex = Math.round(y) + (cur ? 5000 : 0);
+      els[p].classList.toggle('out', P.out);
+      els[p].classList.toggle('cur', cur);
+    });
+  }
+  // The pose of a standing piece: lifted L px and squashed (sx, sy) about the middle of its base.
+  const liftT = (L, sx, sy) => 'translateY(' + -L + 'px) scale(' + sx + ',' + sy + ')';
+  async function moveToken(p, from, path) {
+    const el = tokLayer.children[p];
+    if (!el || !path.length) return;
+    const st = el.querySelector('.stand'), sh = el.querySelector('.shd');
+    const long = path.length > 12;
+    let cur = from;
+    el.classList.add('moving');
+    for (let s = 0; s < path.length; s++) {
+      const i = path[s];
+      const a = tokenXY(p, cur.i, cur.jail, [p]), b = tokenXY(p, i, false, [p]);
+      cur = { i, jail: false };
+      const ms = (long ? 70 : 150) * o.speed();
+      el.style.transform = 'translate(' + b.x + 'px,' + b.y + 'px)';
+      if (ms < 8) continue;
+      if (o.reduced()) { await new Promise((r) => setTimeout(r, ms * 0.6)); continue; }
+      // A little arc off the board, then a squash on landing (a bigger one on the last step).
+      const L = g.tk * (long ? 0.45 : 0.7), sq = s === path.length - 1 ? [1.14, 0.82] : [1.05, 0.94];
+      const A = 'translate(' + a.x + 'px,' + a.y + 'px)', B = 'translate(' + b.x + 'px,' + b.y + 'px)';
+      const mv = el.animate([{ transform: A }, { transform: B, offset: 0.8 }, { transform: B }], { duration: ms, easing: 'ease-in-out' });
+      st.animate([{ transform: liftT(0, 1, 1), easing: 'ease-out' }, { transform: liftT(L, 1, 1), offset: 0.4, easing: 'ease-in' },
+        { transform: liftT(0, 1, 1), offset: 0.8, easing: 'ease-out' }, { transform: liftT(0, sq[0], sq[1]), offset: 0.9 }, { transform: liftT(0, 1, 1) }], { duration: ms });
+      sh.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(.6)', opacity: 0.45, offset: 0.4 }, { transform: 'scale(1)', opacity: 1, offset: 0.8 }, { transform: 'scale(1)', opacity: 1 }], { duration: ms });
+      await mv.finished.catch(() => {});
+    }
+    el.classList.remove('moving');
+  }
+  async function jumpToken(p, from, to) {
+    const el = tokLayer.children[p];
+    if (!el || o.speed() <= 0.05 || o.reduced()) return;
+    const st = el.querySelector('.stand');
+    const a = tokenXY(p, from.i, from.jail, [p]), b = tokenXY(p, to, true, [p]);
+    el.classList.add('moving');
+    const ms = 650 * o.speed(), A = 'translate(' + a.x + 'px,' + a.y + 'px)', B = 'translate(' + b.x + 'px,' + b.y + 'px)';
+    st.animate([{ transform: liftT(0, 1, 1), easing: 'ease-out' }, { transform: liftT(g.e * 2, 1.15, 1.15), offset: 0.5, easing: 'ease-in' },
+      { transform: liftT(0, 1, 1), offset: 0.88 }, { transform: liftT(0, 1.12, 0.85), offset: 0.94 }, { transform: liftT(0, 1, 1) }], { duration: ms });
+    await el.animate([{ transform: A }, { transform: B, offset: 0.88 }, { transform: B }], { duration: ms, easing: 'ease-in-out' }).finished.catch(() => {});
+    el.classList.remove('moving');
+  }
+
+  // ---- dice: real cubes, each with its own small perspective, turned to show three faces
+  async function rollDice(d) {
+    if (o.speed() < 0.05 || o.reduced()) { setDie('d1', d[0]); setDie('d2', d[1]); await wait(o.reduced() ? 250 : 0); return; }
+    const size = g.e * 1.05;
+    const go = (id, v, k) => {
+      const [x, y] = SHOW_T[v];
+      const el = $(id);
+      const sx = x + 720 + 90 * ((v + k) % 3), sy = y + 540 + 90 * k;
+      el.style.transform = dieT(0, x, y);
+      return el.animate([{ transform: dieT(-size * 0.6, sx, sy) }, { transform: dieT(size * 0.08, x + 20, y - 15), offset: 0.75 }, { transform: dieT(0, x, y) }],
+        { duration: 640 * o.speed(), easing: 'cubic-bezier(.2,.7,.3,1)' }).finished.catch(() => {});
+    };
+    await Promise.all([go('d1', d[0], 1), go('d2', d[1], 2)]);
+    await wait(120);
+  }
+  function setDice(d) { setDie('d1', d[0]); setDie('d2', d[1]); }
+
+  function reset() { drawn.length = 0; if (tokLayer) tokLayer.innerHTML = ''; }
+  return {
+    mount, resize, reset, drawSpace, drawTokens, moveToken, jumpToken, rollDice, setDice, pulse, glow,
+    spaceRect: (i) => cells[i].getBoundingClientRect(), centreRect: () => center.getBoundingClientRect(), textRect: () => ctext.getBoundingClientRect(),
+  };
 }
-function setDie(id, v) { const [x, y] = SHOW_T[v] || [0, 0]; $(id).style.transform = 'rotateX(' + x + 'deg) rotateY(' + y + 'deg)'; }
+const board = $('board');
+const view = makeDomBoard();
+const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+// The board prints full names. Soft hyphens mark where a long word may break when a space is narrow.
+const BOARD_NAME = { 3: 'Godow­lia', 6: 'Amina­bad', 9: 'Hazrat­ganj', 16: 'Char­minar', 23: 'Espla­nade',
+  26: 'Malle­shwaram', 27: 'Kora­mangala', 29: 'Indira­nagar', 34: 'Connaught Place' };
+// Contrast helpers, for text laid on a city's or a player's colour.
+function lum(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+const contrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+const tint = (hex, a) => '#' + [1, 3, 5].map((k) => Math.round(parseInt(hex.substr(k, 2), 16) * (1 - a) + 255 * a).toString(16).padStart(2, '0')).join('');
+const inkOn = (bg) => (contrast(bg, '#ffffff') >= contrast(bg, '#1d140b') ? '#ffffff' : '#1d140b');
 
 // ---------------------------------------------------------------- layout
 // Portrait: header, board, then players and buttons underneath. Landscape: players, buttons and the
@@ -1702,92 +2092,26 @@ function layout() {
     if (side.firstElementChild !== $('top')) side.insertBefore($('top'), side.firstElementChild);
     if (app.firstElementChild !== side) app.insertBefore(side, board);
   }
+  // The board unit also sizes the shared overlays over the centre (status, deed, cards).
   const e = Math.max(20, Math.floor(bs / 12));
-  geom.e = e; geom.c = e * 1.5; geom.bs = e * 12; geom.port = port;
-  geom.tk = Math.max(15, Math.round(e * 0.56));
   const r = document.documentElement.style;
-  r.setProperty('--e', e + 'px'); r.setProperty('--c', geom.c + 'px'); r.setProperty('--bs', geom.bs + 'px'); r.setProperty('--tk', geom.tk + 'px');
-  board.classList.toggle('roomy', e >= 44);
-  if (S) placeAllTokens();
+  r.setProperty('--e', e + 'px'); r.setProperty('--c', e * 1.5 + 'px'); r.setProperty('--bs', e * 12 + 'px');
+  view.resize(bs);
+  if (S) { renderBoard(); view.drawTokens(S, tokAt); }
+  placeHud();
   // The log fills whatever height is left under the buttons; below 60 px it is a sliver, so it goes.
   requestAnimationFrame(() => { const lb = $('logbox'); lb.classList.remove('tiny'); if (lb.getBoundingClientRect().height < 60) lb.classList.add('tiny'); });
 }
-
-// ---------------------------------------------------------------- tokens
-function tokenEls() {
-  const layer = $('tokens');
-  if (layer.childElementCount !== S.players.length) {
-    layer.innerHTML = '';
-    S.players.forEach((P, p) => {
-      const t = document.createElement('div');
-      t.className = 'tok'; t.style.background = COLORS[p]; t.innerHTML = glyph(p); t.dataset.p = p;
-      layer.appendChild(t);
-    });
-  }
-  return [...layer.children];
-}
-function placeAllTokens() {
-  const els = tokenEls();
-  S.players.forEach((P, p) => {
-    if (!tokAt[p]) tokAt[p] = { i: P.pos, jail: P.jail };
-    const at = tokAt[p];
-    const here = S.players.map((Q, q) => q).filter((q) => !S.players[q].out && tokAt[q] && tokAt[q].i === at.i && tokAt[q].jail === at.jail);
-    const { x, y } = tokenXY(p, at.i, at.jail, here);
-    els[p].style.transform = 'translate(' + x + 'px,' + y + 'px)';
-    els[p].classList.toggle('out', P.out);
-    els[p].classList.toggle('cur', p === S.cur && S.phase !== 'over');
-  });
-}
-async function hop(p, path) {
-  const el = tokenEls()[p];
-  const long = path.length > 12;
-  for (const i of path) {
-    const from = tokAt[p];
-    const a = tokenXY(p, from.i, from.jail, [p]), b = tokenXY(p, i, false, [p]);
-    tokAt[p] = { i, jail: false };
-    const lift = geom.tk * 0.9, ms = (long ? 70 : 150) * SPEED;
-    if (ms < 8) continue;
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - lift;
-    const anim = el.animate([
-      { transform: 'translate(' + a.x + 'px,' + a.y + 'px)' },
-      { transform: 'translate(' + mx + 'px,' + my + 'px) scale(1.18)', offset: 0.5 },
-      { transform: 'translate(' + b.x + 'px,' + b.y + 'px)' }], { duration: ms, easing: 'ease-in-out' });
-    el.style.transform = 'translate(' + b.x + 'px,' + b.y + 'px)';
-    await anim.finished.catch(() => {});
-  }
-  placeAllTokens();
-}
-async function jump(p, to) {
-  const el = tokenEls()[p], from = tokAt[p];
-  const a = tokenXY(p, from.i, from.jail, [p]);
-  tokAt[p] = { i: to, jail: true };
-  const b = tokenXY(p, to, true, [p]);
-  if (SPEED > 0.05) {
-    await el.animate([{ transform: 'translate(' + a.x + 'px,' + a.y + 'px)' },
-      { transform: 'translate(' + (a.x + b.x) / 2 + 'px,' + ((a.y + b.y) / 2 - geom.e * 2) + 'px) scale(1.3)', offset: 0.5 },
-      { transform: 'translate(' + b.x + 'px,' + b.y + 'px)' }], { duration: 650 * SPEED, easing: 'ease-in-out' }).finished.catch(() => {});
-  }
-  placeAllTokens();
+// The status line, the latest log lines, the deed on offer and drawn cards sit over the board's centre in
+// a layer of their own, positioned from the rectangles the view reports.
+function placeHud() {
+  const c = view.centreRect(), t = view.textRect(), hud = $('hud'), tx = $('hudtext');
+  Object.assign(hud.style, { left: c.left + 'px', top: c.top + 'px', width: c.width + 'px', height: c.height + 'px' });
+  Object.assign(tx.style, { left: (t.left - c.left) + 'px', top: (t.top - c.top) + 'px', width: t.width + 'px', height: t.height + 'px' });
 }
 
 // ---------------------------------------------------------------- rendering
-function renderCell(i) {
-  const b = cells[i], sp = M.SPACES[i];
-  if (!M.isOwnable(i)) return;
-  const o = S.own[i];
-  const ow = b.querySelector('.owner');
-  ow.hidden = o < 0;
-  if (o >= 0) ow.style.background = COLORS[o];
-  b.classList.toggle('owned', o >= 0);
-  b.classList.toggle('mort', !!S.mort[i]);
-  if (sp.type === 'street') {
-    const h = S.houses[i], band = b.querySelector('.band');
-    band.innerHTML = h === 5 ? '<span class="hotel"></span>' : '<span class="house"></span>'.repeat(h);
-  }
-  const owner = o >= 0 ? ', owned by ' + S.players[o].name : '';
-  b.setAttribute('aria-label', sp.name + owner + (S.mort[i] ? ', mortgaged' : ''));
-}
-function renderBoard() { for (const i of M.OWNABLE) renderCell(i); }
+function renderBoard() { for (const i of M.OWNABLE) { view.drawSpace(S, i); shownOwn[i] = S.own[i]; } }
 function renderPlayers() {
   const box = $('players');
   if (box.childElementCount !== S.players.length) {
@@ -1858,7 +2182,7 @@ function render() {
   renderBoard(); renderPlayers(); renderLog(); renderFocus();
   $('status').textContent = statusLine();
   renderActions();
-  placeAllTokens();
+  view.drawTokens(S, tokAt);
   if (sheetRefresh) sheetRefresh();
 }
 
@@ -1887,7 +2211,7 @@ function deedHTML(i, compact) {
   if (sp.group) ft += '<span>House ' + rupees(M.GROUPS[sp.group].house) + '</span>';
   if (!compact) ft += '<span>Mortgage ' + rupees(M.mortgageValue(i)) + ' · lift ' + rupees(M.unmortgageCost(i)) + '</span>';
   const owner = S && o >= 0 ? '<div style="font-size:.85em;margin-top:2px">' + (S.mort[i] ? 'Mortgaged · ' : '') + 'Owner: ' + esc(S.players[o].name) + '</div>' : '';
-  return '<div class="deed"><div class="hd" style="background:' + color + '"><div class="city">' + city + '</div><div class="nm">' + esc(sp.name) + '</div>' + (compact ? '' : owner) + '</div><table>' + rows + '</table><div class="ft">' + ft + '</div></div>';
+  return '<div class="deed"><div class="hd" style="background:' + color + ';color:' + inkOn(color) + (inkOn(color) === '#ffffff' ? '' : ';text-shadow:none') + '"><div class="city">' + city + '</div><div class="nm">' + esc(sp.name) + '</div>' + (compact ? '' : owner) + '</div><table>' + rows + '</table><div class="ft">' + ft + '</div></div>';
 }
 
 // ---------------------------------------------------------------- actions bar
@@ -2002,43 +2326,30 @@ async function playEvents(g) {
   while (g === gen && S.ev.length) {
     const e = S.ev.shift();
     switch (e.t) {
-      case 'dice': await tumble(e.d); break;
-      case 'move': await hop(e.p, e.path); break;
-      case 'jump': await jump(e.p, e.to); break;
+      case 'dice': await view.rollDice(e.d); break;
+      case 'move': await view.moveToken(e.p, tokAt[e.p], e.path); if (e.path.length) tokAt[e.p] = { i: e.path[e.path.length - 1], jail: false }; view.drawTokens(S, tokAt); break;
+      case 'jump': await view.jumpToken(e.p, tokAt[e.p], e.to); tokAt[e.p] = { i: e.to, jail: true }; view.drawTokens(S, tokAt); break;
       case 'card': await showCard(e.deck, e.id, e.p); break;
       case 'cash': moneyFx(e.p, e.d); await wait(90); break;
       case 'log': renderLog(); break;
-      case 'own': case 'build': renderCell(e.i); cells[e.i].classList.remove('pop'); void cells[e.i].offsetWidth; cells[e.i].classList.add('pop'); await wait(S.ev[0] && S.ev[0].t === e.t ? 40 : 120); break;
+      case 'own': { const list = [e.i]; while (S.ev[0] && S.ev[0].t === 'own') list.push(S.ev.shift().i); await showOwnership(list, g); break; }
+      case 'build': view.drawSpace(S, e.i); view.pulse(e.i); await wait(S.ev[0] && S.ev[0].t === e.t ? 40 : 120); break;
       case 'auction': render(); await wait(200); break;
       case 'bid': case 'bidpass': renderFocus(); await wait(140); break;
       case 'bankrupt': renderPlayers(); toast(S.players[e.p].name + ' is bankrupt'); await wait(900); break;
-      case 'trade': toast('Trade done'); await wait(500); break;
-      case 'turn': renderPlayers(); placeAllTokens(); break;
+      case 'trade': toast('Trade done'); await wait(150); break;
+      case 'turn': renderPlayers(); view.drawTokens(S, tokAt); break;
       default: break;
     }
   }
   S.players.forEach((P, p) => { shownCash[p] = P.cash; tokAt[p] = { i: P.pos, jail: P.jail }; });
-}
-async function tumble(d) {
-  if (SPEED < 0.05) { setDie('d1', d[0]); setDie('d2', d[1]); return; }
-  const go = (id, v, k) => {
-    const [x, y] = SHOW_T[v];
-    const el = $(id);
-    const sx = x + 720 + 90 * ((v + k) % 3), sy = y + 540 + 90 * k;
-    el.style.transform = 'rotateX(' + x + 'deg) rotateY(' + y + 'deg)';
-    return el.animate([{ transform: 'translateY(-60%) rotateX(' + sx + 'deg) rotateY(' + sy + 'deg)' },
-      { transform: 'translateY(8%) rotateX(' + (x + 20) + 'deg) rotateY(' + (y - 15) + 'deg)', offset: 0.75 },
-      { transform: 'rotateX(' + x + 'deg) rotateY(' + y + 'deg)' }], { duration: 640 * SPEED, easing: 'cubic-bezier(.2,.7,.3,1)' }).finished.catch(() => {});
-  };
-  await Promise.all([go('d1', d[0], 1), go('d2', d[1], 2)]);
-  await wait(120);
 }
 function moneyFx(p, d) {
   shownCash[p] = (shownCash[p] == null ? S.players[p].cash : shownCash[p]) + d;
   const chip = $('players').children[p];
   if (!chip) return;
   chip.querySelector('.cash').textContent = rupees(shownCash[p]);
-  if (SPEED < 0.05) return;
+  if (SPEED < 0.05 || RM.matches) return;
   const f = document.createElement('span');
   f.className = 'float ' + (d > 0 ? 'up' : 'down');
   f.textContent = (d > 0 ? '+' : '−') + rupees(Math.abs(d));
@@ -2056,7 +2367,7 @@ function showCard(deck, id, p) {
   host.hidden = false;
   if (SPEED < 0.05) { host.hidden = true; return Promise.resolve(); }
   const card = host.firstChild;
-  card.animate([{ transform: 'translateY(40%) scale(.5) rotateY(180deg)', opacity: 0 }, { transform: 'translateY(0) scale(1) rotateY(180deg)', opacity: 1, offset: 0.35 }, { transform: 'rotateY(0deg)', opacity: 1 }],
+  if (!RM.matches) card.animate([{ transform: 'translateY(40%) scale(.5) rotateY(180deg)', opacity: 0 }, { transform: 'translateY(0) scale(1) rotateY(180deg)', opacity: 1, offset: 0.35 }, { transform: 'rotateY(0deg)', opacity: 1 }],
     { duration: 750 * SPEED, easing: 'ease-out', fill: 'both' });
   return new Promise((res) => {
     let done = false;
@@ -2072,6 +2383,133 @@ function toast(text) {
   clearTimeout(toastT);
   toastT = setTimeout(() => { t.hidden = true; }, 1600);
 }
+
+// ---------------------------------------------------------------- announcements
+// Ownership changes are shown, not only logged. A purchase flips the deed up over the board, stamps it
+// with the buyer, sends coins to the bank and flies the deed down onto its space; a finished city gets a
+// moment of its own; trades and bankruptcies fly deeds between the players' chips. All of it runs on
+// transform and opacity in a fixed overlay outside the board view, placed with the view's rectangles, so
+// any renderer gets the same announcements. A computer's
+// purchase is shorter than a person's, Fast halves everything, reduced motion gets a quick fade, and a
+// tap anywhere finishes it at once.
+const fx = $('fx');
+let fxAnims = [];
+fx.addEventListener('pointerdown', (ev) => { ev.preventDefault(); for (const a of fxAnims) { try { a.finish(); } catch (e) { /* already gone */ } } });
+function fxRun(el, kf, o) { const a = el.animate(kf, o); fxAnims.push(a); return a.finished.catch(() => {}); }
+function fxEnd() { fxAnims = []; fx.innerHTML = ''; fx.hidden = true; }
+const mid = (x) => { const r = x.getBoundingClientRect ? x.getBoundingClientRect() : x; return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height }; };
+function deedMini(i, cls) {
+  const sp = M.SPACES[i];
+  const color = sp.group ? M.GROUPS[sp.group].color : sp.type === 'station' ? '#4b3b2a' : '#2c6e8f';
+  const city = sp.group ? M.GROUPS[sp.group].city : sp.type === 'station' ? 'Railway' : 'Utility';
+  const d = document.createElement('div');
+  d.className = 'fxdeed' + (cls ? ' ' + cls : '');
+  d.innerHTML = '<div class="hd" style="background:' + color + ';color:' + inkOn(color) + '"><div class="city">' + city + '</div><div class="nm">' + esc(sp.name) + '</div></div><div class="ft">' + rupees(sp.price) + '</div>';
+  return d;
+}
+function place(el, x, y) { el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.translate = '-50% -50%'; fx.appendChild(el); }
+async function announceBuy(i, p) {
+  const D = (isHumanSeat(p) ? 1500 : 700) * SPEED;
+  const c0 = mid(view.centreRect()), to = mid(view.spaceRect(i));
+  fx.hidden = false;
+  const card = deedMini(i);
+  const sw = document.createElement('div'); sw.className = 'stampw';
+  const stamp = document.createElement('div'); stamp.className = 'stamp';
+  // The stamp is the buyer's colour, lightened only as far as dark text needs for 4.5:1 (just purple does).
+  let sc = COLORS[p];
+  for (let k = 0; k < 8 && Math.max(contrast(sc, '#ffffff'), contrast(sc, '#1d140b')) < 4.5; k++) sc = tint(sc, 0.1);
+  stamp.style.setProperty('--sc', sc); stamp.style.setProperty('--st', inkOn(sc));
+  stamp.innerHTML = '<b>Sold</b><span>' + esc(S.players[p].name) + '</span>';
+  sw.appendChild(stamp); card.appendChild(sw);
+  place(card, c0.x, c0.y);
+  if (RM.matches) { await fxRun(card, [{ opacity: 0 }, { opacity: 1, offset: 0.2 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }], { duration: Math.min(D, 700) }); fxEnd(); return; }
+  const jobs = [];
+  const chip = $('players').children[p];
+  if (chip) {
+    const from = mid(chip);
+    for (let k = 0; k < 4; k++) {
+      const c = document.createElement('div'); c.className = 'coin'; c.textContent = '₹';
+      c.style.left = from.x + 'px'; c.style.top = from.y + 'px'; fx.appendChild(c);
+      const dx = c0.x - from.x, dy = c0.y - from.y;
+      jobs.push(fxRun(c, [{ transform: 'translate(0px,0px) scale(.5)', opacity: 0 }, { transform: 'translate(0px,-10px) scale(1)', opacity: 1, offset: 0.2 },
+        { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(.7)', opacity: 0 }], { duration: D * 0.42, delay: D * (0.06 + k * 0.06), easing: 'ease-in', fill: 'both' }));
+    }
+  }
+  const s = Math.max(0.1, Math.min(to.w, to.h) / 150);
+  jobs.push(fxRun(card, [
+    { transform: 'perspective(700px) translate(0px,0px) rotateX(80deg) scale(.55)', opacity: 0 },
+    { transform: 'perspective(700px) translate(0px,0px) rotateX(0deg) scale(1)', opacity: 1, offset: 0.22, easing: 'ease-in-out' },
+    { transform: 'perspective(700px) translate(0px,0px) rotateX(0deg) scale(1)', opacity: 1, offset: 0.66, easing: 'ease-in' },
+    { transform: 'perspective(700px) translate(' + (to.x - c0.x) + 'px,' + (to.y - c0.y) + 'px) rotateX(0deg) scale(' + s + ')', opacity: 0.25 }], { duration: D, easing: 'ease-out', fill: 'both' }));
+  jobs.push(fxRun(stamp, [{ transform: 'rotate(-12deg) scale(2.4)', opacity: 0 }, { transform: 'rotate(-12deg) scale(2.4)', opacity: 0, offset: 0.24 },
+    { transform: 'rotate(-12deg) scale(.92)', opacity: 1, offset: 0.34 }, { transform: 'rotate(-12deg) scale(1)', opacity: 1, offset: 0.4 }, { transform: 'rotate(-12deg) scale(1)', opacity: 1 }], { duration: D, fill: 'both' }));
+  await Promise.all(jobs);
+  fxEnd();
+}
+async function announceSet(g, p) {
+  const D = (isHumanSeat(p) ? 1400 : 750) * SPEED;
+  const col = M.GROUPS[g].color;
+  view.glow(M.GROUP_SQ[g], col, D);
+  const c0 = mid(view.centreRect());
+  fx.hidden = false;
+  const ban = document.createElement('div'); ban.className = 'setban'; ban.style.setProperty('--g', col);
+  ban.innerHTML = '<small>' + esc(S.players[p].name) + ' owns</small><b>All of ' + M.GROUPS[g].city + '!</b><small>rent doubles · houses can go up</small>';
+  place(ban, c0.x, c0.y);
+  await fxRun(ban, RM.matches ? [{ opacity: 0 }, { opacity: 1, offset: 0.2 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }]
+    : [{ transform: 'scale(.6)', opacity: 0 }, { transform: 'scale(1.06)', opacity: 1, offset: 0.18 }, { transform: 'scale(1)', opacity: 1, offset: 0.28 }, { transform: 'scale(1)', opacity: 1, offset: 0.82 }, { transform: 'scale(.96)', opacity: 0 }],
+  { duration: D, easing: 'ease-out', fill: 'both' });
+  fxEnd();
+}
+// Deeds changing hands: each flies from the giver's chip to the receiver's (or to the bank, the centre).
+async function announceMoves(list) {
+  const D = 820 * SPEED;
+  fx.hidden = false;
+  const jobs = list.map((m, k) => {
+    const src = m.from >= 0 ? $('players').children[m.from] : view.centreRect(), dst = m.to >= 0 ? $('players').children[m.to] : view.centreRect();
+    if (!src || !dst) return null;
+    const a = mid(src), b = mid(dst);
+    const d = deedMini(m.i, 'small');
+    place(d, a.x, a.y);
+    if (RM.matches) return fxRun(d, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500, fill: 'both' });
+    const B = 'translate(' + (b.x - a.x) + 'px,' + (b.y - a.y) + 'px)';
+    return fxRun(d, [{ transform: 'translate(0px,0px) scale(.5)', opacity: 0 }, { transform: 'translate(0px,-14px) scale(1)', opacity: 1, offset: 0.2, easing: 'ease-in-out' },
+      { transform: B + ' scale(.65)', opacity: 1, offset: 0.85 }, { transform: B + ' scale(.4)', opacity: 0 }], { duration: D, delay: Math.min(k, 6) * 90 * SPEED, fill: 'both' });
+  }).filter(Boolean);
+  await Promise.all(jobs);
+  fxEnd();
+}
+// A run of 'own' events from one action. Compared with what the board shows, each is a purchase (from
+// the bank), a move between players (trade, bankruptcy) or a change in place (a mortgage).
+async function showOwnership(list, g) {
+  const quick = SPEED < 0.05;
+  const before = shownOwn.slice();
+  const buys = [], moves = [], plain = [];
+  for (const i of [...new Set(list)]) {
+    const was = before[i] == null ? -1 : before[i], now = S.own[i];
+    if (was === now) plain.push(i); else if (was < 0) buys.push(i); else moves.push({ i, from: was, to: now });
+  }
+  const sets = [];
+  for (const i of [...buys, ...moves.map((m) => m.i)]) {
+    const sp = M.SPACES[i], now = S.own[i];
+    if (!sp.group || now < 0 || sets.some((x) => x.g === sp.group)) continue;
+    const sq = M.GROUP_SQ[sp.group];
+    if (sq.every((j) => S.own[j] === now) && !sq.every((j) => before[j] === now)) sets.push({ g: sp.group, p: now });
+  }
+  const drawOwn = (i) => { view.drawSpace(S, i); shownOwn[i] = S.own[i]; };
+  for (const i of plain) { drawOwn(i); view.pulse(i); }
+  // The offer is settled: take the buy card off the centre and show the new choices under the overlay.
+  if (buys.length) { renderFocus(); renderActions(); $('status').textContent = statusLine(); }
+  if (!quick) {
+    for (const i of buys) { if (g !== gen) return; await announceBuy(i, S.own[i]); drawOwn(i); view.pulse(i); }
+    if (moves.length && g === gen) await announceMoves(moves);
+  }
+  if (g !== gen) return;
+  for (const m of moves) { drawOwn(m.i); view.pulse(m.i); }
+  for (const i of buys) drawOwn(i);
+  if (!quick) for (const x of sets) { if (g !== gen) return; await announceSet(x.g, x.p); }
+  await wait(list.length > 1 ? 40 : 120);
+}
+
 
 // ---------------------------------------------------------------- sheets
 function openSheet(title, build, opt = {}) {
@@ -2343,19 +2781,20 @@ function begin(state) {
   $('setup').hidden = true;
   shownCash = S.players.map((P) => P.cash);
   tokAt = S.players.map((P) => ({ i: P.pos, jail: P.jail }));
+  shownOwn = S.own.slice(); view.reset(); fxEnd();
   lastHumanActor = -1;
-  $('tokens').innerHTML = ''; $('players').innerHTML = '';
+  $('players').innerHTML = '';
   S.ev.length = 0;
   layout();
-  if (S.dice[0]) { setDie('d1', S.dice[0]); setDie('d2', S.dice[1]); } else { setDie('d1', 5); setDie('d2', 3); }
+  view.setDice(S.dice[0] ? S.dice : [5, 3]);
   saveGame(); render(); schedule();
 }
 
 // ---------------------------------------------------------------- boot
-buildBoard();
+view.mount(board, { onTap: (i) => openSpace(i), speed: () => SPEED, reduced: () => RM.matches });
 window.addEventListener('resize', layout);
 layout();
-setDie('d1', 5); setDie('d2', 3);
+view.setDice([5, 3]);
 buildSetup();
 
 // Test hook: lets a script start a seeded game, hand every human seat to the Hard computer and run at
@@ -2367,7 +2806,7 @@ window.__mahanagarUI = {
   setSpeed: (s) => { SPEED = s; },
   act: (fn) => act(() => fn(S, M)),
   pump: () => pump(),
-  openSpace, openTrade, openAssets, openOffer, showWin, closeSheet, layout,
+  openSpace, openTrade, openAssets, openOffer, showWin, closeSheet, layout, view,
   get busy() { return busy; },
 };
 </script>

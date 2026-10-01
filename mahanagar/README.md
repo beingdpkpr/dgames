@@ -19,7 +19,11 @@ The mechanics are the classic property-trading ones. The name, the board, the st
 
 Stations: Chennai Central, Howrah Junction, Delhi Junction, Mumbai Central. Corners: Start, Jail, Chai Break (free parking), Go to Jail.
 
-On a 360 px phone each edge space is about 28 px wide, too narrow for a name, so the board carries colour, an icon and the price; tapping any space opens its full deed (owner, rent table with the current level highlighted, house cost, mortgage values, and build/sell/mortgage buttons when it is yours to manage).
+Every label reads upright on screen, on all four sides. A space is a colour band on the edge facing the centre, the name and price, and once owned a ribbon in the owner's colour on the outer edge; a mortgaged space greys out with an M on its band. Houses and hotels are small drawn buildings standing on the band, tokens are standing pawns with the player's symbol, and the centre carries a skyline of Indian landmarks under a jaali pattern. From about 40 px a space the full name is shown, sized to fit; on a 360 px phone each edge space is about 28 px wide, too narrow for a name, so the board carries colour, an icon and the price. Tapping any space opens its full deed (owner, rent table with the current level highlighted, house cost, mortgage values, and build/sell/mortgage buttons when it is yours to manage).
+
+**Announcements.** Buying a lot (outright or at auction) flips its deed up over the board, stamps it SOLD with the buyer, sends coins from the buyer to the bank and flies the deed onto the space; completing a city gets a short "All of Jaipur!" banner while its lots light up; deeds fly between players' chips in trades and bankruptcies; a new house or hotel drops onto its band. Computer purchases are shorter, Fast halves everything, a tap skips, and reduced motion gets fades instead of movement.
+
+**The board view.** The game flow reaches the board only through the object `makeDomBoard()` returns (`mount`, `resize`, `reset`, `drawSpace`, `drawTokens`, `moveToken`, `jumpToken`, `rollDice`, `setDice`, `pulse`, `glow`, and the screen rectangles `spaceRect`, `centreRect`, `textRect`; documented above the function). Another renderer can stand in by returning the same methods. The status text, the deed on offer, drawn cards (`#hud`), the announcements (`#fx`), the panels and the dialogs live outside the view and are shared.
 
 ## Rules implemented
 
