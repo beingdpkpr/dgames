@@ -51,6 +51,13 @@ const GAMES = [
   { name: 'queens', file: 'queens/index.html', enter: async (p) => { await p.waitForTimeout(600); const b = await p.$('#helpClose'); if (b && await b.isVisible()) await b.click(); await p.waitForTimeout(600); } },
   { name: 'troll-chess', file: 'troll-chess/index.html', enter: async (p) => { await p.click('#startBtn'); await p.waitForTimeout(400); await p.click('#deck'); await p.waitForTimeout(1600); } },
   { name: 'dusk-protocol', file: 'dusk-protocol/index.html', landscape: true, enter: async (p) => { await p.click('#btnStart'); await p.waitForTimeout(1500); } },
+  // Go opens on its setup card; Start (9x9 against the computer by default), then one stone in the centre
+  // so the shot has the computer's reply on it too.
+  { name: 'go', file: 'go/index.html', enter: async (p) => {
+      await p.click('#sStart'); await p.waitForTimeout(400);
+      const b = await p.locator('#cv').boundingBox(); await p.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+      await p.waitForFunction(() => window.__goUI && !window.__goUI.thinking, null, { timeout: 15000 }).catch(() => {}); await p.waitForTimeout(400);
+    } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,
