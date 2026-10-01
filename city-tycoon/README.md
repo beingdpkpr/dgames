@@ -1,4 +1,4 @@
-# Mahanagar
+# City Tycoon
 
 *Buy the city.* A property-trading board game across eight Indian cities, for two to six players on one device. Each seat is a human or a computer at Easy, Normal or Hard. Open `index.html` directly — no dependencies, and nothing is fetched except an optional display font (Rozha One; offline it falls back to Georgia).
 
@@ -39,7 +39,7 @@ Every label reads upright on screen, on all four sides. A space is a colour band
 - Bankruptcy to a player: buildings go back to the bank at half price, then cash, lots (mortgages included, the creditor paying 10% interest on each) and get-out cards go to the creditor. To the bank: lots return unmortgaged and are auctioned one at a time. Last player standing wins.
 - House rule (off by default): **Chai Break jackpot** — taxes and fines go into a pot for whoever lands on Chai Break.
 - **Quick games**: a round limit (30, 20 or 12 rounds) after which the richest by net worth wins (cash + printed price, half for a mortgaged lot + buildings at cost), and an optional head start dealing two random streets each, re-drawn so nobody starts with a whole city.
-- **Save and resume**: the game saves itself to `localStorage` after every move (`dgames.mahanagar.save`; options in `dgames.mahanagar.opts`). The save is versioned and shape-checked; anything that does not parse, has another version or would load an impossible state is discarded with a notice and a fresh game offered. The dice generator's state is part of the save, so a resumed game plays on exactly as it would have.
+- **Save and resume**: the game saves itself to `localStorage` after every move (`dgames.city-tycoon.save`; options in `dgames.city-tycoon.opts`). The save is versioned and shape-checked; anything that does not parse, has another version or would load an impossible state is discarded with a notice and a fresh game offered. The dice generator's state is part of the save, so a resumed game plays on exactly as it would have.
 
 Every phase has a move that is always legal (roll, decline, drop out, pay-or-go-bankrupt, refuse the offer, end the turn), and the computer falls back to it if its own choice is refused, so no reachable state leaves the game with nobody able to act. `test/rules.js` plays 60 games in which three seats choose at random among everything a person can do, and checks every one ends.
 
@@ -83,4 +83,7 @@ Four computers end a full game after a median of about 180 turns (45 rounds); th
 
 `node test/bots.js` is the level report above; it asserts nothing and is listed under `dgames.reportOnly` in the root `package.json`.
 
-The rules and computer players live above the `// ---------- UI ----------` marker in `index.html` and never touch the DOM, a clock or `Math.random`, which is what lets the tests load them with node's `vm`. The page exposes `window.__mahanagarUI` (start a seeded game, let the Hard computer play the human seats, set the animation speed) for browser-driven checks.
+The rules and computer players live above the `// ---------- UI ----------` marker in `index.html` and never touch the DOM, a clock or `Math.random`, which is what lets the tests load them with node's `vm`. The page exposes `window.__cityTycoonUI` (start a seeded game, let the Hard computer play the human seats, set the animation speed) for browser-driven checks.
+
+## Name
+The game was called Mahanagar until October 2026. The old address `mahanagar/` redirects here, and a game in progress saved under the old name is carried across the first time City Tycoon opens.

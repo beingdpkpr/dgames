@@ -20,7 +20,7 @@
       "cricket-3d/test/balance.js",
       "dusk-protocol/test/bots.js",
       "go/test/matches.js",
-      "mahanagar/test/bots.js"
+      "city-tycoon/test/bots.js"
     ]
   }
 }

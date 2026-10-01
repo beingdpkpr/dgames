@@ -10,7 +10,7 @@ const src = html.slice(html.indexOf("'use strict';"), html.indexOf('// ---------
 const ctx = { Math, console, Array, Object, Number, String, JSON, Set, Map, Infinity };
 ctx.globalThis = ctx;
 vm.createContext(ctx); vm.runInContext(src, ctx);
-const M = ctx.__mahanagar;
+const M = ctx.__cityTycoon;
 
 let failures = 0, checks = 0;
 const ok = (cond, msg) => { checks++; if (cond) console.log('ok   ' + msg); else { failures++; console.log('FAIL ' + msg); } };

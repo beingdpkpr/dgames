@@ -9,7 +9,7 @@ const src = html.slice(html.indexOf("'use strict';"), html.indexOf('// ---------
 const ctx = { Math, console, Array, Object, Number, String, JSON, Set, Map, Infinity };
 ctx.globalThis = ctx;
 vm.createContext(ctx); vm.runInContext(src, ctx);
-const M = ctx.__mahanagar;
+const M = ctx.__cityTycoon;
 const N = Number(process.argv[2]) || 400;
 const rotate = (a, r) => a.slice(r % a.length).concat(a.slice(0, r % a.length));
 

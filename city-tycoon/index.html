@@ -1,0 +1,2829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#0b1a2b">
+<link rel="icon" href="../icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="dgames">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+  /* Installable, and playable with no network once a game has been opened. Registered from every page so
+     a deep link into one game works offline too, not only a visit that started at the launcher. Over
+     file:// there is no service worker and register() rejects; the catch keeps that silent. */
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('../sw.js').catch(() => {}));
+</script>
+<meta name="description" content="City Tycoon: a property-trading board game across eight Indian cities. Two to six players, each seat human or computer.">
+<title>City Tycoon</title>
+<!-- Rozha One for the logo, the deed titles and the card faces only. Offline or blocked it falls back to
+     Georgia, and every size still fits: the layout is computed from the board size, not the font. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rozha+One&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* A navy table, a cream board, a deep teal centre with gold. The board is the brightest thing on the
+       screen on purpose: it is what you play on, and everything around it stays dark and quiet. */
+    --bg: #0b1a2b; --panel: #11263d; --panel2: #173250; --line: #2c4a6e; --muted: #93abc7; --fg: #f3f6fb;
+    --gold: #ffd54a; --good: #45c27a; --bad: #ff6b6b;
+    --paper: #f6eedc; --paper2: #efe3c8; --ink: #2b2118; --grid: #b9a582; --teal: #0f3d3b; --teal2: #165754;
+    --e: 30px; --c: 45px; --bs: 360px;
+    --serif: "Rozha One", Georgia, "Times New Roman", serif;
+    /* Paper for the spaces: a faint fibre noise and a linen weave, both too quiet to compete with text. */
+    --tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .42 0 0 0 0 .32 0 0 0 0 .18 0 0 0 .55 -.2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"), repeating-linear-gradient(0deg, rgba(110,80,40,.035) 0 1px, transparent 1px 3px), repeating-linear-gradient(90deg, rgba(110,80,40,.03) 0 1px, transparent 1px 3px);
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; overscroll-behavior: none; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:disabled { opacity: .42; cursor: default; }
+
+  /* ---- app frame: JS sets the board size and which way the panel sits (see layout()) ---- */
+  #app { position: fixed; inset: 0; display: flex; gap: 8px; padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); }
+  #app.portrait { flex-direction: column; align-items: center; }
+  #app.landscape { flex-direction: row; justify-content: center; align-items: center; }
+  #side { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
+  #app.portrait #side { width: var(--bs); flex: 1; }
+  #app.landscape #side { height: var(--bs); flex: 0 1 460px; min-width: 250px; }
+  #app.portrait #top { order: -1; }
+  #top { display: flex; align-items: center; gap: 8px; height: 46px; flex: none; padding-left: 52px; }
+  #app.portrait #top { width: 100%; max-width: var(--bs); }
+  #app.landscape #top { width: 100%; }
+  .logo { font-family: var(--serif); font-weight: 400; font-size: 24px; letter-spacing: 2px; margin: 0; color: var(--gold); line-height: 1; flex: 1; }
+  .logo small { display: block; font-family: "Segoe UI", system-ui, sans-serif; font-size: 10px; letter-spacing: 2.5px; color: var(--muted); text-transform: uppercase; margin-top: 3px; }
+  .iconbtn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); display: grid; place-items: center; flex: none; }
+  .iconbtn svg { width: 22px; height: 22px; }
+
+  /* ---- the board ---- */
+  /* The DOM/SVG board view (makeDomBoard in the script). The corner spaces round themselves rather than
+     the board clipping them, so tokens lifted in a hop are never cut off at the board's edge. */
+  #board { position: relative; width: var(--bs); height: var(--bs); flex: none; display: grid;
+    grid-template-columns: var(--c) repeat(9, var(--e)) var(--c); grid-template-rows: var(--c) repeat(9, var(--e)) var(--c);
+    background: #cdb98f; border-radius: calc(var(--e) * .28); box-shadow: 0 10px 40px rgba(0,0,0,.5), 0 0 0 2px #8f7b58;
+    color: var(--ink); user-select: none; -webkit-user-select: none; }
+
+  /* Spaces read upright on the screen on every side. Each space is a colour band on the edge that faces
+     the centre, a body with the name and price, and (once owned) a strip in the owner's colour on the
+     outer edge. Nothing is rotated, so no name is ever upside down. */
+  .sp { position: relative; border: .5px solid var(--grid); background: var(--tex), var(--paper); overflow: hidden; cursor: pointer; padding: 0;
+    color: var(--ink); font: inherit; display: flex; align-items: stretch; text-align: center; }
+  .sp.s-bottom { flex-direction: column; } .sp.s-top { flex-direction: column-reverse; }
+  .sp.s-left { flex-direction: row-reverse; } .sp.s-right { flex-direction: row; }
+  .sp:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; z-index: 2; }
+  .band { flex: none; position: relative; background: linear-gradient(rgba(255,255,255,.22), rgba(0,0,0,.1)), var(--g); box-shadow: inset 0 0 0 .5px rgba(0,0,0,.35); }
+  .s-top .band, .s-bottom .band { height: var(--bt); }
+  .s-left .band, .s-right .band { width: var(--bt); }
+  .sp .body { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: max(1px, calc(var(--e) * .04)); padding: 2px 1px; overflow: hidden; }
+  .sp.ownable.s-bottom .body { padding-bottom: var(--ot); } .sp.ownable.s-top .body { padding-top: var(--ot); }
+  .sp.ownable.s-left .body { padding-left: var(--ot); } .sp.ownable.s-right .body { padding-right: var(--ot); }
+  .lbl { display: none; font-size: 10px; line-height: 1.08; font-weight: 650; color: #3a2c1d; max-width: 100%; hyphens: manual; overflow-wrap: normal; }
+  #board.roomy .lbl { display: block; }
+  .price { font-size: max(9px, calc(var(--e) * .3)); font-weight: 700; color: #4a3925; line-height: 1; white-space: nowrap; }
+  #board.roomy .price { font-size: max(10px, calc(var(--e) * .19)); }
+  .sp .ico { width: calc(var(--e) * .62); height: calc(var(--e) * .5); flex: none; }
+  #board.roomy .sp .ico { width: calc(var(--e) * .42); height: calc(var(--e) * .34); }
+  /* Ownership: a strip in the owner's colour along the outer edge, with a dark keyline so even the light
+     player colours hold 3:1 against the cream. A strip cannot be mistaken for a standing token. */
+  .sp.owned .price { visibility: hidden; }
+  /* A white inner keyline makes it read as a ribbon, distinct from the solid colour band of the city. */
+  .own { display: none; position: absolute; background: var(--oc); box-shadow: inset 0 0 0 1px rgba(25,15,5,.8), inset 0 0 0 2px rgba(255,255,255,.85); pointer-events: none; }
+  .sp.owned .own { display: block; }
+  #board:not(.roomy) .own { box-shadow: inset 0 0 0 1px rgba(25,15,5,.8); }
+  .s-bottom .own { left: 0; right: 0; bottom: 0; height: var(--ot); }
+  .s-top .own { left: 0; right: 0; top: 0; height: var(--ot); }
+  .s-left .own { top: 0; bottom: 0; left: 0; width: var(--ot); }
+  .s-right .own { top: 0; bottom: 0; right: 0; width: var(--ot); }
+  /* Mortgaged: the space greys out and carries a small M; the name stays readable underneath. */
+  .mk { display: none; position: absolute; right: 2px; top: 2px; width: max(12px, calc(var(--e) * .27)); height: max(12px, calc(var(--e) * .27));
+    border-radius: 50%; background: #8e2b2b; color: #fff; font-weight: 800; font-size: max(8px, calc(var(--e) * .16)); line-height: 1;
+    box-shadow: 0 0 0 1.5px #fff, 0 1px 3px rgba(0,0,0,.45); place-items: center; }
+  .sp.mort .mk { display: grid; }
+  /* The M sits in a corner away from the owner strip. */
+  .s-top .body .mk { top: auto; bottom: 2px; } .s-right .body .mk { right: auto; left: 2px; }
+  /* The paper and the band go grey; the name and price stay at full contrast (5.2:1) so they still read. */
+  .sp.mort { background: var(--tex), #e9e5dd; }
+  .sp.mort .ico { filter: grayscale(1); opacity: .5; }
+  .sp.mort .band { background: #bdb7ac; }
+  .band .mk { right: auto; top: 50%; bottom: auto; left: 50%; transform: translate(-50%, -50%); }
+  .sp.mort .lbl, .sp.mort .price { color: #645d55; }
+  /* The flash a space gives when something lands on it (animated from the script, opacity only). */
+  .sp::after { content: ""; position: absolute; inset: 0; background: var(--gc, rgba(255,224,110,.7)); opacity: 0; pointer-events: none; }
+  .sp.hilite { box-shadow: inset 0 0 0 3px var(--gold); z-index: 1; }
+
+  /* corners: four designed tiles */
+  .sp.corner { display: block; }
+  .sp.corner .cbody { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: max(1px, calc(var(--e) * .06)); }
+  .medal { width: calc(var(--c) * .54); height: calc(var(--c) * .54); border-radius: 50%; display: grid; place-items: center; background: #fffaf0;
+    box-shadow: 0 0 0 1px rgba(110,70,30,.4), 0 0 0 max(2px, calc(var(--e) * .07)) rgba(255,255,255,.6), 0 0 0 max(3px, calc(var(--e) * .095)) rgba(150,100,40,.35); }
+  .medal svg { width: 74%; height: 74%; }
+  .c-jail .medal { border-radius: 16%; }
+  .clbl { font-weight: 800; font-size: max(7.5px, calc(var(--e) * .21)); letter-spacing: .5px; color: #3a2c1d; line-height: 1.05; }
+  .clbl .wide { display: none; } #board.roomy .clbl .wide { display: inline; }
+  .csub { display: none; font-size: calc(var(--e) * .15); font-weight: 600; color: #5a4630; }
+  #board.roomy .csub { display: block; }
+  .c-go { background: radial-gradient(circle at 50% 40%, rgba(255,205,120,.6), transparent 70%), var(--tex), #f9e7c4; border-bottom-right-radius: calc(var(--e) * .28); }
+  .c-jail { background: var(--tex), #f1e3c6; border-bottom-left-radius: calc(var(--e) * .28); }
+  .c-parking { background: radial-gradient(circle at 50% 40%, rgba(190,220,150,.65), transparent 70%), var(--tex), #eef0d8; border-top-left-radius: calc(var(--e) * .28); }
+  .c-gotojail { background: radial-gradient(circle at 50% 40%, rgba(250,170,150,.55), transparent 70%), var(--tex), #f7e2d8; border-top-right-radius: calc(var(--e) * .28); }
+  .c-jail .lane { position: absolute; left: 0; top: 0; bottom: 0; width: 36%; background: rgba(150,110,60,.14); border-right: 1px dashed rgba(90,60,30,.45); }
+  .c-jail .cbody { left: 36%; }
+
+  /* centre */
+  #center { grid-column: 2 / 11; grid-row: 2 / 11; position: relative; overflow: hidden;
+    background: radial-gradient(circle at 50% 40%, #1c6762, var(--teal) 72%); border: .5px solid var(--grid);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; color: #f6f0e0; }
+  #center .deco { position: absolute; pointer-events: none; }
+  #center .jaali { inset: 0; opacity: .1; background-size: calc(var(--e) * 1.2) calc(var(--e) * 1.2); background-position: center;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Cg fill='none' stroke='%23ffd54a' stroke-width='1.1'%3E%3Crect x='11' y='11' width='18' height='18'/%3E%3Crect x='11' y='11' width='18' height='18' transform='rotate(45 20 20)'/%3E%3Cpath d='M0 0l7.3 7.3M40 0l-7.3 7.3M0 40l7.3-7.3M40 40l-7.3-7.3'/%3E%3Ccircle cx='20' cy='20' r='3'/%3E%3C/g%3E%3C/svg%3E");
+    -webkit-mask-image: radial-gradient(circle at 50% 42%, transparent 30%, #000 80%); mask-image: radial-gradient(circle at 50% 42%, transparent 30%, #000 80%); }
+  #center .orn { inset: 6%; opacity: .13; }
+  #center .sky { left: calc(var(--e) * .2); bottom: calc(var(--e) * .2); width: calc(100% - var(--e) * .4); height: calc(var(--e) * 1.7); color: #072624; fill: currentColor; opacity: .92; }
+  #center .frame { inset: calc(var(--e) * .2); border: 1px solid rgba(255,213,74,.45); border-radius: calc(var(--e) * .16); }
+  #center .frame::after { content: ""; position: absolute; inset: calc(var(--e) * .08); border: 1px solid rgba(255,213,74,.17); border-radius: calc(var(--e) * .1); }
+  #center > .brand, #center > .tag, #center > .rule, #dice { position: relative; }
+  /* An empty slot in the centre's column: the shared status and log text (#hud) is laid over it. */
+  #center .ctext { flex: none; width: 100%; height: calc(var(--e) * 1.95); }
+  .brand { font-family: var(--serif); color: var(--gold); font-size: calc(var(--e) * 1.05); letter-spacing: calc(var(--e) * .05); line-height: 1; text-shadow: 0 2px 0 rgba(0,0,0,.35); }
+  .tag { font-size: calc(var(--e) * .3); letter-spacing: 3px; text-transform: uppercase; color: #cfe3dc; margin-top: 4px; }
+  .rule { width: calc(var(--e) * 2.6); height: 1px; margin-top: calc(var(--e) * .16); background: linear-gradient(90deg, transparent, rgba(255,213,74,.75), transparent); }
+  .rule::after { content: ""; position: absolute; left: 50%; top: 50%; width: calc(var(--e) * .13); height: calc(var(--e) * .13); background: var(--gold); transform: translate(-50%, -50%) rotate(45deg); }
+  /* Dice: real cubes, each with its own small perspective, turned to show three faces. */
+  #dice { display: flex; gap: calc(var(--e) * .55); margin: calc(var(--e) * .42) 0 calc(var(--e) * .32); }
+  .dpos { position: relative; width: calc(var(--e) * 1.05); height: calc(var(--e) * 1.05); perspective: calc(var(--e) * 9); }
+  .dshadow { position: absolute; left: -6%; right: -16%; bottom: -20%; height: 36%; border-radius: 50%; background: radial-gradient(closest-side, rgba(0,0,0,.5), rgba(0,0,0,0)); }
+  .dslot { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateX(-20deg) rotateY(-26deg); }
+  .die { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; }
+  .face { position: absolute; inset: 0; background: radial-gradient(circle at 32% 28%, #ffffff, #f2e9d6 75%); border-radius: 15%;
+    box-shadow: inset 0 0 0 1px #c8b995, inset 0 -2px 4px rgba(0,0,0,.14);
+    display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 14%; backface-visibility: hidden; }
+  .pip { width: 74%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #5b4a3a, #1d140b 70%); place-self: center; }
+  .pip.r { background: radial-gradient(circle at 40% 35%, #e86a5e, #a3261b 70%); }
+  /* The shared layer over the board's centre: status, latest log lines, the deed on offer, drawn cards.
+     It belongs to the game, not to the board view, so any renderer gets the same text and cards. */
+  #hud { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 30; pointer-events: none; color: #f6f0e0; }
+  #hudtext { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
+  #status { font-size: calc(var(--e) * .36); font-weight: 600; text-align: center; padding: 0 8%; min-height: 1.3em; color: #fff; }
+  #logmini { font-size: calc(var(--e) * .28); color: #c4ddd6; text-align: center; padding: 0 9%; margin-top: 4px; line-height: 1.35; max-height: 4.2em; overflow: hidden; }
+  #logmini div:last-child { color: #fff; }
+  #focus { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 3; pointer-events: none; }
+  #focus .deed { width: min(62%, calc(var(--e) * 5.2)); }
+  #focus .auction { position: absolute; bottom: 7%; left: 0; right: 0; text-align: center; font-size: calc(var(--e) * .36); font-weight: 700; color: #fff; }
+  #focus.auctioning { flex-direction: column; justify-content: flex-start; padding-top: 7%; }
+
+  /* ---- buildings ---- */
+  /* Houses and hotels stand on the colour band: little drawn buildings with a roof, always upright. They
+     live in their own layer over the spaces, so a new one can drop in without touching the space. */
+  #blds, #tokens { position: absolute; inset: 0; pointer-events: none; }
+  #blds { z-index: 3; } #tokens { z-index: 4; }
+  .bl { position: absolute; display: flex; align-items: center; justify-content: center; }
+  .bl.v { flex-direction: column; }
+  .bl svg { flex: none; width: var(--hs); height: var(--hs); overflow: visible; transform-origin: 50% 100%; }
+  .bl:not(.v) svg + svg { margin-left: var(--hm); }
+  .bl.v svg + svg { margin-top: var(--hm); }
+  .bl svg.hotel { width: calc(var(--hs) * 1.3); height: calc(var(--hs) * 1.08); }
+
+  /* ---- tokens ---- */
+  /* A token is a standing pawn in the player's colour with the player's symbol on its head, a shadow on
+     the board under it, and a gold ring on the board under whoever is to move. The element itself is a
+     point at the middle of the pawn's base; the pawn stands up from it. */
+  .tok { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+  .tok.moving { z-index: 99999 !important; }
+  .tok .shd { position: absolute; left: calc(var(--tk) * -.46); top: calc(var(--tk) * -.14); width: calc(var(--tk) * .92); height: calc(var(--tk) * .28); border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(15,8,0,.55), rgba(15,8,0,0)); }
+  .tok .ring { position: absolute; left: calc(var(--tk) * -.6); top: calc(var(--tk) * -.19); width: calc(var(--tk) * 1.2); height: calc(var(--tk) * .38); border-radius: 50%;
+    border: 2px solid var(--gold); background: rgba(255,213,74,.25); opacity: 0; box-sizing: border-box; }
+  .tok.cur .ring { opacity: 1; animation: ring 1.8s ease-in-out infinite; }
+  @keyframes ring { 50% { opacity: .4; } }
+  .tok .stand { position: absolute; left: calc(var(--tk) / -2); top: calc(var(--tk) * -1.3); width: var(--tk); height: calc(var(--tk) * 1.45);
+    transform-origin: 50% 89.7%; will-change: transform; }
+  .tok .stand svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .tok .pc { fill: var(--pc); stroke: #1b120a; stroke-width: 1.6; stroke-linejoin: round; }
+  .tok.out { display: none; }
+
+  /* ---- cards ---- */
+  #cardShow { position: absolute; inset: 0; display: grid; place-items: center; z-index: 6; perspective: 900px; cursor: pointer; pointer-events: auto; }
+  .card3 { width: min(76%, calc(var(--e) * 6.6)); aspect-ratio: 1.55; position: relative; transform-style: preserve-3d; }
+  .card3 .side { position: absolute; inset: 0; border-radius: 10px; backface-visibility: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6% 8%; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  .card3 .back { transform: rotateY(180deg); }
+  .card3 .kismat { background: linear-gradient(135deg, #7b2d8e, #b0397a); color: #fff; border: 3px solid #ffd54a; }
+  .card3 .khazana { background: linear-gradient(135deg, #0f6c61, #1c8f6b); color: #fff; border: 3px solid #ffd54a; }
+  .card3 .front { background: #fffaf0; color: var(--ink); border: 3px solid var(--deck, #7b2d8e); }
+  .card3 h3 { font-family: var(--serif); font-weight: 400; margin: 0 0 4%; font-size: calc(var(--e) * .55); color: var(--deck, #7b2d8e); }
+  .card3 p { margin: 0; font-size: calc(var(--e) * .36); line-height: 1.35; }
+  .card3 .back h3 { color: #ffd54a; font-size: calc(var(--e) * .8); }
+  .card3 svg { width: 22%; height: 30%; }
+
+  /* ---- deed (title card) ---- */
+  .deed { background: #fffdf6; color: var(--ink); border-radius: 8px; border: 1px solid #cdbb94; box-shadow: 0 6px 18px rgba(0,0,0,.35); overflow: hidden; font-size: 13px; }
+  .deed .hd { padding: 8px 10px 7px; text-align: center; color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.4); }
+  .deed .hd .city { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; opacity: .92; }
+  .deed .hd .nm { font-family: var(--serif); font-size: 20px; line-height: 1.1; }
+  .deed table { width: 100%; border-collapse: collapse; }
+  .deed td { padding: 2px 10px; }
+  .deed td:last-child { text-align: right; font-weight: 700; }
+  .deed tr.on td { background: #fff1b8; }
+  .deed .ft { padding: 6px 10px 8px; border-top: 1px solid #eadcbc; font-size: 12px; color: #6b5a41; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  #focus .deed { font-size: calc(var(--e) * .3); }
+  #focus .deed .hd .nm { font-size: calc(var(--e) * .55); }
+  #focus .deed .hd .city { font-size: calc(var(--e) * .24); }
+  #focus .deed td { padding: 1px 8px; }
+  #focus .deed .ft { font-size: calc(var(--e) * .26); padding: 3px 8px 5px; }
+
+  /* ---- players ---- */
+  #players { display: grid; grid-template-columns: repeat(var(--pcols, 3), minmax(0, 1fr)); gap: 6px; flex: none; }
+  .pl { display: flex; align-items: center; gap: 7px; min-height: 44px; padding: 5px 8px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); text-align: left; min-width: 0; position: relative; }
+  .pl.cur { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; background: var(--panel2); }
+  .pl.out { opacity: .4; }
+  .pl.out .nm { text-decoration: line-through; }
+  .pl .disc { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; display: grid; place-items: center; flex: none; }
+  .pl .disc svg { width: 64%; height: 64%; fill: #fff; }
+  .pl .tx { min-width: 0; display: flex; flex-direction: column; line-height: 1.15; }
+  .pl .nm { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl .cash { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  /* Jail and get-out-card badges sit on the token disc, so they never cover the name or the cash on a
+     narrow chip (they did at 360 px, over the last digit). */
+  .pl .disc { position: relative; }
+  .pl .badge { position: absolute; width: 15px; height: 15px; border-radius: 4px; border: 1px solid #0b1a2b; display: grid; place-items: center; }
+  .pl .badge svg { width: 100%; height: 100%; }
+  .pl .badge.jail { right: -7px; bottom: -6px; }
+  .pl .badge.card { left: -7px; bottom: -6px; background: #ffd54a; border-radius: 3px; font-size: 9px; font-weight: 800; color: #3a2a00; }
+  .pl .lv { font-size: 10px; color: var(--muted); opacity: .8; }
+  .float { position: absolute; right: 8px; top: 50%; font-weight: 800; font-size: 14px; pointer-events: none; z-index: 5; text-shadow: 0 1px 2px #000; }
+  .float.up { color: var(--good); } .float.down { color: var(--bad); }
+
+  /* ---- actions ---- */
+  #actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; flex: none; }
+  #actions .msg { flex: 1 1 100%; font-size: 13px; color: var(--muted); min-height: 18px; }
+  .btn { min-height: 44px; min-width: 44px; padding: 8px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel2); font-weight: 600; font-size: 15px; }
+  .btn.primary { background: linear-gradient(#ffdf6b, #f2b829); color: #2b1d00; border-color: #b8860b; font-weight: 800; }
+  .btn.warn { background: #4a1f28; border-color: #8a3442; }
+  .btn.grow { flex: 1 1 0; }
+  .btn.small { min-height: 44px; padding: 6px 10px; font-size: 14px; }
+  #logbox { flex: 1; min-height: 0; overflow: auto; font-size: 12.5px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px; line-height: 1.45; }
+  #logbox div:last-child { color: var(--fg); }
+  #logbox.tiny { display: none; }
+
+  /* ---- sheets and dialogs ---- */
+  .veil { position: fixed; inset: 0; background: rgba(3, 9, 18, .62); z-index: 60; display: flex; align-items: flex-end; justify-content: center; }
+  .veil.mid { align-items: center; }
+  .sheet { background: var(--panel); border: 1px solid var(--line); border-radius: 18px 18px 0 0; width: min(100%, 480px); max-height: 88%; display: flex; flex-direction: column; box-shadow: 0 -10px 40px rgba(0,0,0,.5); animation: rise .22s ease-out; }
+  .veil.mid .sheet, body.wide .sheet { border-radius: 18px; max-height: 92%; }
+  body.wide .sheet { width: min(94%, 600px); }
+  body.wide .veil { align-items: center; }
+  @keyframes rise { from { transform: translateY(30px); opacity: 0; } }
+  .sheet .sh { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--line); flex: none; }
+  .sheet .sh h2 { font-size: 16px; margin: 0; flex: 1; }
+  .sheet .sb { overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .sheet .sf { display: flex; gap: 8px; padding: 10px 14px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); flex: none; flex-wrap: wrap; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row.wrap { flex-wrap: wrap; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .prow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; background: var(--panel2); min-height: 48px; }
+  .prow .sw { width: 10px; align-self: stretch; border-radius: 4px; flex: none; }
+  .prow .pn { flex: 1; min-width: 0; font-size: 14px; }
+  .prow .pn small { display: block; color: var(--muted); font-size: 12px; }
+  .chipsel { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { min-height: 44px; padding: 6px 10px; border-radius: 22px; border: 1px solid var(--line); background: var(--panel2); display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+  .chip .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .chip.on { border-color: var(--gold); background: #3a3410; color: #fff3c4; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .cols h3 { font-size: 13px; margin: 0 0 6px; color: var(--muted); font-weight: 600; }
+  @media (max-width: 520px) { .cols { grid-template-columns: 1fr; } }
+  .stepper { display: flex; align-items: center; gap: 4px; }
+  .stepper b { min-width: 58px; text-align: center; font-variant-numeric: tabular-nums; }
+  .notice { padding: 8px 10px; border-radius: 10px; background: #2a2410; color: #ffe9a3; font-size: 13px; }
+
+  /* ---- setup ---- */
+  #setup { position: fixed; inset: 0; z-index: 40; background: radial-gradient(circle at 50% 0%, #17385a, var(--bg) 70%); overflow: auto; display: flex; justify-content: center; padding: max(62px, env(safe-area-inset-top)) 12px 16px; }
+  #setup .card { width: min(100%, 460px); display: flex; flex-direction: column; gap: 12px; }
+  #setup .hero { text-align: center; }
+  #setup .hero .brand { font-size: 44px; }
+  #setup .hero .tag { font-size: 12px; color: var(--muted); }
+  .seat { display: flex; align-items: center; gap: 8px; }
+  .seat .disc { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; display: grid; place-items: center; flex: none; }
+  .seat .disc svg { width: 64%; height: 64%; fill: #fff; }
+  .seat input, .seat select, .opt select { min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); color: var(--fg); padding: 6px 10px; font: inherit; min-width: 0; }
+  .seat input { flex: 1; }
+  .seat select { flex: none; width: 128px; }
+  .opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; font-size: 14px; }
+  .opt small { display: block; color: var(--muted); font-size: 12px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .seg button { min-width: 44px; min-height: 44px; border: 0; background: var(--panel2); font-weight: 700; }
+  .seg button.on { background: var(--gold); color: #2b1d00; }
+  .toggle { width: 58px; height: 44px; border-radius: 22px; border: 1px solid var(--line); background: var(--panel2); position: relative; flex: none; }
+  .toggle::after { content: ""; position: absolute; top: 8px; left: 8px; width: 26px; height: 26px; border-radius: 50%; background: var(--muted); transition: left .15s; }
+  .toggle.on { background: #3a3410; border-color: var(--gold); }
+  .toggle.on::after { left: 24px; background: var(--gold); }
+  .box { background: rgba(17, 38, 61, .85); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .box h2 { font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin: 0; font-weight: 600; }
+
+  /* ---- toast ---- */
+  #toast { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); z-index: 70; background: rgba(8, 18, 30, .92); border: 1px solid var(--gold); color: #fff; padding: 10px 18px; border-radius: 14px; font-weight: 700; pointer-events: none; box-shadow: 0 8px 30px rgba(0,0,0,.5); max-width: 90%; text-align: center; }
+
+  /* ---- win ---- */
+  .podium { display: flex; flex-direction: column; gap: 6px; }
+  .podium .pr { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--panel2); }
+  .podium .pr:first-child { background: linear-gradient(90deg, #4a3d0c, var(--panel2)); border: 1px solid var(--gold); }
+  .podium .rk { width: 22px; font-weight: 800; color: var(--gold); }
+  .podium .disc { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; display: grid; place-items: center; }
+  .podium .disc svg { width: 64%; height: 64%; fill: #fff; }
+  .podium .w { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .rules { font-size: 14px; line-height: 1.5; color: #d9e4f1; }
+  .rules h3 { font-size: 14px; color: var(--gold); margin: 10px 0 2px; }
+  .rules p { margin: 0 0 6px; }
+  /* ---- announcements ---- */
+  /* A fixed overlay above the board for ownership moments. It catches a tap only while something plays,
+     and a tap finishes it at once. */
+  #fx { position: fixed; inset: 0; z-index: 45; }
+  .fxdeed { position: fixed; left: 0; top: 0; width: 150px; background: #fffdf6; color: var(--ink); border-radius: 9px; border: 1px solid #cdbb94;
+    box-shadow: 0 12px 30px rgba(0,0,0,.55); overflow: hidden; text-align: center; will-change: transform, opacity; }
+  .fxdeed .hd { padding: 8px 8px 7px; }
+  .fxdeed .city { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+  .fxdeed .nm { font-family: var(--serif); font-size: 19px; line-height: 1.1; }
+  .fxdeed .ft { padding: 8px 8px 30px; font-weight: 700; font-size: 14px; color: #4a3925; }
+  .fxdeed.small { width: 116px; } .fxdeed.small .nm { font-size: 15px; } .fxdeed.small .ft { padding: 4px 6px 6px; font-size: 12px; }
+  .fxdeed .stampw { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; justify-content: center; }
+  .stamp { background: var(--sc); color: var(--st); border-radius: 7px; padding: 2px 10px 3px; box-shadow: 0 0 0 2px #fffdf6, 0 0 0 4px var(--sc), 0 4px 10px rgba(0,0,0,.35);
+    display: flex; flex-direction: column; align-items: center; line-height: 1.05; will-change: transform, opacity; }
+  .stamp b { font-size: 16px; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; }
+  .stamp span { font-size: 11px; font-weight: 700; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .coin { position: fixed; left: 0; top: 0; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; display: grid; place-items: center;
+    background: radial-gradient(circle at 35% 30%, #fff3b0, #f2b829 60%, #b8860b); color: #4a3100; font-size: 12px; font-weight: 800; box-shadow: 0 1px 3px rgba(0,0,0,.5); will-change: transform, opacity; }
+  .setban { position: fixed; left: 0; top: 0; padding: 10px 22px 12px; border-radius: 16px; background: rgba(8,18,30,.95); border: 2px solid var(--gold); color: #fff;
+    text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,.6); white-space: nowrap; will-change: transform, opacity; }
+  .setban b { display: block; font-family: var(--serif); font-weight: 400; font-size: 27px; color: var(--gold); line-height: 1.15; border-bottom: 4px solid var(--g); padding-bottom: 4px; margin: 2px 0 5px; }
+  .setban small { display: block; font-size: 12.5px; color: #d8e4f2; }
+
+  /* Motion off: no tumbling, hopping or pulsing; the game is identical, every change still shows. */
+  @media (prefers-reduced-motion: reduce) {
+    .tok.cur .ring, .sheet { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<style>
+  /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
+     ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
+     A dark disc with a light ring reads on a bright pastel scene and on a black one without being
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
+  .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
+    font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
+</style>
+<a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- Board icons, all drawn here. 24-unit boxes, each readable down to about 14 px on a phone edge space. -->
+    <symbol id="i-start" viewBox="0 0 24 24"><path d="M21 12H5" stroke="#c0392b" stroke-width="3" stroke-linecap="round"/><path d="M10 6l-6 6 6 6" fill="none" stroke="#c0392b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-jail" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="#f39c12" stroke="#7a4b00"/><path d="M7.5 3v18M12 3v18M16.5 3v18" stroke="#2b2118" stroke-width="1.8"/></symbol>
+    <symbol id="i-chai" viewBox="0 0 24 24"><path d="M5 9h11v5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z" fill="#fff" stroke="#6b3e1a" stroke-width="1.2"/><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16" fill="none" stroke="#6b3e1a" stroke-width="1.2"/><path d="M6.3 10.3h8.4v3.2a4 4 0 0 1-4 4h-.4a4 4 0 0 1-4-4z" fill="#c68642"/><path d="M8.5 2.8c-1 1.3 1 2 0 3.4M11.5 2.8c-1 1.3 1 2 0 3.4" stroke="#8a6a4a" fill="none" stroke-linecap="round"/><path d="M4 20.5h14" stroke="#6b3e1a" stroke-width="1.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-siren" viewBox="0 0 24 24"><path d="M7 16v-5a5 5 0 0 1 10 0v5z" fill="#e74c3c" stroke="#7a1a12"/><rect x="5" y="16" width="14" height="3.5" rx="1" fill="#34495e"/><path d="M12 2v2.5M4.5 5l1.8 1.8M19.5 5l-1.8 1.8M2.5 11.5h2M19.5 11.5h2" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round"/><path d="M10 10a2 2 0 0 1 2-2" stroke="#fff" stroke-width="1.3" fill="none" stroke-linecap="round"/></symbol>
+    <symbol id="i-train" viewBox="0 0 24 24"><rect x="5" y="2.5" width="14" height="14.5" rx="3" fill="#b03a2e"/><rect x="7" y="5" width="10" height="5.2" rx="1" fill="#dff3ff"/><circle cx="8.6" cy="13.6" r="1.3" fill="#ffe680"/><circle cx="15.4" cy="13.6" r="1.3" fill="#ffe680"/><path d="M7.5 17l-2.5 4.5M16.5 17l2.5 4.5M6.2 19.6h11.6" stroke="#333" stroke-width="1.4" fill="none"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M12 2.5a6.5 6.5 0 0 0-3.8 11.8c.6.5.8 1.1.8 1.8V17h6v-.9c0-.7.3-1.3.8-1.8A6.5 6.5 0 0 0 12 2.5z" fill="#ffd54a" stroke="#7a5b00"/><rect x="9" y="17.5" width="6" height="2" rx=".6" fill="#777"/><rect x="9.8" y="20" width="4.4" height="1.6" rx=".6" fill="#555"/></symbol>
+    <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.5C9 7 6 10.5 6 14.2a6 6 0 0 0 12 0C18 10.5 15 7 12 2.5z" fill="#3aa0e8" stroke="#145a8a"/><path d="M9.2 14.5a3 3 0 0 0 2.6 3" stroke="#fff" stroke-width="1.3" fill="none" stroke-linecap="round"/></symbol>
+    <symbol id="i-kismat" viewBox="0 0 24 24"><path d="M12 1.8l9.5 10.2L12 22.2 2.5 12z" fill="#8e3fa8" stroke="#4d1a5e"/><text x="12" y="16.6" text-anchor="middle" font-size="12.5" font-weight="700" fill="#ffd54a" font-family="Georgia,serif">?</text></symbol>
+    <symbol id="i-khazana" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="11" rx="1.5" fill="#a0632b" stroke="#5a3410"/><path d="M3 10a9 5 0 0 1 18 0z" fill="#c27a35" stroke="#5a3410"/><rect x="3" y="11" width="18" height="2" fill="#e6b84a"/><rect x="10.5" y="11" width="3" height="4.5" rx=".6" fill="#ffd54a" stroke="#5a3410" stroke-width=".8"/></symbol>
+    <symbol id="i-tax" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#f2c94c" stroke="#9a7413" stroke-width="1.2"/><circle cx="12" cy="12" r="6.6" fill="none" stroke="#c99a1e" stroke-width=".8"/><text x="12" y="16.3" text-anchor="middle" font-size="11.5" font-weight="700" fill="#7a5600" font-family="Segoe UI,sans-serif">₹</text></symbol>
+    <symbol id="i-gem" viewBox="0 0 24 24"><path d="M6 4h12l4 5-10 12L2 9z" fill="#8fdaf7" stroke="#1f6b8c"/><path d="M2 9h20M8 4l-2 5 6 12 6-12-2-5" stroke="#1f6b8c" stroke-width=".8" fill="none"/></symbol>
+    <!-- Player tokens: six plain glyphs, white on the player's colour. -->
+    <symbol id="g0" viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.7-5.4 4.7 1.6 7L12 17.3 5.8 21l1.6-7L2 9.3l7.1-.7z"/></symbol>
+    <symbol id="g1" viewBox="0 0 24 24"><path d="M12 3.5c2.3 2.6 3.1 5.4 0 10.3-3.1-4.9-2.3-7.7 0-10.3zM11.3 14.6C7.6 13.6 5 11 4 7.3c4 .5 6.3 2.8 7.3 7.3zM12.7 14.6c3.7-1 6.3-3.6 7.3-7.3-4 .5-6.3 2.8-7.3 7.3zM3.5 15.5c2.6 2.7 5.3 3.7 8.5 3.7s5.9-1 8.5-3.7c-3 .6-5.7 1-8.5 1s-5.5-.4-8.5-1z"/></symbol>
+    <symbol id="g2" viewBox="0 0 24 24"><path d="M12 1.5l7 9-7 9.5-7-9.5z"/><path d="M12 20l-1.5 3h3z"/></symbol>
+    <symbol id="g3" viewBox="0 0 24 24"><path d="M15.5 2.5a9.5 9.5 0 1 0 6 15.8A8 8 0 1 1 15.5 2.5z"/></symbol>
+    <symbol id="g4" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="2.8" r="1.7"/><circle cx="12" cy="21.2" r="1.7"/><circle cx="2.8" cy="12" r="1.7"/><circle cx="21.2" cy="12" r="1.7"/><circle cx="5.5" cy="5.5" r="1.6"/><circle cx="18.5" cy="18.5" r="1.6"/><circle cx="18.5" cy="5.5" r="1.6"/><circle cx="5.5" cy="18.5" r="1.6"/></symbol>
+    <symbol id="g5" viewBox="0 0 24 24"><path d="M20.5 3.5C9.5 3.5 4 9.6 4 16.6c0 1.1.2 2.1.5 3 1-4 4.2-8 9.2-10-4.1 3-6.7 6.6-7.6 10.4C14.6 21 20.5 15 20.5 3.5z"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <!-- A rangoli-ish ring for the board's centre: concentric dotted circles and petals, drawn faint. -->
+    <symbol id="orn" viewBox="0 0 200 200"><g fill="none" stroke="#ffd54a" stroke-width="1.2"><circle cx="100" cy="100" r="96" stroke-dasharray="2 5"/><circle cx="100" cy="100" r="84"/><circle cx="100" cy="100" r="60" stroke-dasharray="1 4"/></g><g fill="#ffd54a"><path id="pt" d="M100 16c6 10 6 18 0 26-6-8-6-16 0-26z"/><use href="#pt" transform="rotate(30 100 100)"/><use href="#pt" transform="rotate(60 100 100)"/><use href="#pt" transform="rotate(90 100 100)"/><use href="#pt" transform="rotate(120 100 100)"/><use href="#pt" transform="rotate(150 100 100)"/><use href="#pt" transform="rotate(180 100 100)"/><use href="#pt" transform="rotate(210 100 100)"/><use href="#pt" transform="rotate(240 100 100)"/><use href="#pt" transform="rotate(270 100 100)"/><use href="#pt" transform="rotate(300 100 100)"/><use href="#pt" transform="rotate(330 100 100)"/></g></symbol>
+    <!-- Buildings that stand on the colour band: a green house and a red hotel, both with a roof. -->
+    <symbol id="b-house" viewBox="0 0 20 20"><path d="M3.5 9.5h13v9h-13z" fill="#36b860" stroke="#0b3a1c" stroke-width="1.3" stroke-linejoin="round"/><path d="M1.2 10.2 10 2l8.8 8.2z" fill="#1e7a3f" stroke="#0b3a1c" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.4 13.2h3.2v5.3H8.4z" fill="#0b3a1c"/><path d="M5 11.8h2.2V14H5z" fill="#d8f5c8"/></symbol>
+    <symbol id="b-hotel" viewBox="0 0 24 20"><path d="M2.5 8h19v11h-19z" fill="#e0453a" stroke="#4a0c08" stroke-width="1.3" stroke-linejoin="round"/><path d="M1 8.6 12 1.5l11 7.1z" fill="#9b1f17" stroke="#4a0c08" stroke-width="1.3" stroke-linejoin="round"/><path d="M5 10.5h2.4v2.4H5zM10.8 10.5h2.4v2.4h-2.4zM16.6 10.5h2.4v2.4h-2.4zM5 14.6h2.4V17H5zM16.6 14.6h2.4V17h-2.4z" fill="#ffe7a3"/><path d="M10.6 14.4h2.8V19h-2.8z" fill="#4a0c08"/></symbol>
+    <!-- The centre's skyline, all drawn here: a four-minaret gate, a sea-front arch, a temple spire, a
+         cantilever bridge and a domed memorial, standing on one ground line. -->
+    <symbol id="skyline" viewBox="0 0 400 84">
+      <path d="M0 82h400v2H0z"/>
+      <path d="M16 84V26h7v58zM65 84V26h7v58zM15 26a4.5 4.5 0 0 1 9 0zM64 26a4.5 4.5 0 0 1 9 0zM19 21.5h1V15h-1zM68 21.5h1V15h-1zM14.5 44h10v2h-10zM63.5 44h10v2h-10zM14.5 60h10v2h-10zM63.5 60h10v2h-10z"/>
+      <path d="M23 84V44h42v40h-9V66a12 12 0 0 0-24 0v18zM27 44v-7h34v7zM36 37a8 5 0 0 1 16 0z"/>
+      <path d="M74 84V70h18v14z"/>
+      <path d="M92 84V40h66v44h-20V62a13 13 0 0 0-26 0v22zM92 40V30h8v10zM150 40V30h8v10zM91.5 30a4.5 4.5 0 0 1 9 0zM149.5 30a4.5 4.5 0 0 1 9 0zM108 40v-6h34v6zM117 34a8 6 0 0 1 16 0z"/>
+      <path d="M158 84v-10h14v10z"/>
+      <path d="M172 84V66h6v-4h4C184 46 189 30 192 20h1V11h2v9h1c3 10 8 26 10 42h4v4h6v18zM195 11l6 2-6 2z"/>
+      <path d="M216 84v-12h6v12z"/>
+      <path d="M246 84V34h6v50zM300 84V34h6v50zM222 68h108v3H222z"/>
+      <path d="M222 68 249 34l27 22 27-22 27 34M249 34l13 34M303 34l-13 34M235 52l6 16M317 52l-6 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M330 84v-8h8v8z"/>
+      <path d="M338 84V60h60v24zM350 60V50h36v10zM352 50c0-14 32-14 32 0zM367.5 40h1v-9h-1zM364 41a4 3 0 0 1 8 0zM338 60v-6h7v6zM391 60v-6h7v6zM337.5 54a4 4 0 0 1 8 0zM390.5 54a4 4 0 0 1 8 0z"/>
+    </symbol>
+    <!-- The frame of the jail corner: a barred window. -->
+    <symbol id="c-jail" viewBox="0 0 24 24"><rect x="2.5" y="2.5" width="19" height="19" rx="2" fill="#f2a43a" stroke="#3a2c1d" stroke-width="1.6"/><path d="M7.2 3v18M12 3v18M16.8 3v18" stroke="#2b2118" stroke-width="1.9"/><path d="M3 12h18" stroke="#2b2118" stroke-width="1.4"/></symbol>
+  </defs>
+</svg>
+
+<div id="app" class="portrait">
+  <div id="top">
+    <h1 class="logo">City Tycoon<small>Buy the city</small></h1>
+    <button class="iconbtn" id="menuBtn" aria-label="Menu"><svg><use href="#i-menu"/></svg></button>
+  </div>
+  <div id="board" role="group" aria-label="Board"></div>
+  <div id="side">
+    <div id="players"></div>
+    <div id="actions"></div>
+    <div id="logbox" aria-live="polite"></div>
+  </div>
+</div>
+
+<div id="hud"><div id="hudtext"><div id="status"></div><div id="logmini"></div></div><div id="focus" hidden></div><div id="cardShow" hidden></div></div>
+<div id="setup" hidden></div>
+<div id="veil" class="veil" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+<div id="toast" role="status" hidden></div>
+<div id="fx" hidden></div>
+
+<script>
+'use strict';
+// ---------- RULES ----------
+// Everything from here to the UI marker is pure: no DOM, no clock, no Math.random. The dice and the card
+// shuffles draw from a seeded generator whose state lives inside the game state (S.rng), so a saved game
+// resumes with the same future, and a test can replay any game from one number. Tests can also script
+// the dice outright through S.script (a list of [a, b] pairs consumed before the generator).
+const START_CASH = 1500, SALARY = 200, JAIL_FINE = 50, BANK_HOUSES = 32, BANK_HOTELS = 12;
+const JAIL = 10, GO_TO_JAIL = 30, SAVE_VERSION = 3;
+
+// Eight colour groups, one city each, cheapest first round the board. Jaipur gets the pink set because
+// it is the Pink City; Mumbai is the dearest corner, as it is in life.
+const GROUPS = {
+  brown:  { city: 'Varanasi',  color: '#9a6a46', house: 50 },
+  sky:    { city: 'Lucknow',   color: '#6cc6ee', house: 50 },
+  pink:   { city: 'Jaipur',    color: '#e0679f', house: 100 },
+  orange: { city: 'Hyderabad', color: '#f39237', house: 100 },
+  red:    { city: 'Kolkata',   color: '#e4474b', house: 150 },
+  yellow: { city: 'Bengaluru', color: '#f3cf3a', house: 150 },
+  green:  { city: 'Delhi',     color: '#2fae66', house: 200 },
+  navy:   { city: 'Mumbai',    color: '#3b5fd6', house: 200 },
+};
+const GROUP_KEYS = Object.keys(GROUPS);
+
+// rent: [bare, 1 house, 2, 3, 4, hotel]. Bare rent doubles when one owner holds the whole group.
+const st = (name, short, group, price, rent) => ({ type: 'street', name, short, group, price, rent });
+const SPACES = [
+  { type: 'go', name: 'Start', short: 'Start' },
+  st('Assi Ghat', 'Assi', 'brown', 60, [2, 10, 30, 90, 160, 250]),
+  { type: 'khazana', name: 'Khazana', short: 'Khazana' },
+  st('Godowlia', 'Godowlia', 'brown', 60, [4, 20, 60, 180, 320, 450]),
+  { type: 'tax', name: 'Income Tax', short: 'Tax', amount: 200 },
+  { type: 'station', name: 'Chennai Central', short: 'Chennai', price: 200 },
+  st('Aminabad', 'Aminabad', 'sky', 100, [6, 30, 90, 270, 400, 550]),
+  { type: 'kismat', name: 'Kismat', short: 'Kismat' },
+  st('Chowk', 'Chowk', 'sky', 100, [6, 30, 90, 270, 400, 550]),
+  st('Hazratganj', 'Hazratganj', 'sky', 120, [8, 40, 100, 300, 450, 600]),
+  { type: 'jail', name: 'Jail', short: 'Jail' },
+  st('Johari Bazaar', 'Johari', 'pink', 140, [10, 50, 150, 450, 625, 750]),
+  { type: 'utility', name: 'Power Grid', short: 'Power', price: 150 },
+  st('Bapu Bazaar', 'Bapu', 'pink', 140, [10, 50, 150, 450, 625, 750]),
+  st('MI Road', 'MI Road', 'pink', 160, [12, 60, 180, 500, 700, 900]),
+  { type: 'station', name: 'Howrah Junction', short: 'Howrah', price: 200 },
+  st('Charminar', 'Charminar', 'orange', 180, [14, 70, 200, 550, 750, 950]),
+  { type: 'khazana', name: 'Khazana', short: 'Khazana' },
+  st('Abids', 'Abids', 'orange', 180, [14, 70, 200, 550, 750, 950]),
+  st('Banjara Hills', 'Banjara', 'orange', 200, [16, 80, 220, 600, 800, 1000]),
+  { type: 'parking', name: 'Chai Break', short: 'Chai' },
+  st('College Street', 'College St', 'red', 220, [18, 90, 250, 700, 875, 1050]),
+  { type: 'kismat', name: 'Kismat', short: 'Kismat' },
+  st('Esplanade', 'Esplanade', 'red', 220, [18, 90, 250, 700, 875, 1050]),
+  st('Park Street', 'Park St', 'red', 240, [20, 100, 300, 750, 925, 1100]),
+  { type: 'station', name: 'Delhi Junction', short: 'Delhi Jn', price: 200 },
+  st('Malleshwaram', 'Mallesh.', 'yellow', 260, [22, 110, 330, 800, 975, 1150]),
+  st('Koramangala', 'Kora.', 'yellow', 260, [22, 110, 330, 800, 975, 1150]),
+  { type: 'utility', name: 'Jal Board', short: 'Water', price: 150 },
+  st('Indiranagar', 'Indira.', 'yellow', 280, [24, 120, 360, 850, 1025, 1200]),
+  { type: 'gotojail', name: 'Go to Jail', short: 'To Jail' },
+  st('Chandni Chowk', 'Chandni', 'green', 300, [26, 130, 390, 900, 1100, 1275]),
+  st('Khan Market', 'Khan Mkt', 'green', 300, [26, 130, 390, 900, 1100, 1275]),
+  { type: 'khazana', name: 'Khazana', short: 'Khazana' },
+  st('Connaught Place', 'CP', 'green', 320, [28, 150, 450, 1000, 1200, 1400]),
+  { type: 'station', name: 'Mumbai Central', short: 'Mumbai C', price: 200 },
+  { type: 'kismat', name: 'Kismat', short: 'Kismat' },
+  st('Marine Drive', 'Marine Dr', 'navy', 350, [35, 175, 500, 1100, 1300, 1500]),
+  { type: 'tax', name: 'Wealth Tax', short: 'Wealth', amount: 100 },
+  st('Malabar Hill', 'Malabar', 'navy', 400, [50, 200, 600, 1400, 1700, 2000]),
+];
+SPACES.forEach((s, i) => { s.i = i; });
+const OWNABLE = SPACES.filter((s) => s.price).map((s) => s.i);
+const GROUP_SQ = {};
+for (const g of GROUP_KEYS) GROUP_SQ[g] = SPACES.filter((s) => s.group === g).map((s) => s.i);
+const STATIONS = SPACES.filter((s) => s.type === 'station').map((s) => s.i);
+const UTILITIES = SPACES.filter((s) => s.type === 'utility').map((s) => s.i);
+const isOwnable = (i) => !!SPACES[i].price;
+const houseCost = (i) => (SPACES[i].group ? GROUPS[SPACES[i].group].house : 0);
+const mortgageValue = (i) => SPACES[i].price / 2;
+// Lifting a mortgage costs the loan plus 10% interest, rounded up to a whole rupee. Integer arithmetic on
+// purpose: Math.ceil(200 * 0.55) is 111, because 200 * 0.55 is 110.00000000000001 in floating point.
+const interest = (i) => Math.ceil(mortgageValue(i) / 10);
+const unmortgageCost = (i) => mortgageValue(i) + interest(i);
+
+// Two decks of sixteen, both original. Kismat ("fate") moves you about; Khazana ("treasury") is mostly money.
+const CARDS = {
+  kismat: [
+    { text: 'The Rajdhani runs on time for once. Advance to Start.', to: 0 },
+    { text: 'Book launch on Park Street. Go there — collect your salary if you pass Start.', to: 24 },
+    { text: 'Wedding shopping. Advance to Johari Bazaar.', to: 11 },
+    { text: 'A sea-view flat is up for viewing. Advance to Malabar Hill.', to: 39 },
+    { text: 'Catch the night mail to Howrah Junction.', to: 15 },
+    { text: 'Tatkal ticket! Go to the nearest station. If it is owned, pay the owner double fare.', nearest: 'station' },
+    { text: 'Platform changed at the last minute. Hurry to the nearest station; if owned, pay double.', nearest: 'station' },
+    { text: 'Power cut. Go to the nearest utility. If owned, roll the dice and pay ten times the roll.', nearest: 'utility' },
+    { text: 'Your employer pays a festival bonus. Collect ₹50.', cash: 50 },
+    { text: 'A sharp lawyer owes you a favour. Get out of jail free. Keep this card until you need it.', free: true },
+    { text: 'Missed your exit on the flyover. Go back three spaces.', back: 3 },
+    { text: 'Caught jumping a red light. Go straight to jail — do not pass Start.', jail: true },
+    { text: 'The monsoon found every leak. Repairs: ₹25 per house, ₹100 per hotel.', repairs: [25, 100] },
+    { text: 'Traffic challan. Pay ₹15.', cash: -15 },
+    { text: 'Elected housing-society secretary. Pay every player ₹50 for the welcome party.', each: 50 },
+    { text: 'Your startup closes its seed round. Collect ₹150.', cash: 150 },
+  ],
+  khazana: [
+    { text: 'The family astrologer says go. Advance to Start.', to: 0 },
+    { text: 'Ancestral land finally sold. Collect ₹200.', cash: 200 },
+    { text: 'Dentist visit. Pay ₹50.', cash: -50 },
+    { text: 'Old silver sold at the bazaar. Collect ₹50.', cash: 50 },
+    { text: 'Friends in high places. Get out of jail free. Keep this card until you need it.', free: true },
+    { text: 'Your paperwork is a mess. Go straight to jail — do not pass Start.', jail: true },
+    { text: 'You host Diwali dinner. Every player brings ₹50.', fromEach: 50 },
+    { text: 'Your fixed deposit matures. Collect ₹100.', cash: 100 },
+    { text: 'Income-tax refund. Collect ₹20.', cash: 20 },
+    { text: 'Your gully cricket team wins the league. Every player chips in ₹10.', fromEach: 10 },
+    { text: 'A life-insurance policy matures. Collect ₹100.', cash: 100 },
+    { text: 'Hospital bill. Pay ₹100.', cash: -100 },
+    { text: 'School fees are due. Pay ₹50.', cash: -50 },
+    { text: 'A consulting gig pays out. Collect ₹25.', cash: 25 },
+    { text: 'Property tax reassessed: ₹40 per house, ₹115 per hotel.', repairs: [40, 115] },
+    { text: 'Your mango pickle wins a ribbon at the mela. Collect ₹10.', cash: 10 },
+  ],
+};
+const DECK_NAME = { kismat: 'Kismat', khazana: 'Khazana' };
+
+// ---- random numbers (mulberry32; the whole generator state is one uint32 in S.rng) ----
+function rand(S) {
+  if (S.rngFn) return S.rngFn();
+  let t = (S.rng = (S.rng + 0x6D2B79F5) >>> 0);
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function rollDice(S) {
+  if (S.script && S.script.length) return S.script.shift();
+  return [1 + Math.floor(rand(S) * 6), 1 + Math.floor(rand(S) * 6)];
+}
+function shuffle(S, a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand(S) * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+// ---- events and the log: the UI animates the events, the log is what a person reads ----
+function ev(S, e) { if (!S.quiet) S.ev.push(e); }
+function log(S, text) {
+  if (S.quiet) return;
+  S.log.push(text);
+  if (S.log.length > 120) S.log.splice(0, S.log.length - 120);
+  ev(S, { t: 'log', text });
+}
+const nm = (S, p) => S.players[p].name;
+const money = (n) => '₹' + n;
+
+// ---- a new game ----
+// opts: { players: [{ name, kind }], seed, auctions, parkingPot, rounds, dealTwo, maxTurns }
+// kind is 'human' | 'easy' | 'normal' | 'hard'.
+function newGame(o) {
+  const n = o.players.length;
+  const S = {
+    v: SAVE_VERSION, rng: (o.seed >>> 0) || 1,
+    opts: { auctions: o.auctions !== false, parkingPot: !!o.parkingPot, rounds: o.rounds | 0, dealTwo: !!o.dealTwo,
+      // A hard ceiling so no game can run forever. Measured over 200 seeded 4-computer games (see
+      // test/sim.js) the longest natural game was far below this; it exists for the pathological case.
+      maxTurns: o.maxTurns || 1500 },
+    players: o.players.map((p, i) => ({ name: p.name, kind: p.kind, cash: START_CASH, pos: 0, jail: false, jailTries: 0, cards: [], out: false, outAt: -1, seat: i })),
+    own: Array(40).fill(-1), houses: Array(40).fill(0), mort: Array(40).fill(false),
+    bankHouses: BANK_HOUSES, bankHotels: BANK_HOTELS, pot: 0,
+    decks: { kismat: [], khazana: [] },
+    cur: 0, phase: 'roll', again: false, hasRolled: false, doubles: 0, dice: [0, 0], lastRoll: 0, round: 1, turns: 0,
+    pending: null, auction: null, auctionQueue: [], debts: [], offer: null,
+    cool: Array(n * n).fill(0), standings: null, endReason: '', log: [], ev: [],
+  };
+  S.decks.kismat = shuffle(S, CARDS.kismat.map((_, i) => i));
+  S.decks.khazana = shuffle(S, CARDS.khazana.map((_, i) => i));
+  if (S.opts.dealTwo) dealTwo(S);
+  log(S, 'A new game of City Tycoon. ' + nm(S, 0) + ' rolls first.');
+  return S;
+}
+// Quick-game deal: two random streets each, re-drawn whenever one player would hold a whole group,
+// because a set handed out at the start decides the game before anyone has rolled.
+function dealTwo(S) {
+  const pool = shuffle(S, OWNABLE.filter((i) => SPACES[i].type === 'street'));
+  for (let p = 0; p < S.players.length; p++) {
+    let got = 0;
+    for (let k = 0; k < pool.length && got < 2; k++) {
+      const i = pool[k];
+      if (S.own[i] >= 0) continue;
+      S.own[i] = p;
+      if (hasSet(S, SPACES[i].group, p)) { S.own[i] = -1; continue; }
+      got++;
+    }
+  }
+}
+
+// ---- ownership queries ----
+const active = (S) => S.players.map((_, i) => i).filter((i) => !S.players[i].out);
+const hasSet = (S, g, p) => GROUP_SQ[g].every((i) => S.own[i] === p);
+const countOwned = (S, list, p) => list.reduce((n, i) => n + (S.own[i] === p ? 1 : 0), 0);
+const groupHasBuildings = (S, g) => GROUP_SQ[g].some((i) => S.houses[i] > 0);
+const groupHasMortgage = (S, g) => GROUP_SQ[g].some((i) => S.mort[i]);
+const propsOf = (S, p) => OWNABLE.filter((i) => S.own[i] === p);
+
+// Rent owed on landing. `roll` is the dice total that brought the player here (utilities); `special`
+// comes from a Kismat card: 'station2' doubles a station's rent, 'util10' charges ten times the roll.
+function rentFor(S, i, roll, special) {
+  const sp = SPACES[i], o = S.own[i];
+  if (o < 0 || S.mort[i]) return 0;
+  if (sp.type === 'street') {
+    const h = S.houses[i];
+    if (h > 0) return sp.rent[h];
+    return hasSet(S, sp.group, o) ? sp.rent[0] * 2 : sp.rent[0];
+  }
+  if (sp.type === 'station') {
+    const n = countOwned(S, STATIONS, o);
+    return 25 * (1 << (n - 1)) * (special === 'station2' ? 2 : 1);
+  }
+  if (sp.type === 'utility') {
+    if (special === 'util10') return roll * 10;
+    return roll * (countOwned(S, UTILITIES, o) === 2 ? 10 : 4);
+  }
+  return 0;
+}
+
+// Net worth for a timed game: cash, printed price (half for a mortgaged lot) and buildings at cost.
+function netWorth(S, p) {
+  const P = S.players[p];
+  if (P.out) return 0;
+  let v = P.cash;
+  for (const i of propsOf(S, p)) v += (S.mort[i] ? mortgageValue(i) : SPACES[i].price) + S.houses[i] * houseCost(i);
+  return v;
+}
+
+// ---- money ----
+// `to` is a player index, BANK (-1) or POT (-2: the Chai Break jackpot house rule). A payment the player
+// cannot cover is not taken in part: the whole amount becomes a debt, and the game stops in the 'debt'
+// phase until they raise the cash or go bankrupt. Cash never goes negative.
+const BANK = -1, POT = -2;
+const bankOrPot = (S) => (S.opts.parkingPot ? POT : BANK);
+function transfer(S, from, to, amt, why) {
+  if (amt <= 0) return;
+  if (from >= 0) { S.players[from].cash -= amt; ev(S, { t: 'cash', p: from, d: -amt, why }); }
+  if (to >= 0) { S.players[to].cash += amt; ev(S, { t: 'cash', p: to, d: amt, why }); }
+  else if (to === POT) S.pot += amt;
+}
+function pay(S, from, to, amt, why) {
+  if (amt <= 0) return true;
+  if (S.players[from].cash >= amt) { transfer(S, from, to, amt, why); return true; }
+  S.debts.push({ from, to, amt, why });
+  return false;
+}
+const bankPays = (S, p, amt, why) => transfer(S, BANK, p, amt, why);
+
+// ---- the turn ----
+// After every action, advance() decides what the game is waiting for, in strict priority: a finished
+// game, debts, a trade offer awaiting a person, an auction, the buy-or-auction choice, then the current
+// player's roll (again, after doubles) or end of turn. Keeping the decision in one place is what stops
+// two of these from ever being "current" at once — the soft-lock the old version of this kind of code
+// always grows.
+function advance(S) {
+  if (S.phase === 'over') return;
+  if (active(S).length <= 1) { finish(S, 'last'); return; }
+  if (S.debts.length) { S.phase = 'debt'; return; }
+  if (S.offer) { S.phase = 'trade'; return; }
+  if (S.auction) { S.phase = 'auction'; return; }
+  while (S.auctionQueue.length) {
+    const i = S.auctionQueue.shift();
+    if (S.own[i] < 0 && startAuction(S, i)) { S.phase = 'auction'; return; }
+  }
+  if (S.pending != null) {
+    if (S.players[S.cur].out) S.pending = null;
+    else { S.phase = 'buy'; return; }
+  }
+  if (S.players[S.cur].out) { nextTurn(S); return; }
+  S.phase = !S.hasRolled || S.again ? 'roll' : 'done';
+}
+
+function nextTurn(S) {
+  S.again = false; S.doubles = 0; S.pending = null; S.hasRolled = false;
+  const N = S.players.length;
+  let n = S.cur;
+  do { n = (n + 1) % N; } while (S.players[n].out && n !== S.cur);
+  if (n <= S.cur) S.round++;
+  S.cur = n; S.turns++;
+  if (S.opts.rounds && S.round > S.opts.rounds) { finish(S, 'rounds'); return; }
+  if (S.turns >= S.opts.maxTurns) { finish(S, 'cap'); return; }
+  S.phase = 'roll';
+  ev(S, { t: 'turn', p: n });
+}
+
+function endTurn(S) {
+  if (S.phase !== 'done') return false;
+  nextTurn(S);
+  return true;
+}
+
+function finish(S, why) {
+  S.phase = 'over'; S.endReason = why;
+  S.pending = null; S.auction = null; S.offer = null; S.debts = [];
+  const order = S.players.map((_, i) => i).sort((a, b) => {
+    const A = S.players[a], B = S.players[b];
+    if (A.out !== B.out) return A.out ? 1 : -1;
+    if (A.out) return B.outAt - A.outAt;                       // later bankruptcies rank higher
+    return netWorth(S, b) - netWorth(S, a) || a - b;
+  });
+  S.standings = order.map((p) => ({ p, worth: netWorth(S, p) }));
+  S.winner = order[0];
+  const w = nm(S, order[0]);
+  log(S, why === 'last' ? w + ' owns the city. Game over.'
+    : why === 'rounds' ? 'Time is up. ' + w + ' is richest with ' + money(netWorth(S, order[0])) + '.'
+    : 'Turn limit reached. ' + w + ' is richest.');
+  ev(S, { t: 'over' });
+}
+
+function roll(S) {
+  if (S.phase !== 'roll') return false;
+  const p = S.cur, P = S.players[p];
+  const [a, b] = rollDice(S);
+  const dbl = a === b;
+  S.dice = [a, b]; S.lastRoll = a + b; S.hasRolled = true;
+  ev(S, { t: 'dice', d: [a, b], p });
+  if (P.jail) {
+    P.jailTries++;
+    S.again = false;
+    if (dbl) {
+      P.jail = false; P.jailTries = 0;
+      log(S, nm(S, p) + ' rolls doubles and walks out of jail.');
+      moveBy(S, p, a + b);
+    } else if (P.jailTries >= 3) {
+      // Third failed try: the fine is compulsory and the player moves by this roll anyway. If they
+      // cannot pay it, it becomes a debt like any other and they still move.
+      P.jail = false; P.jailTries = 0;
+      log(S, nm(S, p) + ' fails a third time, pays the ' + money(JAIL_FINE) + ' fine and moves.');
+      pay(S, p, bankOrPot(S), JAIL_FINE, 'jail fine');
+      moveBy(S, p, a + b);
+    } else {
+      log(S, nm(S, p) + ' rolls ' + a + '–' + b + ' and stays in jail.');
+    }
+  } else if (dbl && ++S.doubles >= 3) {
+    log(S, nm(S, p) + ' rolls a third double — straight to jail.');
+    goToJail(S, p);
+  } else {
+    S.again = dbl;
+    moveBy(S, p, a + b);
+  }
+  advance(S);
+  return true;
+}
+
+function goToJail(S, p) {
+  const P = S.players[p];
+  P.pos = JAIL; P.jail = true; P.jailTries = 0;
+  if (p === S.cur) { S.again = false; S.doubles = 0; }
+  ev(S, { t: 'jump', p, to: JAIL });
+  log(S, nm(S, p) + ' goes to jail.');
+}
+
+function payJail(S) {
+  const P = S.players[S.cur];
+  if (S.phase !== 'roll' || !P.jail || P.cash < JAIL_FINE) return false;
+  transfer(S, S.cur, bankOrPot(S), JAIL_FINE, 'jail fine');
+  P.jail = false; P.jailTries = 0;
+  log(S, nm(S, S.cur) + ' pays ' + money(JAIL_FINE) + ' to leave jail.');
+  return true;
+}
+function useJailCard(S) {
+  const P = S.players[S.cur];
+  if (S.phase !== 'roll' || !P.jail || !P.cards.length) return false;
+  const deck = P.cards.pop();
+  S.decks[deck].push(CARDS[deck].findIndex((c) => c.free));
+  P.jail = false; P.jailTries = 0;
+  log(S, nm(S, S.cur) + ' uses a get-out-of-jail card.');
+  ev(S, { t: 'cards' });
+  return true;
+}
+
+function moveBy(S, p, n, special) {
+  const P = S.players[p], path = [];
+  let pos = P.pos, passed = false;
+  const step = n > 0 ? 1 : -1;
+  for (let k = 0; k < Math.abs(n); k++) {
+    pos = (pos + step + 40) % 40;
+    path.push(pos);
+    if (step > 0 && pos === 0) passed = true;
+  }
+  P.pos = pos;
+  ev(S, { t: 'move', p, path });
+  if (passed) { bankPays(S, p, SALARY, 'salary'); log(S, nm(S, p) + ' passes Start and collects ' + money(SALARY) + '.'); }
+  land(S, p, special);
+}
+const moveTo = (S, p, to, special) => moveBy(S, p, ((to - S.players[p].pos + 40) % 40) || 40, special);
+
+function land(S, p, special) {
+  const P = S.players[p], i = P.pos, sp = SPACES[i];
+  if (isOwnable(i)) {
+    const o = S.own[i];
+    if (o < 0) { S.pending = i; return; }
+    if (o === p) return;
+    if (S.mort[i]) { log(S, nm(S, p) + ' lands on ' + sp.name + ' — mortgaged, no rent.'); return; }
+    let roll = S.lastRoll;
+    if (special === 'util10') {
+      const d = rollDice(S); roll = d[0] + d[1];
+      ev(S, { t: 'dice', d, p });
+    }
+    const r = rentFor(S, i, roll, special);
+    log(S, nm(S, p) + ' pays ' + money(r) + ' rent to ' + nm(S, o) + ' for ' + sp.name + '.');
+    pay(S, p, o, r, 'rent');
+    return;
+  }
+  switch (sp.type) {
+    case 'tax':
+      log(S, nm(S, p) + ' pays ' + sp.name + ', ' + money(sp.amount) + '.');
+      pay(S, p, bankOrPot(S), sp.amount, sp.name);
+      break;
+    case 'kismat': case 'khazana': drawCard(S, p, sp.type); break;
+    case 'gotojail': goToJail(S, p); break;
+    case 'parking':
+      if (S.opts.parkingPot && S.pot > 0) {
+        log(S, nm(S, p) + ' scoops the Chai Break pot: ' + money(S.pot) + '.');
+        bankPays(S, p, S.pot, 'pot'); S.pot = 0;
+      }
+      break;
+    default: break;
+  }
+}
+
+function drawCard(S, p, deck) {
+  const id = S.decks[deck].shift();
+  const c = CARDS[deck][id];
+  ev(S, { t: 'card', deck, id, p });
+  log(S, nm(S, p) + ' draws ' + DECK_NAME[deck] + ': “' + c.text + '”');
+  if (c.free) S.players[p].cards.push(deck); else S.decks[deck].push(id);
+  applyCard(S, p, c);
+}
+function applyCard(S, p, c) {
+  const others = active(S).filter((q) => q !== p);
+  if (c.to != null) moveTo(S, p, c.to);
+  else if (c.back) moveBy(S, p, -c.back);
+  else if (c.jail) goToJail(S, p);
+  else if (c.cash > 0) bankPays(S, p, c.cash, 'card');
+  else if (c.cash < 0) pay(S, p, bankOrPot(S), -c.cash, 'card');
+  else if (c.each) for (const q of others) pay(S, p, q, c.each, 'card');
+  else if (c.fromEach) for (const q of others) pay(S, q, p, c.fromEach, 'card');
+  else if (c.repairs) {
+    let n = 0;
+    for (const i of propsOf(S, p)) n += S.houses[i] === 5 ? c.repairs[1] : S.houses[i] * c.repairs[0];
+    pay(S, p, bankOrPot(S), n, 'repairs');
+  } else if (c.nearest) {
+    const list = c.nearest === 'station' ? STATIONS : UTILITIES, pos = S.players[p].pos;
+    let best = list[0], bd = 99;
+    for (const i of list) { const d = (i - pos + 40) % 40 || 40; if (d < bd) { bd = d; best = i; } }
+    moveTo(S, p, best, c.nearest === 'station' ? 'station2' : 'util10');
+  }
+}
+
+// ---- buying and auctions ----
+function buy(S) {
+  if (S.phase !== 'buy') return false;
+  const i = S.pending, p = S.cur, price = SPACES[i].price;
+  if (S.players[p].cash < price) return false;
+  transfer(S, p, BANK, price, 'buy');
+  S.own[i] = p; S.pending = null;
+  log(S, nm(S, p) + ' buys ' + SPACES[i].name + ' for ' + money(price) + '.');
+  ev(S, { t: 'own', i });
+  advance(S);
+  return true;
+}
+function decline(S) {
+  if (S.phase !== 'buy') return false;
+  const i = S.pending;
+  S.pending = null;
+  if (S.opts.auctions) { log(S, nm(S, S.cur) + ' passes on ' + SPACES[i].name + '. It goes to auction.'); startAuction(S, i); }
+  else log(S, nm(S, S.cur) + ' passes on ' + SPACES[i].name + '.');
+  advance(S);
+  return true;
+}
+// An open ascending auction, taken in turns from the current player round the table. On your turn you
+// raise or drop out for good; the last bidder standing wins at their bid. Nobody bidding leaves the
+// property with the bank. Bids are capped at the bidder's cash, so a win can always be paid.
+function startAuction(S, i) {
+  const bidders = [];
+  const N = S.players.length;
+  for (let k = 0; k < N; k++) { const q = (S.cur + k) % N; if (!S.players[q].out && S.players[q].cash > 0) bidders.push(q); }
+  if (!bidders.length) { log(S, 'Nobody can bid on ' + SPACES[i].name + '; it stays with the bank.'); return false; }
+  S.auction = { i, high: 0, by: -1, bidders, k: 0 };
+  ev(S, { t: 'auction', i });
+  return true;
+}
+const auctionActor = (S) => (S.auction ? S.auction.bidders[S.auction.k] : -1);
+function bid(S, amount) {
+  const A = S.auction;
+  if (S.phase !== 'auction' || !A) return false;
+  const q = A.bidders[A.k];
+  if (!(amount > A.high) || amount > S.players[q].cash || amount !== Math.floor(amount)) return false;
+  A.high = amount; A.by = q;
+  A.k = (A.k + 1) % A.bidders.length;
+  ev(S, { t: 'bid', p: q, amount });
+  settleAuction(S);
+  return true;
+}
+function passBid(S) {
+  const A = S.auction;
+  if (S.phase !== 'auction' || !A) return false;
+  const q = A.bidders[A.k];
+  A.bidders.splice(A.k, 1);
+  if (A.k >= A.bidders.length) A.k = 0;
+  ev(S, { t: 'bidpass', p: q });
+  settleAuction(S);
+  return true;
+}
+function settleAuction(S) {
+  const A = S.auction;
+  // The high bidder is never asked to bid against themself: once only they remain, it is sold.
+  if (A.by >= 0 && A.bidders.length === 1 && A.bidders[0] === A.by) {
+    S.auction = null;
+    transfer(S, A.by, BANK, A.high, 'auction');
+    S.own[A.i] = A.by;
+    log(S, nm(S, A.by) + ' wins ' + SPACES[A.i].name + ' at auction for ' + money(A.high) + '.');
+    ev(S, { t: 'own', i: A.i });
+  } else if (!A.bidders.length) {
+    S.auction = null;
+    log(S, 'No bids. ' + SPACES[A.i].name + ' stays with the bank.');
+  } else if (A.bidders[A.k] === A.by) {
+    A.k = (A.k + 1) % A.bidders.length;
+  }
+  advance(S);
+}
+
+// ---- building ----
+// Even-build rule: a house goes only on a lot that has the fewest in its group, and comes off only the
+// lot that has the most. A hotel is the fifth level and needs four houses on every lot of the group.
+// Houses and hotels come from a limited bank (32 and 12); when it is empty, nobody can build.
+const groupLevels = (S, g) => GROUP_SQ[g].map((i) => S.houses[i]);
+function canBuild(S, p, i) {
+  const sp = SPACES[i];
+  if (sp.type !== 'street' || S.own[i] !== p || !hasSet(S, sp.group, p) || groupHasMortgage(S, sp.group)) return false;
+  const h = S.houses[i];
+  if (h >= 5 || h !== Math.min(...groupLevels(S, sp.group))) return false;
+  if (h === 4 ? S.bankHotels < 1 : S.bankHouses < 1) return false;
+  return S.players[p].cash >= houseCost(i);
+}
+function build(S, p, i) {
+  if (!canBuild(S, p, i)) return false;
+  if (S.houses[i] === 4) { S.houses[i] = 5; S.bankHotels--; S.bankHouses += 4; } else { S.houses[i]++; S.bankHouses--; }
+  transfer(S, p, BANK, houseCost(i), 'build');
+  log(S, nm(S, p) + ' builds ' + (S.houses[i] === 5 ? 'a hotel' : 'a house') + ' on ' + SPACES[i].name + '.');
+  ev(S, { t: 'build', i });
+  return true;
+}
+function canSell(S, p, i) {
+  const sp = SPACES[i];
+  return sp.type === 'street' && S.own[i] === p && S.houses[i] > 0 && S.houses[i] === Math.max(...groupLevels(S, sp.group));
+}
+// Selling a hotel turns it back into four houses — if the bank has four to give. In a housing shortage
+// it gives what it has, and the houses it cannot give are sold too, at the same half price.
+function sellHouse(S, p, i) {
+  if (!canSell(S, p, i)) return false;
+  const c = houseCost(i);
+  let refund;
+  if (S.houses[i] === 5) {
+    const k = Math.min(4, S.bankHouses);
+    S.houses[i] = k; S.bankHotels++; S.bankHouses -= k;
+    refund = c / 2 + (4 - k) * c / 2;
+  } else { S.houses[i]--; S.bankHouses++; refund = c / 2; }
+  bankPays(S, p, refund, 'sell');
+  log(S, nm(S, p) + ' sells a building on ' + SPACES[i].name + ' for ' + money(refund) + '.');
+  ev(S, { t: 'build', i });
+  return true;
+}
+
+// ---- mortgages ----
+// A lot can be mortgaged only once its whole group is bare; a group with a mortgaged lot cannot be built
+// on (canBuild) until it is lifted.
+function canMortgage(S, p, i) {
+  if (!isOwnable(i) || S.own[i] !== p || S.mort[i]) return false;
+  const g = SPACES[i].group;
+  return !g || !groupHasBuildings(S, g);
+}
+function mortgage(S, p, i) {
+  if (!canMortgage(S, p, i)) return false;
+  S.mort[i] = true;
+  bankPays(S, p, mortgageValue(i), 'mortgage');
+  log(S, nm(S, p) + ' mortgages ' + SPACES[i].name + ' for ' + money(mortgageValue(i)) + '.');
+  ev(S, { t: 'own', i });
+  return true;
+}
+const canUnmortgage = (S, p, i) => isOwnable(i) && S.own[i] === p && S.mort[i] && S.players[p].cash >= unmortgageCost(i);
+function unmortgage(S, p, i) {
+  if (!canUnmortgage(S, p, i)) return false;
+  S.mort[i] = false;
+  transfer(S, p, BANK, unmortgageCost(i), 'unmortgage');
+  log(S, nm(S, p) + ' lifts the mortgage on ' + SPACES[i].name + ' for ' + money(unmortgageCost(i)) + '.');
+  ev(S, { t: 'own', i });
+  return true;
+}
+
+// ---- debts and bankruptcy ----
+const debtor = (S) => (S.debts.length ? S.debts[0].from : -1);
+function settleDebt(S) {
+  if (S.phase !== 'debt') return false;
+  const d = S.debts[0], P = S.players[d.from];
+  if (P.cash < d.amt) return false;
+  // A creditor who went bankrupt in the meantime is paid by paying the bank.
+  transfer(S, d.from, d.to >= 0 && S.players[d.to].out ? BANK : d.to, d.amt, d.why);
+  S.debts.shift();
+  log(S, nm(S, d.from) + ' settles ' + money(d.amt) + '.');
+  advance(S);
+  return true;
+}
+// Everything you could raise right now: cash, half of every building, every unmortgaged lot's loan.
+function liquidity(S, p) {
+  let v = S.players[p].cash;
+  for (const i of propsOf(S, p)) { v += S.houses[i] * houseCost(i) / 2; if (!S.mort[i]) v += mortgageValue(i); }
+  return v;
+}
+function bankrupt(S, p) {
+  if (S.phase !== 'debt' || debtor(S) !== p) return false;
+  const P = S.players[p];
+  const d = S.debts[0];
+  let creditor = d.to >= 0 && !S.players[d.to].out ? d.to : BANK;
+  // Debts owed by or to the bankrupt player are void; what they owed is settled by the transfer below.
+  S.debts = S.debts.filter((x) => x.from !== p && x.to !== p);
+  // Buildings go back to the bank first, at half price; that money is part of what the creditor gets.
+  for (const i of propsOf(S, p)) {
+    if (S.houses[i] > 0) {
+      const c = houseCost(i);
+      const back = S.houses[i] === 5 ? 5 : S.houses[i];
+      if (S.houses[i] === 5) S.bankHotels++; else S.bankHouses += S.houses[i];
+      P.cash += back * c / 2;
+      S.houses[i] = 0;
+    }
+  }
+  const props = propsOf(S, p);
+  log(S, nm(S, p) + ' is bankrupt' + (creditor >= 0 ? ' to ' + nm(S, creditor) : '') + '.');
+  if (creditor >= 0) {
+    if (P.cash > 0) transfer(S, p, creditor, P.cash, 'bankruptcy');
+    for (const i of props) S.own[i] = creditor;
+    S.players[creditor].cards.push(...P.cards);
+    // A mortgaged lot changes hands with its loan: the new owner pays the 10% interest straight away.
+    const fees = props.filter((i) => S.mort[i]).reduce((n, i) => n + interest(i), 0);
+    if (fees) { log(S, nm(S, creditor) + ' owes ' + money(fees) + ' interest on the mortgaged lots taken over.'); pay(S, creditor, BANK, fees, 'interest'); }
+  } else {
+    if (P.cash > 0) transfer(S, p, BANK, P.cash, 'bankruptcy');
+    for (const deck of P.cards) S.decks[deck].push(CARDS[deck].findIndex((c) => c.free));
+    for (const i of props) { S.own[i] = -1; S.mort[i] = false; }
+    if (S.opts.auctions) S.auctionQueue.push(...props);
+  }
+  P.cards = []; P.cash = 0; P.out = true; P.outAt = S.turns; P.jail = false;
+  if (S.auction) {
+    const A = S.auction, k = A.bidders.indexOf(p);
+    if (k >= 0) { A.bidders.splice(k, 1); if (A.k >= A.bidders.length) A.k = 0; }
+  }
+  if (S.offer && (S.offer.from === p || S.offer.to === p)) S.offer = null;
+  if (p === S.cur) { S.pending = null; S.again = false; }
+  ev(S, { t: 'bankrupt', p });
+  for (const i of props) ev(S, { t: 'own', i });
+  advance(S);
+  return true;
+}
+
+// ---- trades ----
+// offer = { from, to, give: { props, cash, cards }, get: { props, cash, cards } }: `from` gives `give` and
+// receives `get`. A lot can only change hands while its whole colour group is bare, and a mortgaged lot
+// arrives with its loan, the receiver paying the 10% interest at once.
+function blankSide() { return { props: [], cash: 0, cards: 0 }; }
+function tradeError(S, o) {
+  if (!o || o.from === o.to) return 'pick someone to trade with';
+  const A = S.players[o.from], B = S.players[o.to];
+  if (!A || !B || A.out || B.out) return 'that player is out';
+  const g = o.give, r = o.get;
+  if (!g.props.length && !r.props.length && !g.cards && !r.cards) return 'add a property or a card';
+  if (g.props.some((i) => S.own[i] !== o.from) || r.props.some((i) => S.own[i] !== o.to)) return 'a property changed hands';
+  for (const i of [...g.props, ...r.props]) if (SPACES[i].group && groupHasBuildings(S, SPACES[i].group)) return 'sell the buildings in ' + GROUPS[SPACES[i].group].city + ' first';
+  if (g.cash < 0 || r.cash < 0 || g.cash > A.cash || r.cash > B.cash) return 'not enough cash';
+  if (g.cards > A.cards.length || r.cards > B.cards.length) return 'no such card';
+  return '';
+}
+function doTrade(S, o) {
+  if (tradeError(S, o)) return false;
+  const A = S.players[o.from], B = S.players[o.to];
+  for (const i of o.give.props) S.own[i] = o.to;
+  for (const i of o.get.props) S.own[i] = o.from;
+  const net = o.give.cash - o.get.cash;
+  if (net > 0) transfer(S, o.from, o.to, net, 'trade'); else if (net < 0) transfer(S, o.to, o.from, -net, 'trade');
+  for (let k = 0; k < o.give.cards; k++) B.cards.push(A.cards.pop());
+  for (let k = 0; k < o.get.cards; k++) A.cards.push(B.cards.pop());
+  log(S, nm(S, o.from) + ' and ' + nm(S, o.to) + ' trade: ' + describeTrade(S, o) + '.');
+  const feeTo = (who, list) => { const f = list.filter((i) => S.mort[i]).reduce((n, i) => n + interest(i), 0); if (f) pay(S, who, BANK, f, 'interest'); };
+  feeTo(o.to, o.give.props); feeTo(o.from, o.get.props);
+  ev(S, { t: 'trade' });
+  for (const i of [...o.give.props, ...o.get.props]) ev(S, { t: 'own', i });
+  advance(S);
+  return true;
+}
+function describeSide(S, s) {
+  const parts = s.props.map((i) => SPACES[i].name);
+  if (s.cash) parts.push(money(s.cash));
+  if (s.cards) parts.push(s.cards === 1 ? 'a jail card' : s.cards + ' jail cards');
+  return parts.join(', ') || 'nothing';
+}
+const describeTrade = (S, o) => nm(S, o.from) + ' gives ' + describeSide(S, o.give) + '; ' + nm(S, o.to) + ' gives ' + describeSide(S, o.get);
+
+// A trade offer to a person waits in phase 'trade' until they answer. Offers to a computer are answered
+// on the spot by the caller (see aiAnswer), so they never wait.
+function offerTrade(S, o) {
+  if (tradeError(S, o) || S.offer) return false;
+  S.offer = o;
+  log(S, nm(S, o.from) + ' offers ' + nm(S, o.to) + ' a trade.');
+  advance(S);
+  return true;
+}
+function answerOffer(S, accept) {
+  if (S.phase !== 'trade' || !S.offer) return false;
+  const o = S.offer;
+  S.offer = null;
+  if (accept && !tradeError(S, o)) doTrade(S, o);
+  else log(S, nm(S, o.to) + ' turns the trade down.');
+  advance(S);
+  // advance() recomputes the phase from scratch, so an offer made mid-turn lands back where it was.
+  return true;
+}
+
+// Who the game is waiting on, whatever the phase.
+function actor(S) {
+  switch (S.phase) {
+    case 'roll': case 'buy': case 'done': return S.cur;
+    case 'auction': return auctionActor(S);
+    case 'debt': return debtor(S);
+    case 'trade': return S.offer.to;
+    default: return -1;
+  }
+}
+
+// ---- saving ----
+// The save is the state minus the event queue, with a version. Anything that does not parse, has the
+// wrong version, or fails the shape check is discarded and a fresh game offered: a bad save must never be
+// able to load a broken game.
+function serialize(S) {
+  const { ev: _e, rngFn: _r, script: _s, quiet: _q, ...rest } = S;
+  return JSON.stringify(rest);
+}
+function deserialize(text) {
+  let S;
+  try { S = JSON.parse(text); } catch (e) { return null; }
+  if (!validState(S)) return null;
+  S.ev = [];
+  return S;
+}
+function validState(S) {
+  try {
+    if (!S || S.v !== SAVE_VERSION || !Array.isArray(S.players) || S.players.length < 2 || S.players.length > 6) return false;
+    if (![S.own, S.houses, S.mort].every((a) => Array.isArray(a) && a.length === 40)) return false;
+    if (!['roll', 'buy', 'auction', 'debt', 'done', 'trade', 'over'].includes(S.phase)) return false;
+    const n = S.players.length;
+    if (!(S.cur >= 0 && S.cur < n) || S.players.some((P) => !(P.cash >= 0) || !(P.pos >= 0 && P.pos < 40) || !Array.isArray(P.cards))) return false;
+    if (S.own.some((o) => !(o >= -1 && o < n))) return false;
+    if (S.houses.some((h) => !(h >= 0 && h <= 5))) return false;
+    if (!S.decks || !Array.isArray(S.decks.kismat) || !Array.isArray(S.decks.khazana)) return false;
+    if (S.phase === 'auction' && !(S.auction && Array.isArray(S.auction.bidders) && S.auction.bidders.length)) return false;
+    if (S.phase === 'debt' && !(Array.isArray(S.debts) && S.debts.length)) return false;
+    if (S.phase === 'trade' && !S.offer) return false;
+    if (S.phase === 'buy' && !(S.pending >= 0 && isOwnable(S.pending))) return false;
+    if (!Array.isArray(S.debts) || !Array.isArray(S.auctionQueue) || !Array.isArray(S.log)) return false;
+    return true;
+  } catch (e) { return false; }
+}
+
+// ---------- AI ----------
+// Long-run chance that a single roll ends on each square, measured with this engine's own movement
+// (dice, both card decks, three doubles, Go to Jail, leaving jail at once) over 2,000,000 rolls; see
+// test/sim.js, which re-measures it and fails if a number here drifts. Orange and red are the busiest
+// streets because jail sits 6-9 squares before them, which is the whole reason they make the best sets.
+const FREQ = [0.0317, 0.0213, 0.0184, 0.0216, 0.0232, 0.0254, 0.0226, 0.0084, 0.0230, 0.0226, 0.0627, 0.0267, 0.0256, 0.0230, 0.0242, 0.0337, 0.0276, 0.0256, 0.0293, 0.0312,
+  0.0289, 0.0287, 0.0091, 0.0279, 0.0326, 0.0314, 0.0274, 0.0271, 0.0281, 0.0260, 0, 0.0270, 0.0265, 0.0238, 0.0252, 0.0245, 0.0075, 0.0220, 0.0220, 0.0265];
+
+// What each level is. T is how many turns of rent per opponent a property is expected to earn before the
+// game is decided; w is how much an opponent's gain counts against the AI's own in a trade (1 in a
+// two-player game, where every rupee they gain is a rupee of lead lost); thr is the margin a trade must
+// clear to be accepted. Easy is short-sighted and sloppy, never starts a trade and builds at random.
+const LEVELS = {
+  easy:   { T: 10, w: 0.45, thr: -25, noise: 60, trades: false },
+  normal: { T: 16, w: 0.7,  thr: 10,  noise: 0,  trades: true },
+  hard:   { T: 30, w: 0.85, thr: 25,  noise: 0,  trades: true },
+};
+const levelOf = (S, p, override) => LEVELS[override || S.players[p].kind] || LEVELS.hard;
+
+// A cheap copy of just what valuation reads, so a trade can be tried without touching the game.
+function snap(S) {
+  return { own: S.own.slice(), houses: S.houses, mort: S.mort.slice(),
+    players: S.players.map((P) => ({ cash: P.cash, cards: P.cards.length, out: P.out })) };
+}
+function applySnap(B, o) {
+  const C = { own: B.own.slice(), houses: B.houses, mort: B.mort, players: B.players.map((P) => ({ ...P })) };
+  for (const i of o.give.props) C.own[i] = o.to;
+  for (const i of o.get.props) C.own[i] = o.from;
+  const net = o.give.cash - o.get.cash;
+  C.players[o.from].cash -= net; C.players[o.to].cash += net;
+  C.players[o.from].cards += o.get.cards - o.give.cards; C.players[o.to].cards += o.give.cards - o.get.cards;
+  for (const i of o.give.props) if (B.mort[i]) C.players[o.to].cash -= interest(i);
+  for (const i of o.get.props) if (B.mort[i]) C.players[o.from].cash -= interest(i);
+  return C;
+}
+// How much a player's position is worth: cash plus every holding, each holding valued as what it would
+// fetch plus the rent it is expected to earn over the horizon. The expected rent is where a set earns its
+// keep: a complete orange set with three houses takes about 50 per opponent turn, a lone orange lot
+// under 0.5. That gap — not the price on the card — is what every buying, bidding and trading decision
+// below is made from.
+function worth(B, p, L, nOpp) {
+  const P = B.players[p];
+  let v = P.cash + P.cards * 25;
+  const horizon = L.T * nOpp;
+  // A set only earns its big rents once it has houses, and houses cost cash. The development value of
+  // every complete set is scaled by how much of the build to three houses the player could pay for now,
+  // from cash plus what loose lots would raise (floor 10%), so paying all your cash for a set you cannot
+  // build on is not mistaken for a coup.
+  let need = 0, devel = 0, loose = 0;
+  for (const g of GROUP_KEYS) {
+    const sq = GROUP_SQ[g];
+    let k = 0;
+    for (const i of sq) if (B.own[i] === p) k++;
+    if (!k) continue;
+    const full = k === sq.length;
+    const anyMort = sq.some((i) => B.mort[i]);
+    let eq = 0, inc = 0, pot = 0;
+    for (const i of sq) {
+      if (B.own[i] !== p) continue;
+      const sp = SPACES[i], h = B.houses[i];
+      eq += B.mort[i] ? sp.price * 0.45 : sp.price;
+      eq += h * GROUPS[g].house * 0.6;
+      if (B.mort[i]) continue;
+      const r = h ? sp.rent[h] : full ? sp.rent[0] * 2 : sp.rent[0];
+      inc += FREQ[i] * r;
+      if (full && h < 3 && !anyMort) { pot += FREQ[i] * (sp.rent[3] - r); need += (3 - h) * GROUPS[g].house; }
+    }
+    v += eq + horizon * inc;
+    devel += horizon * 0.45 * pot;
+    if (!full) for (const i of sq) if (B.own[i] === p && !B.mort[i]) loose += SPACES[i].price / 2;
+    // Lots that are a step toward a set nobody else has started are worth a little more than their price.
+    if (!full && sq.every((i) => B.own[i] === p || B.own[i] < 0)) v += 0.12 * k * SPACES[sq[0]].price;
+  }
+  if (devel) v += devel * Math.min(1, Math.max(0.1, (P.cash + loose) / need));
+  for (const [list, rentOf] of [[STATIONS, (c) => 25 * (1 << (c - 1))], [UTILITIES, (c) => 7 * (c === 2 ? 10 : 4)]]) {
+    let c = 0;
+    for (const i of list) if (B.own[i] === p) c++;
+    if (!c) continue;
+    for (const i of list) {
+      if (B.own[i] !== p) continue;
+      v += B.mort[i] ? SPACES[i].price * 0.45 : SPACES[i].price;
+      if (!B.mort[i]) v += horizon * FREQ[i] * rentOf(c);
+    }
+  }
+  return v;
+}
+const oppCount = (B) => Math.max(1, B.players.filter((P) => !P.out).length - 1);
+
+// Groups that `q` holds whole after a trade but did not before.
+const newSets = (B, A, q) => GROUP_KEYS.filter((g) => GROUP_SQ[g].every((i) => A.own[i] === q) && !GROUP_SQ[g].every((i) => B.own[i] === q));
+// Does this trade finish a set for the other side without finishing one for p?
+function handsSet(S, p, o) {
+  const B = snap(S), A = applySnap(B, o), q = o.from === p ? o.to : o.from;
+  return newSets(B, A, q).length > 0 && !newSets(B, A, p).length;
+}
+// A trade's value to `p`: their own gain, less (w x) the gain of the player on the other side.
+// Handing someone a set without getting one back is judged as if they were the only opponent (w = 1),
+// because a set makes them everyone's problem, and must also clear a premium of half the group's
+// printed price: no level, however careless, gives a set away for its list price.
+function tradeDelta(S, p, o, L) {
+  const B = snap(S), A = applySnap(B, o), n = oppCount(B);
+  const q = o.from === p ? o.to : o.from;
+  const given = newSets(B, A, q), gets = newSets(B, A, p).length > 0;
+  const gift = given.length > 0 && !gets;
+  const w = n === 1 || gift ? 1 : L.w;
+  let d = (worth(A, p, L, n) - worth(B, p, L, n)) - w * (worth(A, q, L, n) - worth(B, q, L, n));
+  if (gift) for (const g of given) d -= 0.5 * GROUP_SQ[g].reduce((s, i) => s + SPACES[i].price, 0);
+  return d;
+}
+// Small deterministic noise for Easy, so it is not exploitable by the exact same offer twice but a
+// replayed game is still the same game.
+const jitter = (S, salt) => { let h = (S.turns * 2654435761 + salt * 40503) >>> 0; h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995) >>> 0; return (h % 2001) / 1000 - 1; };
+
+// Stalemate relief. Two computers that value the board alike can never both come out ahead in a
+// two-player swap — by their shared measure it is zero-sum — so with nobody holding a set a game could
+// run to the turn cap: 6 of 60 Hard-vs-Hard games did, before this. From round 25, while no one on the
+// board has a whole city, a swap that finishes a set for BOTH sides is accepted at a small loss.
+function thrFor(S, o, L) {
+  if (S.round < 25) return L.thr;
+  const B = snap(S), A = applySnap(B, o);
+  if (!newSets(B, A, o.from).length || !newSets(B, A, o.to).length) return L.thr;
+  if (active(S).some((q) => GROUP_KEYS.some((g) => hasSet(S, g, q)))) return L.thr;
+  return L.thr - 150;
+}
+function aiWouldAccept(S, p, o, L) {
+  let d = tradeDelta(S, p, o, L);
+  if (L.noise && !handsSet(S, p, o)) d += L.noise * jitter(S, o.give.cash + o.get.cash * 7 + o.give.props.length * 31);
+  return d > thrFor(S, o, L);
+}
+
+// What gaining square i is worth to p. It is valued as if p had just paid the printed price for it
+// (and that price is then added back), so a set won with your last rupee counts as the unbuildable set it
+// would be, not as one with your current cash behind it.
+function gainOf(S, p, i, L) {
+  const B = snap(S), n = oppCount(B), price = SPACES[i].price;
+  const A = { ...B, own: B.own.slice(), players: B.players.map((P, k) => (k === p ? { ...P, cash: Math.max(0, P.cash - price) } : P)) };
+  A.own[i] = p;
+  return worth(A, p, L, n) - worth(B, p, L, n) + Math.min(price, B.players[p].cash);
+}
+// The most any opponent would gain from it, which is what keeping it from them is worth.
+function denialOf(S, p, i, L) {
+  let best = 0;
+  for (const q of active(S)) if (q !== p) best = Math.max(best, gainOf(S, q, i, L) - SPACES[i].price);
+  return best;
+}
+const completesSet = (S, p, i) => { const g = SPACES[i].group; return !!g && GROUP_SQ[g].every((j) => j === i || S.own[j] === p); };
+const blocksSet = (S, p, i) => { const g = SPACES[i].group; if (!g) return false; const others = GROUP_SQ[g].filter((j) => j !== i); const o = S.own[others[0]]; return o >= 0 && o !== p && others.every((j) => S.own[j] === o); };
+
+// Cash to keep back, scaled to the danger ahead: the rents waiting 2-12 squares on (what the next roll
+// can cost) and the worst rent on the board. Hard keeps enough for the likely bill and a share of the
+// worst; Normal a flat-ish cushion; Easy almost nothing, which is how it goes broke.
+function dangerAhead(S, p) {
+  const pos = S.players[p].pos;
+  let exp = 0, max = 0;
+  for (let t = 2; t <= 12; t++) {
+    const pr = (6 - Math.abs(7 - t)) / 36, i = (pos + t) % 40;
+    const o = S.own[i];
+    const r = o >= 0 && o !== p ? rentFor(S, i, 7) : 0;
+    exp += pr * r; if (r > max) max = r;
+  }
+  let board = 0;
+  for (const i of OWNABLE) if (S.own[i] >= 0 && S.own[i] !== p) board = Math.max(board, rentFor(S, i, 7));
+  return { exp, max, board };
+}
+function reserveFor(S, p, kind) {
+  const d = dangerAhead(S, p);
+  if (kind === 'easy') return 25;
+  if (kind === 'normal') return Math.min(400, Math.max(100, d.max * 0.4));
+  // Hard counts half of what it could raise by mortgaging loose lots as part of the cushion.
+  let loose = 0;
+  for (const i of propsOf(S, p)) if (!S.mort[i] && !(SPACES[i].group && hasSet(S, SPACES[i].group, p))) loose += mortgageValue(i);
+  const want = Math.min(700, Math.max(150, d.exp * 3, d.max * 0.6, d.board * 0.3));
+  return Math.max(100, want - loose * 0.5);
+}
+
+function aiShouldBuy(S, p, i, kind) {
+  const P = S.players[p], price = SPACES[i].price;
+  if (P.cash < price) return false;
+  if (kind === 'easy') return jitter(S, i + p * 41) > -0.5;           // about three times in four
+  if (completesSet(S, p, i) || blocksSet(S, p, i)) return true;
+  if (kind === 'normal') return P.cash - price >= 80;
+  // When nobody else could afford it, declining is cheaper: the auction that follows is ours for a
+  // fraction of the price. Hard is the only level that spots this.
+  const rich = Math.max(0, ...active(S).filter((q) => q !== p).map((q) => S.players[q].cash));
+  if (rich + 20 < price * 0.7 && P.cash > rich + 20 && S.opts.auctions) return false;
+  const L = LEVELS.hard;
+  const value = gainOf(S, p, i, L) + 0.5 * denialOf(S, p, i, L);
+  return P.cash - price >= Math.min(reserveFor(S, p, kind), 200) || value >= 1.6 * price;
+}
+function aiMaxBid(S, p, i, kind) {
+  const P = S.players[p], price = SPACES[i].price;
+  if (kind === 'easy') return Math.min(P.cash - 10, Math.round(price * (0.75 + 0.35 * jitter(S, i * 3 + p))));
+  // Bidding below the printed price hands a discount to anyone who declines on purpose: with Normal
+  // capped at 0.9x, an Easy that never bought anything and only bid at auction beat it in 58% of 200
+  // two-player games. Bidding a little over the price closes that loophole.
+  if (kind === 'normal') {
+    const m = completesSet(S, p, i) ? 1.6 : blocksSet(S, p, i) ? 1.3 : 1.1;
+    return Math.min(P.cash - 50, Math.round(price * m));
+  }
+  // Hard bids its valuation, but never less than a rule of thumb a little above Normal's: the pure
+  // valuation undersells a lone lot (its modelled income is small), and a bid under the printed price is
+  // a discount for whoever declined on purpose.
+  const L = LEVELS.hard;
+  const n = oppCount(snap(S));
+  const value = gainOf(S, p, i, L) + (n === 1 ? 1 : L.w) * 0.6 * denialOf(S, p, i, L);
+  const rule = Math.min(P.cash - 50, Math.round(price * (completesSet(S, p, i) ? 1.8 : blocksSet(S, p, i) ? 1.4 : 1.15)));
+  return Math.floor(Math.max(rule, Math.min(P.cash - Math.min(100, reserveFor(S, p, kind)), value)));
+}
+function aiBidStep(S, p, kind) {
+  const A = S.auction, max = Math.min(S.players[p].cash, Math.floor(aiMaxBid(S, p, A.i, kind)));
+  if (max <= A.high) return null;
+  // Jump by half the gap, at least 10: an auction between computers settles in a handful of bids rather
+  // than dozens of +10 steps, which a person would otherwise sit and watch.
+  const step = Math.max(10, Math.round((max - A.high) / 2 / 10) * 10);
+  return Math.min(max, A.high + step);
+}
+
+// Build one house at a time on the lot that buys the most extra rent per rupee, while cash stays above
+// the reserve. The third house is the big jump on every street, so this naturally races sets to three.
+function aiBuild(S, p, kind) {
+  const reserve = reserveFor(S, p, kind);
+  for (let guard = 0; guard < 60; guard++) {
+    let best = -1, bestV = -1;
+    for (const i of propsOf(S, p)) {
+      if (!canBuild(S, p, i) || S.players[p].cash - houseCost(i) < reserve) continue;
+      const sp = SPACES[i], h = S.houses[i];
+      const now = h ? sp.rent[h] : sp.rent[0] * 2;
+      const v = kind === 'easy' ? jitter(S, i + guard * 13) : FREQ[i] * (sp.rent[h + 1] - now) / houseCost(i);
+      if (v > bestV) { bestV = v; best = i; }
+    }
+    if (best < 0 || (kind === 'easy' && guard >= 2)) return;
+    build(S, p, best);
+  }
+}
+function aiUnmortgage(S, p, kind) {
+  const spare = kind === 'easy' ? 300 : 80;
+  for (let guard = 0; guard < 28; guard++) {
+    const list = propsOf(S, p).filter((i) => S.mort[i]);
+    if (!list.length) return;
+    // Lots in a complete set first (they unlock building), then the dearest.
+    list.sort((a, b) => (completesSet(S, p, b) - completesSet(S, p, a)) || SPACES[b].price - SPACES[a].price);
+    const i = list[0];
+    if (S.players[p].cash - unmortgageCost(i) < reserveFor(S, p, kind) + spare) return;
+    unmortgage(S, p, i);
+  }
+}
+// Raise `need` in cash, cheapest loss first: mortgage lots outside any complete set (least valuable
+// first), then sell houses from the set that loses least rent, then mortgage the bare sets themselves.
+function aiRaise(S, p, need, kind) {
+  const L = levelOf(S, p, kind);
+  for (let guard = 0; guard < 200 && S.players[p].cash < need; guard++) {
+    const mine = propsOf(S, p);
+    const loose = mine.filter((i) => canMortgage(S, p, i) && !(SPACES[i].group && hasSet(S, SPACES[i].group, p)));
+    if (loose.length) {
+      const B = snap(S), n = oppCount(B), base = worth(B, p, L, n);
+      let best = loose[0], bestLoss = Infinity;
+      for (const i of loose) {
+        const A = { ...B, mort: B.mort.slice() }; A.mort[i] = true;
+        A.players = B.players.map((P, k) => (k === p ? { ...P, cash: P.cash + mortgageValue(i) } : P));
+        const loss = base - worth(A, p, L, n);
+        if (loss < bestLoss) { bestLoss = loss; best = i; }
+      }
+      mortgage(S, p, best); continue;
+    }
+    const sellable = mine.filter((i) => canSell(S, p, i));
+    if (sellable.length) {
+      sellable.sort((a, b) => FREQ[a] * SPACES[a].rent[S.houses[a]] - FREQ[b] * SPACES[b].rent[S.houses[b]]);
+      sellHouse(S, p, sellable[0]); continue;
+    }
+    const rest = mine.filter((i) => canMortgage(S, p, i));
+    if (rest.length) { rest.sort((a, b) => SPACES[a].price - SPACES[b].price); mortgage(S, p, rest[0]); continue; }
+    return false;
+  }
+  return S.players[p].cash >= need;
+}
+
+// Jail: early, while there is still property to buy, get out and buy it. Late, when the board is full of
+// rent, jail is the safest square there is — Hard and Normal stay and roll for doubles.
+function aiJail(S, p, kind) {
+  const P = S.players[p];
+  if (!P.jail) return;
+  const unowned = OWNABLE.filter((i) => S.own[i] < 0).length;
+  let leave;
+  if (kind === 'easy') leave = P.cash >= 200;
+  else {
+    const d = dangerAhead(S, p);
+    leave = unowned >= 6 || d.board < (kind === 'hard' ? 150 : 250);
+  }
+  if (!leave) return;
+  if (P.cards.length) useJailCard(S);
+  else if (P.cash >= JAIL_FINE + (kind === 'easy' ? 0 : 100)) payJail(S);
+}
+
+// Trades a computer starts. It looks for a set it could finish by buying the missing lots from a single
+// owner, pays for them with cash and/or a lot that finishes a set for the seller, and sets the cash so
+// the seller (judged by the seller's own level, or as Normal for a person, plus a margin) should say yes
+// while it still comes out ahead itself. At most one offer a turn and a cool-down per pair, longer
+// toward people, so nobody is pestered.
+function aiFindTrade(S, p, kind) {
+  const L = levelOf(S, p, kind);
+  if (!L.trades) return null;
+  const best = { o: null, d: L.thr };
+  for (const g of GROUP_KEYS) {
+    const sq = GROUP_SQ[g];
+    const mine = sq.filter((i) => S.own[i] === p), rest = sq.filter((i) => S.own[i] !== p);
+    if (!mine.length || !rest.length || groupHasBuildings(S, g)) continue;
+    const q = S.own[rest[0]];
+    if (q < 0 || S.players[q].out || !rest.every((i) => S.own[i] === q)) continue;
+    if (S.cool[p * S.players.length + q] > S.turns) continue;
+    const gives = [[]];
+    for (const h of GROUP_KEYS) {
+      if (h === g || groupHasBuildings(S, h)) continue;
+      const hs = GROUP_SQ[h], mineH = hs.filter((i) => S.own[i] === p);
+      if (mineH.length && hs.every((i) => S.own[i] === p || S.own[i] === q) && hs.some((i) => S.own[i] === q)) gives.push(mineH);
+    }
+    for (const give of gives) {
+      const o = fitCash(S, p, q, { from: p, to: q, give: { props: give, cash: 0, cards: 0 }, get: { props: rest, cash: 0, cards: 0 } }, L);
+      if (!o) continue;
+      const d = tradeDelta(S, p, o, L);
+      if (d > best.d) { best.d = d; best.o = o; }
+    }
+  }
+  return best.o;
+}
+// Cheapest cash adjustment (in tens) that the other side should accept. Positive means p pays.
+function fitCash(S, p, q, base, L) {
+  const Lq = S.players[q].kind === 'human' ? LEVELS.normal : levelOf(S, q);
+  const margin = S.players[q].kind === 'human' ? 40 : 5;
+  const at = (c) => ({ ...base, give: { ...base.give, cash: Math.max(0, c) }, get: { ...base.get, cash: Math.max(0, -c) } });
+  const okQ = (c) => { const o = at(c); return tradeDelta(S, q, o, Lq) > thrFor(S, o, Lq) + margin; };
+  let lo = -S.players[q].cash, hi = S.players[p].cash;
+  if (!okQ(hi)) return null;
+  if (okQ(lo)) hi = lo;
+  else {
+    while (hi - lo > 10) { const m = Math.floor((lo + hi) / 2); if (okQ(m)) hi = m; else lo = m; }
+  }
+  const c = Math.ceil(hi / 10) * 10;
+  // Never buy a set with the cash needed to survive the next lap.
+  if (c > 0 && S.players[p].cash - c < Math.min(150, reserveFor(S, p, S.players[p].kind === 'human' ? 'hard' : S.players[p].kind))) return null;
+  const o = at(Math.min(c, S.players[p].cash));
+  return tradeError(S, o) ? null : o;
+}
+// A computer's answer to an offer: yes, no, or a counter asking for more cash if that would do it.
+function aiAnswer(S, o) {
+  const q = o.to, L = levelOf(S, q);
+  if (aiWouldAccept(S, q, o, L)) return { accept: true };
+  if (!L.trades) return { accept: false };
+  // Counter: same lots, more cash from the proposer, if the proposer has it.
+  for (let extra = 10; extra <= S.players[o.from].cash; extra = Math.ceil(extra * 1.25 / 10) * 10) {
+    const net = o.give.cash - o.get.cash + extra;
+    const c = { from: o.from, to: o.to, give: { ...o.give, cash: Math.max(0, net) }, get: { ...o.get, cash: Math.max(0, -net) } };
+    if (net > S.players[o.from].cash) break;
+    if (tradeDelta(S, q, c, L) > thrFor(S, c, L) + 10) return { accept: false, counter: c };
+  }
+  return { accept: false };
+}
+// Run a proposal from p: a computer target answers at once; a person gets it as a pending offer.
+// A search that found nothing is not repeated until the ownership map changes (or 20 turns pass): the
+// search was 60% of the time in a simulated game, and almost every time the answer was the same "none".
+function aiPropose(S, p, kind) {
+  const key = S.own.join(',') + '|' + Math.floor(S.turns / 20);
+  if (!S.noTrade) S.noTrade = [];
+  if (S.noTrade[p] === key) return false;
+  const o = aiFindTrade(S, p, kind);
+  if (!o) { S.noTrade[p] = key; return false; }
+  const q = o.to, N = S.players.length;
+  S.cool[p * N + q] = S.turns + N * (S.players[q].kind === 'human' ? 8 : 3);
+  if (S.players[q].kind === 'human') return offerTrade(S, o);
+  log(S, nm(S, p) + ' offers ' + nm(S, q) + ' a trade.');
+  if (aiAnswer(S, o).accept) doTrade(S, o); else log(S, nm(S, q) + ' declines.');
+  return true;
+}
+
+// One decision for whoever the game is waiting on. `kind` overrides the seat's level, which is how a
+// human seat is auto-played in tests and by the in-page test hook.
+function aiDecide(S, kind) {
+  const p = actor(S);
+  if (p < 0) return false;
+  const k = kind || S.players[p].kind;
+  const K = k === 'human' ? 'hard' : k;
+  switch (S.phase) {
+    case 'roll':
+      aiJail(S, p, K);
+      aiUnmortgage(S, p, K); aiBuild(S, p, K);
+      return roll(S);
+    case 'buy':
+      return (aiShouldBuy(S, p, S.pending, K) && buy(S)) || decline(S);
+    case 'auction': {
+      // A rejected bid falls back to passing, so a computer can never stall an auction.
+      const b = aiBidStep(S, p, K);
+      return (b != null && bid(S, b)) || passBid(S);
+    }
+    case 'debt': {
+      aiRaise(S, p, S.debts[0].amt, K);
+      return S.players[p].cash >= S.debts[0].amt ? settleDebt(S) : bankrupt(S, p);
+    }
+    case 'trade':
+      return answerOffer(S, aiWouldAccept(S, p, S.offer, LEVELS[K]));
+    case 'done':
+      aiUnmortgage(S, p, K); aiBuild(S, p, K);
+      if (!S.offer && (S.turns + p) % 2 === 0 && aiPropose(S, p, K)) { if (S.phase !== 'done') return true; }
+      return S.phase === 'done' ? endTurn(S) : true;
+    default: return false;
+  }
+}
+
+// The always-legal move for whoever the game is waiting on. aiStep falls back to it, and the UI uses it
+// if anything ever throws, so no state the rules can reach leaves a game with nobody able to act.
+function forceStep(S) {
+  switch (S.phase) {
+    case 'roll': return roll(S);
+    case 'buy': return decline(S);
+    case 'auction': return passBid(S);
+    case 'debt': return settleDebt(S) || bankrupt(S, debtor(S));
+    case 'trade': return answerOffer(S, false);
+    case 'done': return endTurn(S);
+    default: return false;
+  }
+}
+const aiStep = (S, kind) => aiDecide(S, kind) || forceStep(S);
+
+// Plays a whole game headless. kinds: one level per seat. Returns the final state.
+function simulate(seed, kinds, o = {}) {
+  const S = newGame({ ...o, seed, players: kinds.map((k, i) => ({ name: 'P' + (i + 1) + ' ' + k, kind: k })) });
+  S.quiet = true;
+  let steps = 0;
+  while (S.phase !== 'over' && steps < 200000) { aiStep(S); steps++; }
+  S.steps = steps;
+  return S;
+}
+
+globalThis.__cityTycoon = {
+  START_CASH, SALARY, JAIL_FINE, BANK_HOUSES, BANK_HOTELS, JAIL, GO_TO_JAIL, SAVE_VERSION,
+  GROUPS, GROUP_KEYS, SPACES, OWNABLE, GROUP_SQ, STATIONS, UTILITIES, CARDS, DECK_NAME, FREQ, LEVELS,
+  isOwnable, houseCost, mortgageValue, unmortgageCost, interest, rand, rollDice, newGame, active, hasSet,
+  propsOf, rentFor, netWorth, pay, transfer, advance, roll, endTurn, payJail, useJailCard, goToJail, moveBy, moveTo,
+  land, drawCard, applyCard, buy, decline, startAuction, auctionActor, bid, passBid, canBuild, build, canSell,
+  sellHouse, canMortgage, mortgage, canUnmortgage, unmortgage, settleDebt, bankrupt, liquidity, debtor,
+  blankSide, tradeError, doTrade, describeTrade, describeSide, offerTrade, answerOffer, actor, serialize,
+  deserialize, validState, worth, snap, applySnap, tradeDelta, handsSet, aiWouldAccept, gainOf, denialOf, completesSet,
+  blocksSet, reserveFor, dangerAhead, aiShouldBuy, aiMaxBid, aiBidStep, aiBuild, aiUnmortgage, aiRaise, aiJail,
+  aiFindTrade, fitCash, aiAnswer, aiPropose, aiDecide, aiStep, forceStep, simulate, finish, nextTurn,
+};
+
+// ---------- UI ----------
+const $ = (id) => document.getElementById(id);
+const M = globalThis.__cityTycoon;
+const COLORS = ['#e5484d', '#3b82f6', '#2fb36d', '#f0a020', '#9b5de5', '#14b8c4'];
+const CPU_NAMES = ['Asha', 'Ravi', 'Meera', 'Kabir', 'Zoya', 'Arjun'];
+const KINDS = [['human', 'Human'], ['easy', 'Computer · Easy'], ['normal', 'Computer · Normal'], ['hard', 'Computer · Hard']];
+// Timings measured in the browser: a computer turn takes 4.4 s at normal speed (40 turns, 175 s), so with
+// three computers and you a round is roughly 25 s. Four-player computer games end after a median of 45
+// rounds (test/bots.js), with a long tail, which is why the quick lengths exist.
+const LENGTHS = [[0, 'Full game', 'until one player owns the city · often 20 min or more'], [30, 'Quick · 30 rounds', 'richest after 30 rounds wins · about 12 min'], [20, 'Quick · 20 rounds', 'about 8 minutes with three computers'], [12, 'Sprint · 12 rounds', 'about 5 minutes']];
+const SAVE_KEY = 'dgames.city-tycoon.save', OPTS_KEY = 'dgames.city-tycoon.opts';
+// Renamed from Mahanagar (Oct 2026). localStorage belongs to the origin, not the folder, so the old keys
+// are readable from here: carry a player's game in progress and their options across once, before
+// anything reads them. The old save is copied as-is and readSave() vets it like any other -- a corrupt
+// one then shows the "couldn't be read" notice instead of crashing. Old keys are removed only after the
+// copy was written, and a new save is never overwritten by an old one.
+(function migrateFromMahanagar() {
+  try {
+    for (const [oldKey, newKey] of [['dgames.mahanagar.save', SAVE_KEY], ['dgames.mahanagar.opts', OPTS_KEY]]) {
+      const old = localStorage.getItem(oldKey);
+      if (old === null) continue;
+      if (localStorage.getItem(newKey) === null) localStorage.setItem(newKey, old);
+      localStorage.removeItem(oldKey);
+    }
+  } catch (e) { /* storage blocked or full: nothing is lost, the old keys stay put */ }
+})();
+const glyph = (p) => '<svg viewBox="0 0 24 24"><use href="#g' + p + '"/></svg>';
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const rupees = (n) => '₹' + Math.round(n).toLocaleString('en-IN');
+
+let S = null;            // the game
+let busy = false;        // animating events; human input waits
+let timer = 0;           // pending computer move
+let SPEED = 1;           // animation time multiplier (Fast = 0.5; the test hook uses ~0)
+let AUTO = false;        // test hook: humans are played by the Hard computer
+let shownCash = [];      // what each player's chip shows, which lags the state while money animates
+let tokAt = [];          // where each token is drawn, which lags the state while it hops
+let sheetRefresh = null; // re-render function of the open sheet, called after every change
+let lastHumanActor = -1;
+let gen = 0;             // bumped by every new or resumed game, so animation left over from the last one stops
+let shownOwn = [];       // which owner each space shows, which lags the state while ownership animates
+
+// ---------------------------------------------------------------- options
+function loadOpts() {
+  // Not "You": every log line is third person ("… rolls", "… pays"), and "You rolls first" reads badly.
+  let name = 'Player 1';
+  try { const n = localStorage.getItem('dgames.player'); if (n && n.trim()) name = n.trim().slice(0, 14); } catch (e) { /* ignore */ }
+  const o = { n: 4, seats: CPU_NAMES.map((nmx, i) => ({ name: i ? nmx : name, kind: i ? 'normal' : 'human' })), auctions: true, pot: false, rounds: 0, deal: false, fast: false };
+  try {
+    const s = JSON.parse(localStorage.getItem(OPTS_KEY) || 'null');
+    if (s && typeof s === 'object') {
+      if (s.n >= 2 && s.n <= 6) o.n = s.n | 0;
+      if (Array.isArray(s.seats)) s.seats.slice(0, 6).forEach((x, i) => {
+        if (x && typeof x.name === 'string' && x.name.trim()) o.seats[i].name = x.name.trim().slice(0, 14);
+        if (x && KINDS.some((k) => k[0] === x.kind)) o.seats[i].kind = x.kind;
+      });
+      for (const k of ['auctions', 'pot', 'deal', 'fast']) if (typeof s[k] === 'boolean') o[k] = s[k];
+      if (LENGTHS.some((l) => l[0] === s.rounds)) o.rounds = s.rounds;
+    }
+  } catch (e) { /* a broken options blob just means defaults */ }
+  return o;
+}
+let opts = loadOpts();
+const saveOpts = () => { try { localStorage.setItem(OPTS_KEY, JSON.stringify(opts)); } catch (e) { /* ignore */ } };
+SPEED = opts.fast ? 0.5 : 1;
+
+function saveGame() {
+  try {
+    if (!S || S.phase === 'over') localStorage.removeItem(SAVE_KEY);
+    else localStorage.setItem(SAVE_KEY, M.serialize(S));
+  } catch (e) { /* storage full or blocked: the game goes on, it just will not resume */ }
+}
+// A save that will not parse, is from another version, or fails the shape check is thrown away rather
+// than loaded: a fresh game is always better than a broken one.
+let badSave = false;
+function readSave() {
+  let text = null;
+  try { text = localStorage.getItem(SAVE_KEY); } catch (e) { return null; }
+  if (!text) return null;
+  const s = M.deserialize(text);
+  if (!s) { badSave = true; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
+  return s;
+}
+
+// ---------------------------------------------------------------- the board view
+// The game flow talks to the board only through the object makeDomBoard() returns, so another renderer
+// (a Three.js board, say) can stand in for this DOM/SVG one by returning the same methods. Everything
+// outside the view is shared by any renderer and placed with the rectangles the view reports: the
+// players' panel and buttons, the status and log over the centre (#hud), the deed and card overlays,
+// the ownership announcements (#fx) and every dialog.
+//
+//   mount(host, o)            build inside host. o.onTap(i): space i was tapped. o.speed(): animation
+//                             time multiplier (0.5 Fast, ~0 in tests). o.reduced(): reduced motion is on.
+//   resize(bs)                lay the board out as a bs-pixel square
+//   reset()                   a new or resumed game: forget what was drawn (nothing animates in)
+//   drawSpace(S, i)           owner, mortgage and buildings of space i; buildings added since the last
+//                             draw drop in
+//   drawTokens(S, at)         every token where at[p] = { i, jail } says; the player to move is marked
+//   moveToken(p, from, path)  async: hop token p from `from` ({ i, jail }) along path (space indices)
+//   jumpToken(p, from, to)    async: token p straight into jail space `to`
+//   rollDice(d), setDice(d)   async tumble to d = [a, b] / show d at rest
+//   pulse(i)                  a brief flash on space i (a change landed there)
+//   glow(list, color, ms)     the spaces in list light up together in color
+//   spaceRect(i), centreRect(), textRect()   screen rectangles (DOMRect-like) of space i, of the board's
+//                             centre, and of the slot in the centre where the shared status text goes
+function makeDomBoard() {
+  const g = { bs: 360, e: 30, c: 45, tk: 20, bt: 11, ot: 7, hs: 8 };
+  const cells = [], blds = [], drawn = [];
+  let host = null, o = null, center = null, ctext = null, tokLayer = null;
+  const wait = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms * o.speed())));
+
+  // ---- geometry: 12 edge-widths square, 9 edge spaces plus two corners of 1.5 each
+  function cellRC(i) {
+    if (i <= 10) return { row: 11, col: 11 - i, side: 'bottom' };
+    if (i < 20) return { row: 11 - (i - 10), col: 1, side: 'left' };
+    if (i <= 30) return { row: 1, col: 1 + (i - 20), side: 'top' };
+    return { row: 1 + (i - 30), col: 11, side: 'right' };
+  }
+  const trackStart = (k) => (k === 1 ? 0 : g.c + (k - 2) * g.e);
+  const trackSize = (k) => (k === 1 || k === 11 ? g.c : g.e);
+  function cellBox(i) { const { row, col } = cellRC(i); return { x: trackStart(col), y: trackStart(row), w: trackSize(col), h: trackSize(row) }; }
+  // The colour band of a street: the edge of the space that faces the centre.
+  function bandBox(i) {
+    const b = cellBox(i), side = cellRC(i).side, t = g.bt;
+    if (side === 'bottom') return { x: b.x, y: b.y, w: b.w, h: t, v: false };
+    if (side === 'top') return { x: b.x, y: b.y + b.h - t, w: b.w, h: t, v: false };
+    if (side === 'left') return { x: b.x + b.w - t, y: b.y, w: t, h: b.h, v: true };
+    return { x: b.x, y: b.y, w: t, h: b.h, v: true };
+  }
+  // Where token p stands on space i, given who else is there: the point under the middle of its base.
+  // One token stands in the middle of the space; several form a small staggered queue along the space's
+  // long axis, alternating sides, so every head stays in view.
+  function tokenXY(p, i, inJail, others) {
+    const b = cellBox(i), W = g.tk, lift = W * 0.55;
+    const list = others.slice().sort((a, z) => a - z);
+    const k = Math.max(0, list.indexOf(p)), n = Math.max(1, list.length);
+    if (i === M.JAIL) {
+      if (inJail) {
+        const cols = Math.min(n, 2), gx = (k % 2) - 0.5 * (cols - 1), gy = Math.floor(k / 2) - 0.5 * (Math.ceil(n / 2) - 1);
+        return { x: b.x + b.w * 0.68 + gx * W * 0.5, y: b.y + b.h * 0.42 + lift * 0.5 + gy * W * 0.36 };
+      }
+      // Just visiting: a queue down the lane on the jail's outer side.
+      return { x: b.x + Math.max(W * 0.5, b.w * 0.18), y: b.y + b.h * 0.3 + lift * 0.5 + k * W * 0.3 };
+    }
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2 + lift;
+    if (n === 1) return { x: cx, y: cy };
+    const vert = b.h > b.w;
+    const d = vert ? W * 0.34 : W * 0.52, pp = vert ? W * 0.24 : W * 0.1;
+    const along = (k - (n - 1) / 2) * d, perp = (k % 2 ? 1 : -1) * pp;
+    return vert ? { x: cx + perp, y: cy + along } : { x: cx + along, y: cy + perp };
+  }
+
+  // ---- building
+  function iconFor(sp) {
+    const map = { go: 'i-start', jail: 'i-jail', parking: 'i-chai', gotojail: 'i-siren', station: 'i-train', kismat: 'i-kismat', khazana: 'i-khazana' };
+    if (sp.type === 'utility') return sp.i === 12 ? 'i-bulb' : 'i-drop';
+    if (sp.type === 'tax') return sp.i === 4 ? 'i-tax' : 'i-gem';
+    return map[sp.type] || '';
+  }
+  function cornerHTML(sp) {
+    const t = sp.type;
+    if (t === 'jail') return '<div class="lane" aria-hidden="true"></div><div class="cbody"><span class="medal"><svg viewBox="0 0 24 24"><use href="#c-jail"/></svg></span><div class="clbl">JAIL</div></div>';
+    const art = { go: 'i-start', parking: 'i-chai', gotojail: 'i-siren' }[t];
+    const lbl = { go: 'START', parking: 'CHAI<span class="wide"> BREAK</span>', gotojail: 'TO JAIL' }[t];
+    const sub = { go: 'collect ' + rupees(M.SALARY), parking: 'a free rest', gotojail: 'do not pass Start' }[t];
+    return '<div class="cbody"><span class="medal"><svg viewBox="0 0 24 24"><use href="#' + art + '"/></svg></span><div class="clbl">' + lbl + '</div><div class="csub">' + sub + '</div></div>';
+  }
+  const PIPS = { 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9] };
+  const FACE_T = { 1: 'rotateY(0deg)', 6: 'rotateY(180deg)', 2: 'rotateY(90deg)', 5: 'rotateY(-90deg)', 3: 'rotateX(90deg)', 4: 'rotateX(-90deg)' };
+  const SHOW_T = { 1: [0, 0], 6: [0, 180], 2: [0, -90], 5: [0, 90], 3: [-90, 0], 4: [90, 0] };
+  function dieHTML(id) {
+    let h = '<div class="dpos"><div class="dshadow"></div><div class="dslot"><div class="die" id="' + id + '">';
+    for (let f = 1; f <= 6; f++) {
+      h += '<div class="face" style="transform:' + FACE_T[f] + ' translateZ(calc(var(--e) * .525))">';
+      for (let k = 1; k <= 9; k++) h += PIPS[f].includes(k) ? '<span class="pip' + (f === 1 ? ' r' : '') + '" style="grid-area:' + (Math.floor((k - 1) / 3) + 1) + '/' + ((k - 1) % 3 + 1) + '"></span>' : '';
+      h += '</div>';
+    }
+    return h + '</div></div></div>';
+  }
+  // The same list of transform functions in every dice frame, so the spins interpolate as rotations. (A
+  // frame with an extra translate made the browser fall back to matrix interpolation, dropping turns.)
+  const dieT = (ty, rx, ry) => 'translateY(' + ty + 'px) rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)';
+  function setDie(id, v) { const [x, y] = SHOW_T[v] || [0, 0]; $(id).style.transform = dieT(0, x, y); }
+  function mount(h, opts) {
+    host = h; o = opts;
+    host.innerHTML = '';
+    for (const sp of M.SPACES) {
+      const { row, col, side } = cellRC(sp.i);
+      const b = document.createElement('button');
+      const corner = sp.i % 10 === 0;
+      b.className = 'sp s-' + side + (corner ? ' corner c-' + sp.type : '') + (M.isOwnable(sp.i) ? ' ownable' : '');
+      b.style.gridRow = row; b.style.gridColumn = col;
+      b.setAttribute('aria-label', sp.name);
+      let html;
+      if (corner) html = cornerHTML(sp);
+      else {
+        const amt = sp.price || sp.amount;
+        // The mortgage M goes on a street's band (a mortgaged street has no buildings, so the band is
+        // free) and in a corner of a station or utility, never over a name.
+        const mk = '<span class="mk" aria-hidden="true">M</span>';
+        const inner = '<div class="lbl">' + esc(BOARD_NAME[sp.i] || sp.name) + '</div>' + (amt ? '<div class="price">₹' + amt + '</div>' : '');
+        html = sp.type === 'street'
+          ? '<div class="band" style="--g:' + M.GROUPS[sp.group].color + '">' + mk + '</div><div class="body">' + inner + '</div>'
+          : '<div class="body"><svg class="ico"><use href="#' + iconFor(sp) + '"/></svg>' + inner + mk + '</div>';
+        html += '<div class="own"></div>';
+      }
+      b.innerHTML = html;
+      b.addEventListener('click', () => o.onTap(sp.i));
+      host.appendChild(b);
+      cells[sp.i] = b;
+    }
+    center = document.createElement('div');
+    center.id = 'center';
+    center.innerHTML = '<div class="deco jaali" aria-hidden="true"></div><svg class="deco orn" viewBox="0 0 200 200" aria-hidden="true"><use href="#orn"/></svg>' +
+      '<svg class="deco sky" viewBox="0 0 400 84" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><use href="#skyline" width="400" height="84"/></svg><div class="deco frame" aria-hidden="true"></div>' +
+      '<div class="brand">City Tycoon</div><div class="tag">Buy the city</div><div class="rule" aria-hidden="true"></div>' +
+      '<div id="dice">' + dieHTML('d1') + dieHTML('d2') + '</div><div class="ctext"></div>';
+    host.appendChild(center);
+    ctext = center.querySelector('.ctext');
+    const bl = document.createElement('div'); bl.id = 'blds'; host.appendChild(bl);
+    for (const sp of M.SPACES) {
+      if (sp.type !== 'street') continue;
+      const d = document.createElement('div'); d.className = 'bl'; d.dataset.n = '0'; bl.appendChild(d); blds[sp.i] = d;
+    }
+    tokLayer = document.createElement('div'); tokLayer.id = 'tokens'; host.appendChild(tokLayer);
+  }
+
+  // ---- size
+  // Names get the largest size, up to a cap, at which every word fits the width and the lines fit the
+  // height. Runs on resize only. Below 40 px a space has no room for a name at all; it shows the price.
+  function fitLabels() {
+    if (!host.classList.contains('roomy')) return;
+    const max = Math.min(13, g.e * 0.19);
+    for (const c of cells) {
+      const l = c.querySelector('.lbl');
+      if (!l) continue;
+      const body = l.parentNode, cs = getComputedStyle(body);
+      const avail = body.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      const gap = parseFloat(cs.rowGap) || 0;
+      const need = () => { let s = 0, n = 0; for (const k of body.children) if (!k.classList.contains('mk')) { s += k.offsetHeight; n++; } return s + gap * (n - 1); };
+      let fs = max;
+      l.style.fontSize = fs + 'px';
+      while (fs > 8 && (need() > avail + 0.5 || l.scrollWidth > l.clientWidth + 0.5)) { fs -= 0.5; l.style.fontSize = fs + 'px'; }
+    }
+  }
+  function resize(bs) {
+    const e = Math.max(20, Math.floor(bs / 12));
+    g.e = e; g.c = e * 1.5; g.bs = e * 12;
+    // Token width (a pawn is 1.45 times as tall); band, owner ribbon and house sizes follow the space.
+    g.tk = Math.max(20, Math.round(e * (e >= 40 ? 0.62 : 0.72)));
+    g.bt = Math.max(11, Math.round(g.c * 0.26));
+    g.ot = Math.max(7, Math.round(g.c * 0.13));
+    g.hs = Math.min(g.bt * 0.92, Math.max(8, (e - 2) / (e >= 40 ? 4.2 : 3.2)));
+    const hm = Math.min(0, (e - 2 - 4 * g.hs) / 3);
+    const st = host.style;
+    st.setProperty('--e', e + 'px'); st.setProperty('--c', g.c + 'px'); st.setProperty('--bs', g.bs + 'px'); st.setProperty('--tk', g.tk + 'px');
+    st.setProperty('--bt', g.bt + 'px'); st.setProperty('--ot', g.ot + 'px'); st.setProperty('--hs', g.hs + 'px'); st.setProperty('--hm', hm + 'px');
+    host.classList.toggle('roomy', e >= 40);
+    for (const i of M.OWNABLE) {
+      const d = blds[i];
+      if (!d) continue;
+      const r = bandBox(i);
+      d.className = 'bl' + (r.v ? ' v' : '');
+      d.style.left = r.x + 'px'; d.style.top = r.y + 'px'; d.style.width = r.w + 'px'; d.style.height = r.h + 'px';
+    }
+    fitLabels();
+  }
+
+  // ---- spaces
+  const HOUSE_SVG = '<svg viewBox="0 0 20 20"><use href="#b-house"/></svg>';
+  function drawBlds(i, h) {
+    const d = blds[i];
+    const was = drawn[i] == null ? h : drawn[i];
+    drawn[i] = h;
+    if (+d.dataset.n === h) return;
+    d.dataset.n = h;
+    d.innerHTML = h === 5 ? '<svg class="hotel" viewBox="0 0 24 20"><use href="#b-hotel"/></svg>' : HOUSE_SVG.repeat(h);
+    // A new building drops onto the band with a small bounce.
+    if (h > was && o.speed() >= 0.05 && !o.reduced()) {
+      const news = h === 5 ? [d.firstChild] : [...d.children].slice(was);
+      const up = g.hs * 2.4;
+      news.forEach((el, k) => el.animate([{ transform: 'translateY(' + -up + 'px)', opacity: 0, easing: 'ease-in' }, { transform: 'translateY(0px)', opacity: 1, offset: 0.55, easing: 'ease-out' },
+        { transform: 'translateY(' + -g.hs * 0.35 + 'px)', offset: 0.75, easing: 'ease-in' }, { transform: 'translateY(0px)', opacity: 1 }], { duration: 420 * o.speed(), delay: k * 60 * o.speed(), fill: 'backwards' }));
+    }
+  }
+  function drawSpace(S, i) {
+    const b = cells[i], sp = M.SPACES[i];
+    if (!M.isOwnable(i)) return;
+    const ow = S.own[i];
+    b.classList.toggle('owned', ow >= 0);
+    if (ow >= 0) b.style.setProperty('--oc', COLORS[ow]);
+    b.classList.toggle('mort', !!S.mort[i]);
+    const h = sp.type === 'street' ? S.houses[i] : 0;
+    if (sp.type === 'street') drawBlds(i, h);
+    const label = sp.name + (ow >= 0 ? ', owned by ' + S.players[ow].name : '') + (h === 5 ? ', hotel' : h ? ', ' + h + ' house' + (h > 1 ? 's' : '') : '') + (S.mort[i] ? ', mortgaged' : '');
+    if (b.getAttribute('aria-label') !== label) b.setAttribute('aria-label', label);
+  }
+  // Flashes animate the space's ::after overlay directly (opacity only), so they never force a layout.
+  function pulse(i) {
+    cells[i].style.removeProperty('--gc');
+    if (o.reduced()) return;
+    cells[i].animate([{ opacity: 1 }, { opacity: 0 }], { duration: 550, easing: 'ease-out', pseudoElement: '::after' });
+  }
+  function glow(list, color, ms) {
+    for (const j of list) {
+      cells[j].style.setProperty('--gc', color);
+      cells[j].animate([{ opacity: 0 }, { opacity: 0.8, offset: 0.25 }, { opacity: 0.8, offset: 0.7 }, { opacity: 0 }], { duration: ms, easing: 'ease-in-out', pseudoElement: '::after' });
+    }
+  }
+
+  // ---- tokens: a standing pawn (base, body, collar, a head carrying the player's symbol), drawn here
+  function pawnHTML(p) {
+    return '<div class="shd"></div><div class="ring"></div><div class="stand"><svg viewBox="0 0 40 58" aria-hidden="true">' +
+      '<g class="pc"><path d="M5.5 48c0-3.4 3.4-5.6 7.2-5.6h14.6c3.8 0 7.2 2.2 7.2 5.6 0 2.9-6.4 4.2-14.5 4.2S5.5 50.9 5.5 48z"/>' +
+      '<path d="M12.6 43c2-5.2 3.1-10.6 3.5-16.4h7.8c.4 5.8 1.5 11.2 3.5 16.4z"/>' +
+      '<ellipse cx="20" cy="26.8" rx="8" ry="2.8"/><circle cx="20" cy="14" r="12.2"/></g>' +
+      '<circle cx="20" cy="14" r="9.7" fill="none" stroke="#fff" stroke-opacity=".85" stroke-width="1.3"/>' +
+      '<path d="M15 41c1.3-4 2-8.4 2.3-13h2c-.3 4.8-1 9.2-2.2 13z" fill="#fff" opacity=".3"/>' +
+      '<ellipse cx="15" cy="8.4" rx="4.6" ry="2.5" fill="#fff" opacity=".32"/>' +
+      '<svg x="12" y="6" width="16" height="16" viewBox="0 0 24 24" fill="#fff" stroke="#1b120a" stroke-width="1.1" paint-order="stroke"><use href="#g' + p + '"/></svg></svg></div>';
+  }
+  function tokenEls(n) {
+    if (tokLayer.childElementCount !== n) {
+      tokLayer.innerHTML = '';
+      for (let p = 0; p < n; p++) {
+        const t = document.createElement('div');
+        t.className = 'tok'; t.style.setProperty('--pc', COLORS[p]); t.innerHTML = pawnHTML(p); t.dataset.p = p;
+        tokLayer.appendChild(t);
+      }
+    }
+    return tokLayer.children;
+  }
+  function drawTokens(S, at) {
+    const els = tokenEls(S.players.length);
+    S.players.forEach((P, p) => {
+      const a = at[p] || { i: P.pos, jail: P.jail };
+      const here = S.players.map((Q, q) => q).filter((q) => !S.players[q].out && at[q] && at[q].i === a.i && at[q].jail === a.jail);
+      const { x, y } = tokenXY(p, a.i, a.jail, here);
+      const cur = p === S.cur && S.phase !== 'over';
+      els[p].style.transform = 'translate(' + x + 'px,' + y + 'px)';
+      // Nearer the bottom of the screen draws in front, as on a table; whoever is to move stays on top.
+      els[p].style.zIndex = Math.round(y) + (cur ? 5000 : 0);
+      els[p].classList.toggle('out', P.out);
+      els[p].classList.toggle('cur', cur);
+    });
+  }
+  // The pose of a standing piece: lifted L px and squashed (sx, sy) about the middle of its base.
+  const liftT = (L, sx, sy) => 'translateY(' + -L + 'px) scale(' + sx + ',' + sy + ')';
+  async function moveToken(p, from, path) {
+    const el = tokLayer.children[p];
+    if (!el || !path.length) return;
+    const st = el.querySelector('.stand'), sh = el.querySelector('.shd');
+    const long = path.length > 12;
+    let cur = from;
+    el.classList.add('moving');
+    for (let s = 0; s < path.length; s++) {
+      const i = path[s];
+      const a = tokenXY(p, cur.i, cur.jail, [p]), b = tokenXY(p, i, false, [p]);
+      cur = { i, jail: false };
+      const ms = (long ? 70 : 150) * o.speed();
+      el.style.transform = 'translate(' + b.x + 'px,' + b.y + 'px)';
+      if (ms < 8) continue;
+      if (o.reduced()) { await new Promise((r) => setTimeout(r, ms * 0.6)); continue; }
+      // A little arc off the board, then a squash on landing (a bigger one on the last step).
+      const L = g.tk * (long ? 0.45 : 0.7), sq = s === path.length - 1 ? [1.14, 0.82] : [1.05, 0.94];
+      const A = 'translate(' + a.x + 'px,' + a.y + 'px)', B = 'translate(' + b.x + 'px,' + b.y + 'px)';
+      const mv = el.animate([{ transform: A }, { transform: B, offset: 0.8 }, { transform: B }], { duration: ms, easing: 'ease-in-out' });
+      st.animate([{ transform: liftT(0, 1, 1), easing: 'ease-out' }, { transform: liftT(L, 1, 1), offset: 0.4, easing: 'ease-in' },
+        { transform: liftT(0, 1, 1), offset: 0.8, easing: 'ease-out' }, { transform: liftT(0, sq[0], sq[1]), offset: 0.9 }, { transform: liftT(0, 1, 1) }], { duration: ms });
+      sh.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(.6)', opacity: 0.45, offset: 0.4 }, { transform: 'scale(1)', opacity: 1, offset: 0.8 }, { transform: 'scale(1)', opacity: 1 }], { duration: ms });
+      await mv.finished.catch(() => {});
+    }
+    el.classList.remove('moving');
+  }
+  async function jumpToken(p, from, to) {
+    const el = tokLayer.children[p];
+    if (!el || o.speed() <= 0.05 || o.reduced()) return;
+    const st = el.querySelector('.stand');
+    const a = tokenXY(p, from.i, from.jail, [p]), b = tokenXY(p, to, true, [p]);
+    el.classList.add('moving');
+    const ms = 650 * o.speed(), A = 'translate(' + a.x + 'px,' + a.y + 'px)', B = 'translate(' + b.x + 'px,' + b.y + 'px)';
+    st.animate([{ transform: liftT(0, 1, 1), easing: 'ease-out' }, { transform: liftT(g.e * 2, 1.15, 1.15), offset: 0.5, easing: 'ease-in' },
+      { transform: liftT(0, 1, 1), offset: 0.88 }, { transform: liftT(0, 1.12, 0.85), offset: 0.94 }, { transform: liftT(0, 1, 1) }], { duration: ms });
+    await el.animate([{ transform: A }, { transform: B, offset: 0.88 }, { transform: B }], { duration: ms, easing: 'ease-in-out' }).finished.catch(() => {});
+    el.classList.remove('moving');
+  }
+
+  // ---- dice: real cubes, each with its own small perspective, turned to show three faces
+  async function rollDice(d) {
+    if (o.speed() < 0.05 || o.reduced()) { setDie('d1', d[0]); setDie('d2', d[1]); await wait(o.reduced() ? 250 : 0); return; }
+    const size = g.e * 1.05;
+    const go = (id, v, k) => {
+      const [x, y] = SHOW_T[v];
+      const el = $(id);
+      const sx = x + 720 + 90 * ((v + k) % 3), sy = y + 540 + 90 * k;
+      el.style.transform = dieT(0, x, y);
+      return el.animate([{ transform: dieT(-size * 0.6, sx, sy) }, { transform: dieT(size * 0.08, x + 20, y - 15), offset: 0.75 }, { transform: dieT(0, x, y) }],
+        { duration: 640 * o.speed(), easing: 'cubic-bezier(.2,.7,.3,1)' }).finished.catch(() => {});
+    };
+    await Promise.all([go('d1', d[0], 1), go('d2', d[1], 2)]);
+    await wait(120);
+  }
+  function setDice(d) { setDie('d1', d[0]); setDie('d2', d[1]); }
+
+  function reset() { drawn.length = 0; if (tokLayer) tokLayer.innerHTML = ''; }
+  return {
+    mount, resize, reset, drawSpace, drawTokens, moveToken, jumpToken, rollDice, setDice, pulse, glow,
+    spaceRect: (i) => cells[i].getBoundingClientRect(), centreRect: () => center.getBoundingClientRect(), textRect: () => ctext.getBoundingClientRect(),
+  };
+}
+const board = $('board');
+const view = makeDomBoard();
+const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+// The board prints full names. Soft hyphens mark where a long word may break when a space is narrow.
+const BOARD_NAME = { 3: 'Godow­lia', 6: 'Amina­bad', 9: 'Hazrat­ganj', 16: 'Char­minar', 23: 'Espla­nade',
+  26: 'Malle­shwaram', 27: 'Kora­mangala', 29: 'Indira­nagar', 34: 'Connaught Place' };
+// Contrast helpers, for text laid on a city's or a player's colour.
+function lum(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+const contrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+const tint = (hex, a) => '#' + [1, 3, 5].map((k) => Math.round(parseInt(hex.substr(k, 2), 16) * (1 - a) + 255 * a).toString(16).padStart(2, '0')).join('');
+const inkOn = (bg) => (contrast(bg, '#ffffff') >= contrast(bg, '#1d140b') ? '#ffffff' : '#1d140b');
+
+// ---------------------------------------------------------------- layout
+// Portrait: header, board, then players and buttons underneath. Landscape: players, buttons and the
+// log in a column on the left, the board on the right, so the fixed back button at top-left sits over
+// the header rather than over a corner of the board.
+function layout() {
+  const W = window.innerWidth, H = window.innerHeight;
+  const port = W < H * 1.1;
+  const app = $('app');
+  app.className = port ? 'portrait' : 'landscape';
+  document.body.classList.toggle('wide', !port || W >= 640);
+  const n = S ? S.players.length : 4;
+  let bs;
+  if (port) {
+    const cols = n <= 3 ? n : 3, rows = Math.ceil(n / cols);
+    $('players').style.setProperty('--pcols', cols);
+    const sideMin = rows * 50 + 6 + 22 + 2 * 50 + 10;          // players, message line, two rows of buttons
+    bs = Math.min(W - 12, H - 46 - 8 - sideMin - 12, 900);
+    if ($('top').parentNode !== app || app.firstElementChild !== $('top')) app.insertBefore($('top'), board);
+    if (board.nextElementSibling !== $('side')) app.insertBefore($('side'), board.nextElementSibling);
+  } else {
+    $('players').style.setProperty('--pcols', n <= 2 ? 2 : W - H > 560 ? 3 : 2);
+    bs = Math.min(H - 12, W - 12 - 250 - 8, 900);
+    const side = $('side');
+    if (side.firstElementChild !== $('top')) side.insertBefore($('top'), side.firstElementChild);
+    if (app.firstElementChild !== side) app.insertBefore(side, board);
+  }
+  // The board unit also sizes the shared overlays over the centre (status, deed, cards).
+  const e = Math.max(20, Math.floor(bs / 12));
+  const r = document.documentElement.style;
+  r.setProperty('--e', e + 'px'); r.setProperty('--c', e * 1.5 + 'px'); r.setProperty('--bs', e * 12 + 'px');
+  view.resize(bs);
+  if (S) { renderBoard(); view.drawTokens(S, tokAt); }
+  placeHud();
+  // The log fills whatever height is left under the buttons; below 60 px it is a sliver, so it goes.
+  requestAnimationFrame(() => { const lb = $('logbox'); lb.classList.remove('tiny'); if (lb.getBoundingClientRect().height < 60) lb.classList.add('tiny'); });
+}
+// The status line, the latest log lines, the deed on offer and drawn cards sit over the board's centre in
+// a layer of their own, positioned from the rectangles the view reports.
+function placeHud() {
+  const c = view.centreRect(), t = view.textRect(), hud = $('hud'), tx = $('hudtext');
+  Object.assign(hud.style, { left: c.left + 'px', top: c.top + 'px', width: c.width + 'px', height: c.height + 'px' });
+  Object.assign(tx.style, { left: (t.left - c.left) + 'px', top: (t.top - c.top) + 'px', width: t.width + 'px', height: t.height + 'px' });
+}
+
+// ---------------------------------------------------------------- rendering
+function renderBoard() { for (const i of M.OWNABLE) { view.drawSpace(S, i); shownOwn[i] = S.own[i]; } }
+function renderPlayers() {
+  const box = $('players');
+  if (box.childElementCount !== S.players.length) {
+    box.innerHTML = '';
+    S.players.forEach((P, p) => {
+      const b = document.createElement('button');
+      b.className = 'pl';
+      b.innerHTML = '<span class="disc" style="background:' + COLORS[p] + '">' + glyph(p) + '<span class="badge jail" hidden><svg viewBox="0 0 24 24"><use href="#i-jail"/></svg></span><span class="badge card" hidden></span></span><span class="tx"><span class="nm"></span><span class="cash"></span></span>';
+      b.addEventListener('click', () => openAssets(p));
+      box.appendChild(b);
+    });
+  }
+  S.players.forEach((P, p) => {
+    const b = box.children[p];
+    b.classList.toggle('cur', p === S.cur && S.phase !== 'over');
+    b.classList.toggle('out', P.out);
+    b.querySelector('.nm').innerHTML = esc(P.name) + (P.kind !== 'human' && b.offsetWidth > 150 ? ' <span class="lv">' + P.kind + '</span>' : '');
+    if (shownCash[p] == null) shownCash[p] = P.cash;
+    b.querySelector('.cash').textContent = P.out ? 'out' : rupees(shownCash[p]);
+    b.querySelector('.badge.jail').hidden = !(P.jail && !P.out);
+    const cb = b.querySelector('.badge.card');
+    cb.hidden = !P.cards.length; cb.textContent = P.cards.length > 1 ? P.cards.length : '★';
+    cb.title = 'Get out of jail free';
+    b.setAttribute('aria-label', P.name + ', ' + (P.out ? 'bankrupt' : rupees(P.cash)) + (P.jail ? ', in jail' : ''));
+  });
+}
+function renderLog() {
+  const box = $('logbox');
+  const tail = S.log.slice(-40);
+  box.innerHTML = tail.map((l) => '<div>' + esc(l) + '</div>').join('');
+  box.scrollTop = box.scrollHeight;
+  $('logmini').innerHTML = S.log.slice(-2).map((l) => '<div>' + esc(l) + '</div>').join('');
+}
+const isHumanSeat = (p) => p >= 0 && S.players[p].kind === 'human' && !AUTO;
+function statusLine() {
+  const a = M.actor(S);
+  if (S.phase === 'over') return S.players[S.winner].name + ' wins!';
+  if (a < 0) return '';
+  const nmA = S.players[a].name;
+  if (!isHumanSeat(a)) return nmA + ' is thinking…';
+  switch (S.phase) {
+    case 'roll': return S.players[a].jail ? nmA + ' is in jail' : nmA + ', roll the dice';
+    case 'buy': return 'Buy ' + M.SPACES[S.pending].name + '?';
+    case 'auction': return nmA + ', your bid';
+    case 'debt': return nmA + ' owes ' + rupees(S.debts[0].amt);
+    case 'trade': return nmA + ', a trade offer';
+    default: return nmA + ', end your turn when ready';
+  }
+}
+function renderFocus() {
+  const f = $('focus');
+  let i = -1, line = '';
+  if (S.phase === 'buy') { i = S.pending; }
+  else if (S.phase === 'auction' && S.auction) {
+    i = S.auction.i;
+    const A = S.auction;
+    line = A.by >= 0 ? 'High bid ' + rupees(A.high) + ' · ' + S.players[A.by].name : 'Auction · no bids yet';
+    line += '<br><span style="font-weight:500;opacity:.85">' + A.bidders.map((q) => (q === M.auctionActor(S) ? '▸ ' : '') + esc(S.players[q].name)).join(' · ') + '</span>';
+  }
+  if (i < 0) { f.hidden = true; f.innerHTML = ''; return; }
+  f.hidden = false;
+  f.className = S.phase === 'auction' ? 'auctioning' : '';
+  f.innerHTML = deedHTML(i, true) + (line ? '<div class="auction">' + line + '</div>' : '');
+  f.style.background = 'rgba(15,61,59,.86)';
+}
+function render() {
+  if (!S) return;
+  renderBoard(); renderPlayers(); renderLog(); renderFocus();
+  $('status').textContent = statusLine();
+  renderActions();
+  view.drawTokens(S, tokAt);
+  if (sheetRefresh) sheetRefresh();
+}
+
+// ---------------------------------------------------------------- the deed card
+function deedHTML(i, compact) {
+  const sp = M.SPACES[i];
+  const o = S ? S.own[i] : -1;
+  const color = sp.group ? M.GROUPS[sp.group].color : sp.type === 'station' ? '#4b3b2a' : sp.type === 'utility' ? '#2c6e8f' : '#555';
+  const city = sp.group ? M.GROUPS[sp.group].city : sp.type === 'station' ? 'Railway' : sp.type === 'utility' ? 'Utility' : '';
+  let rows = '';
+  const on = (k) => (S && o >= 0 && k ? ' class="on"' : '');
+  if (sp.type === 'street') {
+    const h = S ? S.houses[i] : 0, set = S && o >= 0 && M.hasSet(S, sp.group, o);
+    rows += '<tr' + (S && o >= 0 && !h && !set ? ' class="on"' : '') + '><td>Rent</td><td>' + rupees(sp.rent[0]) + '</td></tr>';
+    rows += '<tr' + (S && o >= 0 && !h && set ? ' class="on"' : '') + '><td>Whole city, no houses</td><td>' + rupees(sp.rent[0] * 2) + '</td></tr>';
+    for (let k = 1; k <= 4; k++) rows += '<tr' + on(h === k) + '><td>' + k + ' house' + (k > 1 ? 's' : '') + '</td><td>' + rupees(sp.rent[k]) + '</td></tr>';
+    rows += '<tr' + on(h === 5) + '><td>Hotel</td><td>' + rupees(sp.rent[5]) + '</td></tr>';
+  } else if (sp.type === 'station') {
+    const n = S && o >= 0 ? M.STATIONS.filter((j) => S.own[j] === o).length : 0;
+    for (let k = 1; k <= 4; k++) rows += '<tr' + on(n === k) + '><td>' + k + ' station' + (k > 1 ? 's' : '') + ' owned</td><td>' + rupees(25 * (1 << (k - 1))) + '</td></tr>';
+  } else if (sp.type === 'utility') {
+    const n = S && o >= 0 ? M.UTILITIES.filter((j) => S.own[j] === o).length : 0;
+    rows += '<tr' + on(n === 1) + '><td>One utility</td><td>4 × dice</td></tr><tr' + on(n === 2) + '><td>Both utilities</td><td>10 × dice</td></tr>';
+  }
+  let ft = '<span>Price ' + rupees(sp.price) + '</span>';
+  if (sp.group) ft += '<span>House ' + rupees(M.GROUPS[sp.group].house) + '</span>';
+  if (!compact) ft += '<span>Mortgage ' + rupees(M.mortgageValue(i)) + ' · lift ' + rupees(M.unmortgageCost(i)) + '</span>';
+  const owner = S && o >= 0 ? '<div style="font-size:.85em;margin-top:2px">' + (S.mort[i] ? 'Mortgaged · ' : '') + 'Owner: ' + esc(S.players[o].name) + '</div>' : '';
+  return '<div class="deed"><div class="hd" style="background:' + color + ';color:' + inkOn(color) + (inkOn(color) === '#ffffff' ? '' : ';text-shadow:none') + '"><div class="city">' + city + '</div><div class="nm">' + esc(sp.name) + '</div>' + (compact ? '' : owner) + '</div><table>' + rows + '</table><div class="ft">' + ft + '</div></div>';
+}
+
+// ---------------------------------------------------------------- actions bar
+function btn(label, cls, fn, disabled) {
+  const b = document.createElement('button');
+  b.className = 'btn ' + (cls || '');
+  b.innerHTML = label;
+  b.disabled = !!disabled;
+  b.addEventListener('click', () => { if (!busy) fn(); });
+  return b;
+}
+function renderActions() {
+  const box = $('actions');
+  box.innerHTML = '';
+  const msg = document.createElement('div');
+  msg.className = 'msg';
+  box.appendChild(msg);
+  if (S.phase === 'over') {
+    msg.textContent = 'Game over.';
+    box.append(btn('Results', 'primary grow', showWin), btn('New game', 'grow', toSetup));
+    return;
+  }
+  const a = M.actor(S);
+  if (!isHumanSeat(a)) { msg.textContent = a >= 0 ? S.players[a].name + ' is playing…' : ''; return; }
+  const P = S.players[a];
+  const manage = () => btn('Assets', 'small', () => openAssets(a));
+  const trade = () => btn('Trade', 'small', () => openTrade(a));
+  switch (S.phase) {
+    case 'roll':
+      if (P.jail) {
+        msg.textContent = 'In jail — try ' + (P.jailTries + 1) + ' of 3. Doubles free you.';
+        box.append(btn('Roll', 'primary grow', () => act(() => M.roll(S))));
+        if (P.cards.length) box.append(btn('Use card', '', () => act(() => M.useJailCard(S))));
+        box.append(btn('Pay ' + rupees(M.JAIL_FINE), '', () => act(() => M.payJail(S)), P.cash < M.JAIL_FINE));
+      } else {
+        msg.textContent = S.doubles ? 'Doubles — roll again.' : '';
+        box.append(btn('Roll the dice', 'primary grow', () => act(() => M.roll(S))));
+      }
+      box.append(trade(), manage());
+      break;
+    case 'buy': {
+      const i = S.pending, price = M.SPACES[i].price;
+      msg.textContent = P.cash < price ? 'Not enough cash — mortgage something, or let it go to auction.' : M.SPACES[i].name + ' is for sale.';
+      box.append(btn('Buy ' + rupees(price), 'primary grow', () => act(() => M.buy(S)), P.cash < price),
+        btn(S.opts.auctions ? 'Auction' : 'Pass', 'grow', () => act(() => M.decline(S))), manage());
+      break;
+    }
+    case 'auction': {
+      const A = S.auction, base = A.high;
+      msg.textContent = 'Your cash ' + rupees(P.cash) + '. ' + (A.by >= 0 ? 'Beat ' + rupees(base) + '.' : 'Open the bidding.');
+      for (const inc of [10, 50, 100]) box.append(btn('+' + inc, inc === 10 ? 'primary grow' : 'grow', () => act(() => M.bid(S, base + inc)), base + inc > P.cash));
+      box.append(btn('Drop out', 'warn', () => act(() => M.passBid(S))));
+      break;
+    }
+    case 'debt': {
+      const d = S.debts[0], to = d.to >= 0 ? S.players[d.to].name : 'the bank';
+      msg.textContent = 'You owe ' + rupees(d.amt) + ' to ' + to + '. Sell houses or mortgage to raise it.';
+      box.append(btn('Pay ' + rupees(d.amt), 'primary grow', () => act(() => M.settleDebt(S)), P.cash < d.amt), manage(),
+        btn('Go bankrupt', 'warn', () => confirmSheet('Declare bankruptcy?', 'Everything you own goes to ' + to + '. You are out of the game.', 'Go bankrupt', () => act(() => M.bankrupt(S, a)))));
+      break;
+    }
+    case 'trade':
+      msg.textContent = S.players[S.offer.from].name + ' has made you an offer.';
+      box.append(btn('See the offer', 'primary grow', openOffer));
+      break;
+    default:
+      msg.textContent = '';
+      box.append(btn('End turn', 'primary grow', () => act(() => M.endTurn(S))), trade(), manage());
+  }
+}
+
+// ---------------------------------------------------------------- the driver
+// Every change goes through act(): the rules run instantly, then the events they queued are played
+// back as animation, then the screen is redrawn from the true state and the next mover is scheduled.
+function act(fn) {
+  if (busy || !S) return;
+  try { fn(); } catch (e) { console.error(e); }
+  pump();
+}
+async function pump() {
+  if (busy) return;
+  busy = true;
+  const g = gen;
+  try { await playEvents(g); } catch (e) { console.error(e); if (S) S.ev.length = 0; }
+  if (g !== gen) return;           // a new game began mid-animation; it owns the screen now
+  busy = false;
+  saveGame();
+  render();
+  schedule();
+}
+function schedule() {
+  clearTimeout(timer);
+  if (!S || S.phase === 'over') { if (S && S.phase === 'over') setTimeout(showWin, 400 * SPEED); return; }
+  const a = M.actor(S);
+  if (a < 0) return;
+  if (isHumanSeat(a)) {
+    if (a !== lastHumanActor && S.players.filter((P) => P.kind === 'human' && !P.out).length > 1) toast(S.players[a].name + ', your move');
+    lastHumanActor = a;
+    if (S.phase === 'trade' && !sheetRefresh) openOffer();
+    return;
+  }
+  const delay = { roll: 520, buy: 650, auction: 380, debt: 600, done: 420, trade: 600 }[S.phase] || 500;
+  timer = setTimeout(() => {
+    if (busy || !S) return;
+    try { M.aiStep(S, AUTO && S.players[a].kind === 'human' ? 'hard' : undefined); }
+    catch (e) { console.error(e); try { M.forceStep(S); } catch (e2) { console.error(e2); } }
+    pump();
+  }, delay * SPEED);
+}
+const wait = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms * SPEED)));
+async function playEvents(g) {
+  while (g === gen && S.ev.length) {
+    const e = S.ev.shift();
+    switch (e.t) {
+      case 'dice': await view.rollDice(e.d); break;
+      case 'move': await view.moveToken(e.p, tokAt[e.p], e.path); if (e.path.length) tokAt[e.p] = { i: e.path[e.path.length - 1], jail: false }; view.drawTokens(S, tokAt); break;
+      case 'jump': await view.jumpToken(e.p, tokAt[e.p], e.to); tokAt[e.p] = { i: e.to, jail: true }; view.drawTokens(S, tokAt); break;
+      case 'card': await showCard(e.deck, e.id, e.p); break;
+      case 'cash': moneyFx(e.p, e.d); await wait(90); break;
+      case 'log': renderLog(); break;
+      case 'own': { const list = [e.i]; while (S.ev[0] && S.ev[0].t === 'own') list.push(S.ev.shift().i); await showOwnership(list, g); break; }
+      case 'build': view.drawSpace(S, e.i); view.pulse(e.i); await wait(S.ev[0] && S.ev[0].t === e.t ? 40 : 120); break;
+      case 'auction': render(); await wait(200); break;
+      case 'bid': case 'bidpass': renderFocus(); await wait(140); break;
+      case 'bankrupt': renderPlayers(); toast(S.players[e.p].name + ' is bankrupt'); await wait(900); break;
+      case 'trade': toast('Trade done'); await wait(150); break;
+      case 'turn': renderPlayers(); view.drawTokens(S, tokAt); break;
+      default: break;
+    }
+  }
+  S.players.forEach((P, p) => { shownCash[p] = P.cash; tokAt[p] = { i: P.pos, jail: P.jail }; });
+}
+function moneyFx(p, d) {
+  shownCash[p] = (shownCash[p] == null ? S.players[p].cash : shownCash[p]) + d;
+  const chip = $('players').children[p];
+  if (!chip) return;
+  chip.querySelector('.cash').textContent = rupees(shownCash[p]);
+  if (SPEED < 0.05 || RM.matches) return;
+  const f = document.createElement('span');
+  f.className = 'float ' + (d > 0 ? 'up' : 'down');
+  f.textContent = (d > 0 ? '+' : '−') + rupees(Math.abs(d));
+  chip.appendChild(f);
+  f.animate([{ transform: 'translateY(-50%)', opacity: 1 }, { transform: 'translateY(-160%)', opacity: 0 }], { duration: 1100, easing: 'ease-out' }).finished.then(() => f.remove(), () => f.remove());
+}
+// The card flips up out of the centre, face down first. A tap dismisses it; otherwise it stays long
+// enough to read (about 13 words at 250 wpm is ~3 s for a person, less when a computer drew it).
+function showCard(deck, id, p) {
+  const c = M.CARDS[deck][id];
+  const host = $('cardShow');
+  const col = deck === 'kismat' ? '#7b2d8e' : '#0f6c61';
+  host.innerHTML = '<div class="card3" style="--deck:' + col + '"><div class="side front"><h3>' + M.DECK_NAME[deck] + '</h3><p>' + esc(c.text) + '</p></div>' +
+    '<div class="side back ' + deck + '"><svg viewBox="0 0 24 24"><use href="#i-' + deck + '"/></svg><h3>' + M.DECK_NAME[deck] + '</h3></div></div>';
+  host.hidden = false;
+  if (SPEED < 0.05) { host.hidden = true; return Promise.resolve(); }
+  const card = host.firstChild;
+  if (!RM.matches) card.animate([{ transform: 'translateY(40%) scale(.5) rotateY(180deg)', opacity: 0 }, { transform: 'translateY(0) scale(1) rotateY(180deg)', opacity: 1, offset: 0.35 }, { transform: 'rotateY(0deg)', opacity: 1 }],
+    { duration: 750 * SPEED, easing: 'ease-out', fill: 'both' });
+  return new Promise((res) => {
+    let done = false;
+    const close = () => { if (done) return; done = true; host.removeEventListener('click', close); host.hidden = true; host.innerHTML = ''; res(); };
+    host.addEventListener('click', close);
+    setTimeout(close, (isHumanSeat(p) ? 3600 : 2300) * SPEED);
+  });
+}
+let toastT = 0;
+function toast(text) {
+  const t = $('toast');
+  t.textContent = text; t.hidden = false;
+  clearTimeout(toastT);
+  toastT = setTimeout(() => { t.hidden = true; }, 1600);
+}
+
+// ---------------------------------------------------------------- announcements
+// Ownership changes are shown, not only logged. A purchase flips the deed up over the board, stamps it
+// with the buyer, sends coins to the bank and flies the deed down onto its space; a finished city gets a
+// moment of its own; trades and bankruptcies fly deeds between the players' chips. All of it runs on
+// transform and opacity in a fixed overlay outside the board view, placed with the view's rectangles, so
+// any renderer gets the same announcements. A computer's
+// purchase is shorter than a person's, Fast halves everything, reduced motion gets a quick fade, and a
+// tap anywhere finishes it at once.
+const fx = $('fx');
+let fxAnims = [];
+fx.addEventListener('pointerdown', (ev) => { ev.preventDefault(); for (const a of fxAnims) { try { a.finish(); } catch (e) { /* already gone */ } } });
+function fxRun(el, kf, o) { const a = el.animate(kf, o); fxAnims.push(a); return a.finished.catch(() => {}); }
+function fxEnd() { fxAnims = []; fx.innerHTML = ''; fx.hidden = true; }
+const mid = (x) => { const r = x.getBoundingClientRect ? x.getBoundingClientRect() : x; return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height }; };
+function deedMini(i, cls) {
+  const sp = M.SPACES[i];
+  const color = sp.group ? M.GROUPS[sp.group].color : sp.type === 'station' ? '#4b3b2a' : '#2c6e8f';
+  const city = sp.group ? M.GROUPS[sp.group].city : sp.type === 'station' ? 'Railway' : 'Utility';
+  const d = document.createElement('div');
+  d.className = 'fxdeed' + (cls ? ' ' + cls : '');
+  d.innerHTML = '<div class="hd" style="background:' + color + ';color:' + inkOn(color) + '"><div class="city">' + city + '</div><div class="nm">' + esc(sp.name) + '</div></div><div class="ft">' + rupees(sp.price) + '</div>';
+  return d;
+}
+function place(el, x, y) { el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.translate = '-50% -50%'; fx.appendChild(el); }
+async function announceBuy(i, p) {
+  const D = (isHumanSeat(p) ? 1500 : 700) * SPEED;
+  const c0 = mid(view.centreRect()), to = mid(view.spaceRect(i));
+  fx.hidden = false;
+  const card = deedMini(i);
+  const sw = document.createElement('div'); sw.className = 'stampw';
+  const stamp = document.createElement('div'); stamp.className = 'stamp';
+  // The stamp is the buyer's colour, lightened only as far as dark text needs for 4.5:1 (just purple does).
+  let sc = COLORS[p];
+  for (let k = 0; k < 8 && Math.max(contrast(sc, '#ffffff'), contrast(sc, '#1d140b')) < 4.5; k++) sc = tint(sc, 0.1);
+  stamp.style.setProperty('--sc', sc); stamp.style.setProperty('--st', inkOn(sc));
+  stamp.innerHTML = '<b>Sold</b><span>' + esc(S.players[p].name) + '</span>';
+  sw.appendChild(stamp); card.appendChild(sw);
+  place(card, c0.x, c0.y);
+  if (RM.matches) { await fxRun(card, [{ opacity: 0 }, { opacity: 1, offset: 0.2 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }], { duration: Math.min(D, 700) }); fxEnd(); return; }
+  const jobs = [];
+  const chip = $('players').children[p];
+  if (chip) {
+    const from = mid(chip);
+    for (let k = 0; k < 4; k++) {
+      const c = document.createElement('div'); c.className = 'coin'; c.textContent = '₹';
+      c.style.left = from.x + 'px'; c.style.top = from.y + 'px'; fx.appendChild(c);
+      const dx = c0.x - from.x, dy = c0.y - from.y;
+      jobs.push(fxRun(c, [{ transform: 'translate(0px,0px) scale(.5)', opacity: 0 }, { transform: 'translate(0px,-10px) scale(1)', opacity: 1, offset: 0.2 },
+        { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(.7)', opacity: 0 }], { duration: D * 0.42, delay: D * (0.06 + k * 0.06), easing: 'ease-in', fill: 'both' }));
+    }
+  }
+  const s = Math.max(0.1, Math.min(to.w, to.h) / 150);
+  jobs.push(fxRun(card, [
+    { transform: 'perspective(700px) translate(0px,0px) rotateX(80deg) scale(.55)', opacity: 0 },
+    { transform: 'perspective(700px) translate(0px,0px) rotateX(0deg) scale(1)', opacity: 1, offset: 0.22, easing: 'ease-in-out' },
+    { transform: 'perspective(700px) translate(0px,0px) rotateX(0deg) scale(1)', opacity: 1, offset: 0.66, easing: 'ease-in' },
+    { transform: 'perspective(700px) translate(' + (to.x - c0.x) + 'px,' + (to.y - c0.y) + 'px) rotateX(0deg) scale(' + s + ')', opacity: 0.25 }], { duration: D, easing: 'ease-out', fill: 'both' }));
+  jobs.push(fxRun(stamp, [{ transform: 'rotate(-12deg) scale(2.4)', opacity: 0 }, { transform: 'rotate(-12deg) scale(2.4)', opacity: 0, offset: 0.24 },
+    { transform: 'rotate(-12deg) scale(.92)', opacity: 1, offset: 0.34 }, { transform: 'rotate(-12deg) scale(1)', opacity: 1, offset: 0.4 }, { transform: 'rotate(-12deg) scale(1)', opacity: 1 }], { duration: D, fill: 'both' }));
+  await Promise.all(jobs);
+  fxEnd();
+}
+async function announceSet(g, p) {
+  const D = (isHumanSeat(p) ? 1400 : 750) * SPEED;
+  const col = M.GROUPS[g].color;
+  view.glow(M.GROUP_SQ[g], col, D);
+  const c0 = mid(view.centreRect());
+  fx.hidden = false;
+  const ban = document.createElement('div'); ban.className = 'setban'; ban.style.setProperty('--g', col);
+  ban.innerHTML = '<small>' + esc(S.players[p].name) + ' owns</small><b>All of ' + M.GROUPS[g].city + '!</b><small>rent doubles · houses can go up</small>';
+  place(ban, c0.x, c0.y);
+  await fxRun(ban, RM.matches ? [{ opacity: 0 }, { opacity: 1, offset: 0.2 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }]
+    : [{ transform: 'scale(.6)', opacity: 0 }, { transform: 'scale(1.06)', opacity: 1, offset: 0.18 }, { transform: 'scale(1)', opacity: 1, offset: 0.28 }, { transform: 'scale(1)', opacity: 1, offset: 0.82 }, { transform: 'scale(.96)', opacity: 0 }],
+  { duration: D, easing: 'ease-out', fill: 'both' });
+  fxEnd();
+}
+// Deeds changing hands: each flies from the giver's chip to the receiver's (or to the bank, the centre).
+async function announceMoves(list) {
+  const D = 820 * SPEED;
+  fx.hidden = false;
+  const jobs = list.map((m, k) => {
+    const src = m.from >= 0 ? $('players').children[m.from] : view.centreRect(), dst = m.to >= 0 ? $('players').children[m.to] : view.centreRect();
+    if (!src || !dst) return null;
+    const a = mid(src), b = mid(dst);
+    const d = deedMini(m.i, 'small');
+    place(d, a.x, a.y);
+    if (RM.matches) return fxRun(d, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 500, fill: 'both' });
+    const B = 'translate(' + (b.x - a.x) + 'px,' + (b.y - a.y) + 'px)';
+    return fxRun(d, [{ transform: 'translate(0px,0px) scale(.5)', opacity: 0 }, { transform: 'translate(0px,-14px) scale(1)', opacity: 1, offset: 0.2, easing: 'ease-in-out' },
+      { transform: B + ' scale(.65)', opacity: 1, offset: 0.85 }, { transform: B + ' scale(.4)', opacity: 0 }], { duration: D, delay: Math.min(k, 6) * 90 * SPEED, fill: 'both' });
+  }).filter(Boolean);
+  await Promise.all(jobs);
+  fxEnd();
+}
+// A run of 'own' events from one action. Compared with what the board shows, each is a purchase (from
+// the bank), a move between players (trade, bankruptcy) or a change in place (a mortgage).
+async function showOwnership(list, g) {
+  const quick = SPEED < 0.05;
+  const before = shownOwn.slice();
+  const buys = [], moves = [], plain = [];
+  for (const i of [...new Set(list)]) {
+    const was = before[i] == null ? -1 : before[i], now = S.own[i];
+    if (was === now) plain.push(i); else if (was < 0) buys.push(i); else moves.push({ i, from: was, to: now });
+  }
+  const sets = [];
+  for (const i of [...buys, ...moves.map((m) => m.i)]) {
+    const sp = M.SPACES[i], now = S.own[i];
+    if (!sp.group || now < 0 || sets.some((x) => x.g === sp.group)) continue;
+    const sq = M.GROUP_SQ[sp.group];
+    if (sq.every((j) => S.own[j] === now) && !sq.every((j) => before[j] === now)) sets.push({ g: sp.group, p: now });
+  }
+  const drawOwn = (i) => { view.drawSpace(S, i); shownOwn[i] = S.own[i]; };
+  for (const i of plain) { drawOwn(i); view.pulse(i); }
+  // The offer is settled: take the buy card off the centre and show the new choices under the overlay.
+  if (buys.length) { renderFocus(); renderActions(); $('status').textContent = statusLine(); }
+  if (!quick) {
+    for (const i of buys) { if (g !== gen) return; await announceBuy(i, S.own[i]); drawOwn(i); view.pulse(i); }
+    if (moves.length && g === gen) await announceMoves(moves);
+  }
+  if (g !== gen) return;
+  for (const m of moves) { drawOwn(m.i); view.pulse(m.i); }
+  for (const i of buys) drawOwn(i);
+  if (!quick) for (const x of sets) { if (g !== gen) return; await announceSet(x.g, x.p); }
+  await wait(list.length > 1 ? 40 : 120);
+}
+
+
+// ---------------------------------------------------------------- sheets
+function openSheet(title, build, opt = {}) {
+  const veil = $('veil'), sh = $('sheet');
+  veil.hidden = false;
+  veil.classList.toggle('mid', !!opt.mid);
+  const draw = () => {
+    sh.innerHTML = '';
+    const hd = document.createElement('div'); hd.className = 'sh';
+    hd.innerHTML = '<h2>' + esc(typeof title === 'function' ? title() : title) + '</h2>';
+    if (!opt.noClose) { const x = document.createElement('button'); x.className = 'iconbtn'; x.setAttribute('aria-label', 'Close'); x.innerHTML = '<svg><use href="#i-close"/></svg>'; x.onclick = closeSheet; hd.appendChild(x); }
+    const body = document.createElement('div'); body.className = 'sb';
+    const foot = document.createElement('div'); foot.className = 'sf';
+    sh.append(hd, body, foot);
+    build(body, foot);
+    if (!foot.childElementCount) foot.remove();
+  };
+  draw();
+  sheetRefresh = opt.live ? draw : () => {};
+  veil.onclick = (ev) => { if (ev.target === veil && !opt.noClose) closeSheet(); };
+}
+function closeSheet() {
+  $('veil').hidden = true; $('sheet').innerHTML = ''; sheetRefresh = null;
+  if (S && S.phase === 'trade' && isHumanSeat(M.actor(S))) setTimeout(() => { if (!sheetRefresh) renderActions(); }, 0);
+}
+function confirmSheet(title, text, yes, fn) {
+  openSheet(title, (b, f) => {
+    b.innerHTML = '<p class="muted" style="font-size:14px;margin:0">' + esc(text) + '</p>';
+    f.append(btn(yes, 'warn grow', () => { closeSheet(); fn(); }), btn('Cancel', 'grow', closeSheet));
+  }, { mid: true });
+}
+const canManage = (p) => S && S.phase !== 'over' && ['roll', 'buy', 'done', 'debt'].includes(S.phase) && M.actor(S) === p && isHumanSeat(p);
+
+function openSpace(i) {
+  if (!S) return;
+  const sp = M.SPACES[i];
+  if (!M.isOwnable(i)) {
+    const about = {
+      go: 'Collect ' + rupees(M.SALARY) + ' salary every time you pass or land on Start.',
+      jail: 'Just visiting, unless you were sent here. In jail: pay ' + rupees(M.JAIL_FINE) + ', use a get-out card, or roll for doubles — three tries, then the fine is compulsory.',
+      parking: S.opts.parkingPot ? 'Chai Break: land here to scoop the pot of taxes and fines (' + rupees(S.pot) + ' now).' : 'Chai Break: a free rest. Nothing happens here.',
+      gotojail: 'Go straight to jail. Do not pass Start.',
+      kismat: 'Draw a Kismat card: mostly journeys — some good, some not.', khazana: 'Draw a Khazana card: mostly money in and money out.',
+      tax: 'Pay ' + rupees(sp.amount) + ' to the bank' + (S.opts.parkingPot ? ' (it goes into the Chai Break pot).' : '.'),
+    }[sp.type];
+    openSheet(sp.name, (b) => { b.innerHTML = '<p style="margin:0;font-size:15px;line-height:1.5">' + esc(about) + '</p>'; }, { mid: true });
+    return;
+  }
+  openSheet(sp.name, (b, f) => {
+    b.innerHTML = deedHTML(i, false);
+    const o = S.own[i];
+    if (o < 0) b.insertAdjacentHTML('beforeend', '<p class="muted" style="margin:0">Unowned — whoever lands here may buy it.</p>');
+    else if (canManage(o)) propButtons(f, o, i);
+  }, { live: true, mid: true });
+}
+function propButtons(f, p, i) {
+  const sp = M.SPACES[i], hc = M.houseCost(i);
+  if (sp.type === 'street') {
+    f.append(btn((S.houses[i] === 4 ? 'Hotel' : 'House') + ' +' + rupees(hc), 'small grow', () => act(() => M.build(S, p, i)), !M.canBuild(S, p, i)),
+      btn('Sell −' + rupees(S.houses[i] === 5 ? hc / 2 * (1 + 4 - Math.min(4, S.bankHouses)) : hc / 2), 'small grow', () => act(() => M.sellHouse(S, p, i)), !M.canSell(S, p, i)));
+  }
+  if (S.mort[i]) f.append(btn('Lift mortgage −' + rupees(M.unmortgageCost(i)), 'small grow', () => act(() => M.unmortgage(S, p, i)), !M.canUnmortgage(S, p, i)));
+  else f.append(btn('Mortgage +' + rupees(M.mortgageValue(i)), 'small grow', () => act(() => M.mortgage(S, p, i)), !M.canMortgage(S, p, i)));
+}
+function openAssets(p) {
+  if (!S) return;
+  openSheet(() => S.players[p].name + (S.players[p].kind !== 'human' ? ' (computer, ' + S.players[p].kind + ')' : '') + (canManage(p) ? ' — manage' : ''), (b) => {
+    const P = S.players[p];
+    const props = M.propsOf(S, p);
+    b.insertAdjacentHTML('beforeend', '<div class="row wrap muted"><span>Cash <b style="color:var(--fg)">' + rupees(P.cash) + '</b></span><span>· Net worth ' + rupees(M.netWorth(S, p)) + '</span>' +
+      (P.cards.length ? '<span>· ' + P.cards.length + ' get-out card' + (P.cards.length > 1 ? 's' : '') + '</span>' : '') + '<span>· Bank has ' + S.bankHouses + ' houses, ' + S.bankHotels + ' hotels</span></div>');
+    if (!props.length) b.insertAdjacentHTML('beforeend', '<p class="muted" style="margin:0">No property yet.</p>');
+    const manage = canManage(p);
+    for (const i of props) {
+      const sp = M.SPACES[i];
+      const r = document.createElement('div'); r.className = 'prow';
+      const col = sp.group ? M.GROUPS[sp.group].color : sp.type === 'station' ? '#6b5a41' : '#2c6e8f';
+      const h = S.houses[i];
+      const st = (S.mort[i] ? 'mortgaged' : h === 5 ? 'hotel' : h ? h + ' house' + (h > 1 ? 's' : '') : sp.group && M.hasSet(S, sp.group, p) ? 'whole city' : '') ;
+      r.innerHTML = '<span class="sw" style="background:' + col + '"></span><span class="pn">' + esc(sp.name) + '<small>' + (sp.group ? M.GROUPS[sp.group].city : sp.type === 'station' ? 'Railway' : 'Utility') + (st ? ' · ' + st : '') + '</small></span>';
+      if (manage) {
+        if (sp.type === 'street' && M.hasSet(S, sp.group, p)) {
+          r.append(btn('+', 'small', () => act(() => M.build(S, p, i)), !M.canBuild(S, p, i)), btn('−', 'small', () => act(() => M.sellHouse(S, p, i)), !M.canSell(S, p, i)));
+        }
+        r.append(S.mort[i] ? btn('Lift', 'small', () => act(() => M.unmortgage(S, p, i)), !M.canUnmortgage(S, p, i))
+          : btn('Mortgage', 'small', () => act(() => M.mortgage(S, p, i)), !M.canMortgage(S, p, i)));
+      } else {
+        const v = document.createElement('button'); v.className = 'btn small'; v.textContent = 'Deed'; v.onclick = () => openSpace(i); r.append(v);
+      }
+      b.appendChild(r);
+    }
+    if (manage) b.insertAdjacentHTML('beforeend', '<p class="muted" style="margin:0">+ builds a house (hotel after four), − sells one back at half price. Build evenly across a city. Mortgage pays half the price; lifting it costs that plus 10%.</p>');
+  }, { live: true });
+}
+
+// ---------------------------------------------------------------- trading
+function sidePicker(owner, side, other) {
+  const wrap = document.createElement('div');
+  const tradeable = M.propsOf(S, owner).filter((i) => !(M.SPACES[i].group && M.GROUPS[M.SPACES[i].group] && S.houses && M.GROUP_SQ[M.SPACES[i].group].some((j) => S.houses[j] > 0)));
+  const chips = document.createElement('div'); chips.className = 'chipsel';
+  for (const i of tradeable) {
+    const sp = M.SPACES[i];
+    const c = document.createElement('button');
+    c.className = 'chip' + (side.props.includes(i) ? ' on' : '');
+    c.innerHTML = '<span class="dot" style="background:' + (sp.group ? M.GROUPS[sp.group].color : '#8a7a62') + '"></span>' + esc(sp.short) + (S.mort[i] ? ' (m)' : '');
+    c.onclick = () => { const k = side.props.indexOf(i); if (k >= 0) side.props.splice(k, 1); else side.props.push(i); sheetRefresh(); };
+    chips.appendChild(c);
+  }
+  if (!tradeable.length) chips.innerHTML = '<span class="muted">Nothing tradeable</span>';
+  wrap.appendChild(chips);
+  const cash = S.players[owner].cash;
+  const st = document.createElement('div'); st.className = 'stepper'; st.style.marginTop = '6px';
+  const set = (v) => { side.cash = Math.max(0, Math.min(cash, v)); sheetRefresh(); };
+  st.append(btn('−50', 'small', () => set(side.cash - 50), side.cash <= 0));
+  const v = document.createElement('b'); v.textContent = rupees(side.cash); st.appendChild(v);
+  st.append(btn('+50', 'small', () => set(side.cash + 50), side.cash + 50 > cash), btn('+10', 'small', () => set(side.cash + 10), side.cash + 10 > cash));
+  wrap.appendChild(st);
+  if (S.players[owner].cards.length) {
+    const c = document.createElement('button');
+    c.className = 'chip' + (side.cards ? ' on' : ''); c.style.marginTop = '6px';
+    c.textContent = 'Get-out card';
+    c.onclick = () => { side.cards = side.cards ? 0 : 1; sheetRefresh(); };
+    wrap.appendChild(c);
+  }
+  return wrap;
+}
+function openTrade(p) {
+  const others = M.active(S).filter((q) => q !== p);
+  if (!others.length) return;
+  const T = { to: others[0], give: M.blankSide(), get: M.blankSide(), note: '', counter: null };
+  openSheet('Trade', (b, f) => {
+    const sel = document.createElement('div'); sel.className = 'chipsel';
+    for (const q of others) {
+      const c = document.createElement('button');
+      c.className = 'chip' + (T.to === q ? ' on' : '');
+      c.innerHTML = '<span class="dot" style="background:' + COLORS[q] + '"></span>' + esc(S.players[q].name);
+      c.onclick = () => { T.to = q; T.get = M.blankSide(); T.note = ''; T.counter = null; sheetRefresh(); };
+      sel.appendChild(c);
+    }
+    b.appendChild(sel);
+    // The answer goes above the lists, where it is seen without scrolling on a short landscape screen.
+    if (T.note) b.insertAdjacentHTML('beforeend', '<div class="notice">' + esc(T.note) + '</div>');
+    const cols = document.createElement('div'); cols.className = 'cols';
+    const c1 = document.createElement('div'), c2 = document.createElement('div');
+    c1.innerHTML = '<h3>You give</h3>'; c2.innerHTML = '<h3>' + esc(S.players[T.to].name) + ' gives</h3>';
+    c1.appendChild(sidePicker(p, T.give)); c2.appendChild(sidePicker(T.to, T.get));
+    cols.append(c1, c2); b.appendChild(cols);
+    const offer = { from: p, to: T.to, give: T.give, get: T.get };
+    if (T.counter) {
+      f.append(btn('Accept counter', 'primary grow', () => { const o = T.counter; closeSheet(); act(() => M.doTrade(S, o)); }),
+        btn('Back', 'grow', () => { T.counter = null; T.note = ''; sheetRefresh(); }));
+      return;
+    }
+    f.append(btn('Propose', 'primary grow', () => {
+      const err = M.tradeError(S, offer);
+      if (err) { T.note = err[0].toUpperCase() + err.slice(1) + '.'; sheetRefresh(); return; }
+      const q = T.to;
+      if (S.players[q].kind === 'human' && !AUTO) { closeSheet(); act(() => M.offerTrade(S, JSON.parse(JSON.stringify(offer)))); return; }
+      const r = M.aiAnswer(S, offer);
+      if (r.accept) { closeSheet(); act(() => M.doTrade(S, JSON.parse(JSON.stringify(offer)))); return; }
+      if (r.counter) { T.counter = r.counter; T.note = S.players[q].name + ' counters: ' + M.describeTrade(S, r.counter) + '.'; }
+      else T.note = S.players[q].name + ' says no.';
+      sheetRefresh();
+    }), btn('Cancel', 'grow', closeSheet));
+  }, { live: true });
+}
+function openOffer() {
+  if (!S || S.phase !== 'trade' || !S.offer) return;
+  const o = S.offer;
+  openSheet(S.players[o.from].name + ' offers a trade', (b, f) => {
+    const list = (s) => esc(M.describeSide(S, s));
+    b.innerHTML = '<p style="margin:0;font-size:15px">To <b>' + esc(S.players[o.to].name) + '</b>:</p>' +
+      '<div class="prow"><span class="pn">You get<small style="color:var(--fg);font-size:14px">' + list(o.give) + '</small></span></div>' +
+      '<div class="prow"><span class="pn">You give<small style="color:var(--fg);font-size:14px">' + list(o.get) + '</small></span></div>';
+    for (const i of [...o.give.props, ...o.get.props]) {
+      const d = document.createElement('div'); d.innerHTML = deedHTML(i, true); b.appendChild(d.firstChild);
+    }
+    f.append(btn('Accept', 'primary grow', () => { closeSheet(); act(() => M.answerOffer(S, true)); }),
+      btn('Decline', 'grow', () => { closeSheet(); act(() => M.answerOffer(S, false)); }));
+  }, { noClose: true });
+}
+
+// ---------------------------------------------------------------- menu, rules, results
+$('menuBtn').addEventListener('click', () => {
+  openSheet('Menu', (b, f) => {
+    const row = (label, fn) => { const x = btn(label, 'grow', fn); x.style.width = '100%'; b.appendChild(x); };
+    row('Rules', openRules);
+    row('Game log', () => openSheet('Game log', (bb) => { bb.innerHTML = (S ? S.log.slice().reverse() : []).map((l) => '<div class="muted" style="color:var(--fg)">' + esc(l) + '</div>').join(''); }));
+    row(opts.fast ? 'Speed: fast (tap for normal)' : 'Speed: normal (tap for fast)', () => { opts.fast = !opts.fast; SPEED = opts.fast ? 0.5 : 1; saveOpts(); closeSheet(); });
+    row('New game', () => confirmSheet('Start a new game?', 'This game will be lost.', 'New game', toSetup));
+    if (S) b.insertAdjacentHTML('beforeend', '<p class="muted" style="margin:0">Round ' + S.round + (S.opts.rounds ? ' of ' + S.opts.rounds : '') + ' · the game saves itself after every move.</p>');
+  });
+});
+function openRules() {
+  openSheet('How to play', (b) => {
+    b.innerHTML = '<div class="rules">' +
+      '<h3>Goal</h3><p>Buy streets across eight cities, build, and collect rent until everyone else is bankrupt. In a quick game the richest player when the rounds run out wins (cash + property + buildings).</p>' +
+      '<h3>Your turn</h3><p>Roll two dice and move. Doubles roll again; a third double sends you to jail. Pass Start: collect ₹200.</p>' +
+      '<h3>Buying</h3><p>Land on an unowned lot and buy it at its price — or decline and it goes to auction, where everyone (you too) can bid.</p>' +
+      '<h3>Rent</h3><p>Owning a whole city doubles the bare rent. Houses and hotels raise it a lot. Railways: ₹25, 50, 100, 200 for one to four. Utilities: 4× the dice, 10× with both.</p>' +
+      '<h3>Building</h3><p>Only on a whole city with nothing mortgaged, evenly: no lot may get two houses ahead of another. A hotel needs four houses everywhere in the city. The bank has 32 houses and 12 hotels; when they run out, nobody can build.</p>' +
+      '<h3>Money trouble</h3><p>Sell buildings back at half price, mortgage lots for half their price (lift it later for that plus 10%), or trade. If you still cannot pay you are bankrupt: what you own goes to whoever you owe, or to auction if you owed the bank.</p>' +
+      '<h3>Jail</h3><p>Pay ₹50 before rolling, use a get-out card, or roll for doubles (three tries; then the fine is compulsory). You still collect rent while inside.</p>' +
+      '<h3>Trading</h3><p>Swap lots, cash and get-out cards with anyone on your turn. Computers judge a deal by how it changes the game, not by printed prices: a lot that finishes a city is worth far more than its price.</p></div>';
+  });
+}
+function showWin() {
+  if (!S || S.phase !== 'over') return;
+  const why = { last: 'owns the city', rounds: 'is the richest when time runs out', cap: 'is richest at the turn limit' }[S.endReason] || 'wins';
+  openSheet('Game over', (b, f) => {
+    b.innerHTML = '<p style="margin:0;font-size:16px"><b style="color:var(--gold)">' + esc(S.players[S.winner].name) + '</b> ' + why + '.</p><div class="podium">' +
+      S.standings.map((r, k) => '<div class="pr"><span class="rk">' + (k + 1) + '</span><span class="disc" style="background:' + COLORS[r.p] + '">' + glyph(r.p) + '</span><span>' + esc(S.players[r.p].name) + '</span><span class="w">' + (S.players[r.p].out ? 'bankrupt' : rupees(r.worth)) + '</span></div>').join('') + '</div>' +
+      '<p class="muted" style="margin:0">' + S.round + ' rounds, ' + S.turns + ' turns.</p>';
+    f.append(btn('New game', 'primary grow', toSetup), btn('See the board', 'grow', closeSheet));
+  }, { mid: true });
+}
+
+// ---------------------------------------------------------------- setup
+function toSetup() {
+  clearTimeout(timer);
+  closeSheet();
+  if (S && S.phase !== 'over') { /* abandoning a game is explicit (confirmed), so drop its save */ }
+  S = null; saveGame();
+  buildSetup();
+}
+function buildSetup() {
+  const el = $('setup');
+  el.hidden = false;
+  const saved = readSave();
+  const segN = [2, 3, 4, 5, 6].map((n) => '<button data-n="' + n + '" class="' + (opts.n === n ? 'on' : '') + '">' + n + '</button>').join('');
+  let seats = '';
+  for (let k = 0; k < opts.n; k++) {
+    seats += '<div class="seat"><span class="disc" style="background:' + COLORS[k] + '">' + glyph(k) + '</span><input data-k="' + k + '" maxlength="14" value="' + esc(opts.seats[k].name) + '" aria-label="Player ' + (k + 1) + ' name">' +
+      '<select data-k="' + k + '" aria-label="Player ' + (k + 1) + ' is">' + KINDS.map(([v, l]) => '<option value="' + v + '"' + (opts.seats[k].kind === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></div>';
+  }
+  const tog = (key, label, sub) => '<div class="opt"><span>' + label + '<small>' + sub + '</small></span><button class="toggle' + (opts[key] ? ' on' : '') + '" data-t="' + key + '" aria-pressed="' + opts[key] + '" aria-label="' + label + '"></button></div>';
+  el.innerHTML = '<div class="card"><div class="hero"><div class="brand">City Tycoon</div><div class="tag">Buy the city — eight Indian cities, two to six players</div></div>' +
+    (saved ? '<button class="btn primary" id="resume">Resume game · round ' + saved.round + ', ' + saved.players.filter((P) => !P.out).length + ' players left</button>' : '') +
+    (badSave ? '<div class="notice">Your saved game could not be read, so it was cleared. Start a fresh one below.</div>' : '') +
+    '<div class="box"><div class="opt"><h2>Players</h2><div class="seg" id="segN">' + segN + '</div></div>' + seats + '</div>' +
+    '<div class="box"><h2>Game</h2><div class="opt"><span>Length<small id="lenSub">' + LENGTHS.find((l) => l[0] === opts.rounds)[2] + '</small></span><select id="len" aria-label="Game length">' +
+    LENGTHS.map(([v, l]) => '<option value="' + v + '"' + (opts.rounds === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></div>' +
+    tog('deal', 'Deal two streets each', 'a head start for a shorter game') +
+    tog('auctions', 'Auctions', 'a lot nobody buys goes to the highest bidder') +
+    tog('pot', 'Chai Break jackpot', 'house rule: taxes and fines pile up for whoever lands there') + '</div>' +
+    '<button class="btn primary" id="go">Start game</button>' +
+    '<button class="btn" id="rulesBtn">How to play</button></div>';
+  el.querySelectorAll('#segN button').forEach((b) => b.addEventListener('click', () => { opts.n = +b.dataset.n; saveOpts(); buildSetup(); }));
+  el.querySelectorAll('.seat input').forEach((inp) => inp.addEventListener('input', () => { opts.seats[+inp.dataset.k].name = inp.value.slice(0, 14); saveOpts(); }));
+  el.querySelectorAll('.seat select').forEach((s) => s.addEventListener('change', () => { opts.seats[+s.dataset.k].kind = s.value; saveOpts(); }));
+  el.querySelectorAll('.toggle').forEach((t) => t.addEventListener('click', () => { opts[t.dataset.t] = !opts[t.dataset.t]; saveOpts(); buildSetup(); }));
+  $('len').addEventListener('change', (e) => { opts.rounds = +e.target.value; saveOpts(); buildSetup(); });
+  $('go').addEventListener('click', () => startGame());
+  $('rulesBtn').addEventListener('click', openRules);
+  if (saved) $('resume').addEventListener('click', () => resumeGame(saved));
+}
+function startGame(over) {
+  const o = { ...opts, ...(over || {}) };
+  const players = [];
+  for (let k = 0; k < o.n; k++) players.push({ name: (o.seats[k].name || '').trim() || ('Player ' + (k + 1)), kind: o.seats[k].kind });
+  const seed = o.seed != null ? o.seed : (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0;
+  begin(M.newGame({ players, seed, auctions: o.auctions, parkingPot: o.pot, rounds: o.rounds, dealTwo: o.deal }));
+}
+function resumeGame(saved) { begin(saved); }
+function begin(state) {
+  gen++; busy = false; clearTimeout(timer);
+  $('cardShow').hidden = true; $('cardShow').innerHTML = ''; $('toast').hidden = true;
+  S = state; badSave = false;
+  $('setup').hidden = true;
+  shownCash = S.players.map((P) => P.cash);
+  tokAt = S.players.map((P) => ({ i: P.pos, jail: P.jail }));
+  shownOwn = S.own.slice(); view.reset(); fxEnd();
+  lastHumanActor = -1;
+  $('players').innerHTML = '';
+  S.ev.length = 0;
+  layout();
+  view.setDice(S.dice[0] ? S.dice : [5, 3]);
+  saveGame(); render(); schedule();
+}
+
+// ---------------------------------------------------------------- boot
+view.mount(board, { onTap: (i) => openSpace(i), speed: () => SPEED, reduced: () => RM.matches });
+window.addEventListener('resize', layout);
+layout();
+view.setDice([5, 3]);
+buildSetup();
+
+// Test hook: lets a script start a seeded game, hand every human seat to the Hard computer and run at
+// near-zero animation time. Nothing in normal play touches it.
+window.__cityTycoonUI = {
+  get state() { return S; },
+  start: (over) => startGame(over),
+  autoplay: (on, speed) => { AUTO = !!on; if (speed != null) SPEED = speed; if (S) { render(); schedule(); } },
+  setSpeed: (s) => { SPEED = s; },
+  act: (fn) => act(() => fn(S, M)),
+  pump: () => pump(),
+  openSpace, openTrade, openAssets, openOffer, showWin, closeSheet, layout, view,
+  get busy() { return busy; },
+};
+</script>
+</body>
+</html>
