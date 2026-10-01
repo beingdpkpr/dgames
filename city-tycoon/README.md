@@ -1,6 +1,6 @@
 # City Tycoon
 
-*Buy the city.* A property-trading board game across eight Indian cities, for two to six players on one device. Each seat is a human or a computer at Easy, Normal or Hard. Open `index.html` directly — no dependencies, and nothing is fetched except an optional display font (Rozha One; offline it falls back to Georgia).
+*Buy the city.* A property-trading board game across eight Indian cities, for two to six players on one device. Each seat is a human or a computer at Easy, Normal or Hard. Open `index.html` directly; nothing is fetched except an optional display font (Rozha One; offline it falls back to Georgia). The 3D board loads three.js and the shared tabletop kit from `../lib/` with plain script tags, so the game needs `lib/` beside it; without it (or without WebGL) it plays on the 2D board.
 
 The mechanics are the classic property-trading ones. The name, the board, the street names, the card texts, the tokens and the look are original to this game: Varanasi to Mumbai in eight colour groups, four railway stations, a power grid and a water board, and two card decks — **Kismat** (fate: mostly journeys) and **Khazana** (treasury: mostly money). `test/rules.js` fails if a trademarked board name or card wording ever appears in the page.
 
@@ -23,7 +23,23 @@ Every label reads upright on screen, on all four sides. A space is a colour band
 
 **Announcements.** Buying a lot (outright or at auction) flips its deed up over the board, stamps it SOLD with the buyer, sends coins from the buyer to the bank and flies the deed onto the space; completing a city gets a short "All of Jaipur!" banner while its lots light up; deeds fly between players' chips in trades and bankruptcies; a new house or hotel drops onto its band. Computer purchases are shorter, Fast halves everything, a tap skips, and reduced motion gets fades instead of movement.
 
-**The board view.** The game flow reaches the board only through the object `makeDomBoard()` returns (`mount`, `resize`, `reset`, `drawSpace`, `drawTokens`, `moveToken`, `jumpToken`, `rollDice`, `setDice`, `pulse`, `glow`, and the screen rectangles `spaceRect`, `centreRect`, `textRect`; documented above the function). Another renderer can stand in by returning the same methods. The status text, the deed on offer, drawn cards (`#hud`), the announcements (`#fx`), the panels and the dialogs live outside the view and are shared.
+**The board view.** The game flow reaches the board only through an object with `mount`, `resize`, `reset`, `drawSpace`, `drawTokens`, `moveToken`, `jumpToken`, `rollDice`, `setDice`, `pulse`, `glow`, and the screen rectangles `spaceRect`, `centreRect`, `textRect` (documented above `makeDomBoard()`). Two renderers implement it: `makeDomBoard()`, the flat DOM/SVG board, and `makeTableBoard()`, the 3D one. The status text, the deed on offer, drawn cards (`#hud`), the announcements (`#fx`), the panels and the dialogs live outside the view and are shared, placed with the rectangles the view in use reports.
+
+## The 3D table
+
+The default board, in the Penfight look every 3D board game here shares (`lib/tabletop.js`: the light-wood desk in the pastel room, the same lights and shadows; Ludo is its sibling). A 48 cm slab printed with exactly what the 2D board shows — colour bands, icons, names (once a space is 40 px or more on screen, as in 2D) and prices, the owner's ribbon along each owned space's outer edge, mortgaged lots greyed with the M on the band — and a teal centre carrying the logo and the skyline. Ownership and mortgages repaint the printed face when they change, never per frame. On it stand the pieces:
+
+- **Pawns**: a glossy lacquer lathe per player in the player's colour, the player's symbol on a flat crown. All six are one skinned mesh, each bound to its own bone, so they hop independently for one draw call. Animation moves a plain object per pawn and the bones copy it every frame, except a hidden pawn's (a bankrupt player), which no hop or flight in progress can bring back. A gold ring marks whoever is to move.
+- **Houses and hotels**: green houses and red hotels with pitched roofs standing on the colour band, instanced (all houses one draw call, all hotels another). A new one drops onto the band and bounces.
+- **Dice**: the kit's two real dice, thrown from the mover's side and tumbling onto the faces the game rolled.
+
+A pawn hops square by square with a squash on each landing (lower and quicker on a long trip) and arcs into jail; spaces flash under a change and a finished city glows. The SOLD stamp, the coins, the deed flying onto its space, "All of …!", trades and the deed on offer all run over the 3D board unchanged, because the view reports each space's and the centre's corners projected through the camera (the centre as the largest upright rectangle inside the tilted trapezoid, so nothing spills over the far spaces) and the overlays follow while the camera moves.
+
+**Camera and choice.** One button in the header flips **Top / Angled** (as in Ludo); drag tilts, pinch or wheel zooms, a double tap resets. A portrait phone opens top-down — the angled view foreshortens the far row to about 13 px a space at 360 px — and everything else angled. The **flat 2D board** is a row in the menu; the choice and the camera are remembered in `dgames.city-tycoon.view`, separate from the save. The 2D board is also the fallback: no WebGL, `?no3d`, a lost context, or anything throwing while the scene is built. On a phone held sideways the 3D board takes width from the side column (down to its 250 px floor), because a tilted board is wider than tall. Touch devices get the kit's low quality (`?q=high` / `?q=low` overrides).
+
+**Tapping a space** opens its card exactly as in 2D: an invisible tap target lies over each space and a ray picks it, so a tap on any of the 40 works in both cameras. The kit reports a tap on pointer-up and the browser still sends that press's click afterwards — to the card that just opened, whose backdrop closes on a click — so the view drops that one click.
+
+**Cost.** On demand rendering: a still board draws nothing. One frame of a mid-game board (16 houses, a hotel, five pawns) is 15 draw calls including the shadow pass, 12,282 triangles at low quality and 15,858 at high; rendering it at 4× CPU throttle under software WebGL (SwiftShader) took a median 5–7 ms, p90 about 10 ms, at 844×390 and 360×640.
 
 ## Rules implemented
 
@@ -80,6 +96,8 @@ Four computers end a full game after a median of about 180 turns (45 rounds); th
 `node test/rules.js` (107 checks, ~2 s): the board and its original names; rent in every case (110 house/hotel cases, stations 1–4, utilities, card multipliers, mortgaged lots); even building and the housing shortage; mortgage values and the no-build-on-mortgaged-set rule; doubles and three doubles; every jail exit; passing Start; all 32 cards; bankruptcy to a player and to the bank; auctions; trades and how computers judge them; save/resume round trip and rejection of bad saves; 60 random-play games that must all end; the quick-game limit; the deal; and that the back button is byte-identical to Tetris's.
 
 `node test/sim.js` (~10 s): the landing table still matches the board; 200 four-player, 60 two-player and 60 six-player computer games all finish and stay under the turn cap (≤2%); 60 quick games stop at round 21; two Hard beat two Easy (81.5% of 200).
+
+The 3D board was checked in a browser (Playwright, software WebGL): every one of the 40 spaces opens its own card by a real tap in both cameras at 360×640, 844×390 and 1280×800; no page scroll and every control at least 44 px at 390×844, 375×667, 360×640, 844×390, 667×375 and 1280×800; whole computer games to the last player standing (4 and 6 players) with every animation running and no page error, the drawn houses, hotels and pawns matching the state at the end; a sprint with the human seat played only by touch taps; saves written by the previous version resuming identically, under the current key and the old Mahanagar one.
 
 `node test/bots.js` is the level report above; it asserts nothing and is listed under `dgames.reportOnly` in the root `package.json`.
 

@@ -358,6 +358,17 @@
   .setban b { display: block; font-family: var(--serif); font-weight: 400; font-size: 27px; color: var(--gold); line-height: 1.15; border-bottom: 4px solid var(--g); padding-bottom: 4px; margin: 2px 0 5px; }
   .setban small { display: block; font-size: 12.5px; color: #d8e4f2; }
 
+  /* ---- the 3D table (makeTableBoard): the board's square holds the kit's canvas instead of the grid ---- */
+  #board.t3d { display: block; background: none; box-shadow: none; border-radius: 14px; overflow: hidden; }
+  #board.t3d canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+  /* The header holds the logo, the view button and the menu; where it is narrow (a 667 px phone on its
+     side leaves the column about 284 px) the logo steps down a size rather than pushing a button out. */
+  .logo { min-width: 0; white-space: nowrap; overflow: hidden; }
+  #top.tight .logo { font-size: 18px; letter-spacing: 1px; }
+  .iconbtn.txt { width: auto; min-width: 44px; padding: 0 10px; font-size: 13px; font-weight: 700; color: var(--fg); }
+  /* The shared text sits on a lit, printed board rather than flat teal: a soft shadow keeps it crisp. */
+  body.t3d #hudtext { text-shadow: 0 1px 3px rgba(0, 0, 0, .55); }
+
   /* Motion off: no tumbling, hopping or pulsing; the game is identical, every change still shows. */
   @media (prefers-reduced-motion: reduce) {
     .tok.cur .ring, .sheet { animation: none !important; }
@@ -431,6 +442,7 @@
 <div id="app" class="portrait">
   <div id="top">
     <h1 class="logo">City Tycoon<small>Buy the city</small></h1>
+    <button class="iconbtn txt" id="viewBtn" type="button" hidden>Top</button>
     <button class="iconbtn" id="menuBtn" aria-label="Menu"><svg><use href="#i-menu"/></svg></button>
   </div>
   <div id="board" role="group" aria-label="Board"></div>
@@ -447,6 +459,8 @@
 <div id="toast" role="status" hidden></div>
 <div id="fx" hidden></div>
 
+<script src="../lib/three.min.js"></script>
+<script src="../lib/tabletop.js"></script>
 <script>
 'use strict';
 // ---------- RULES ----------
@@ -2065,8 +2079,708 @@ function makeDomBoard() {
     spaceRect: (i) => cells[i].getBoundingClientRect(), centreRect: () => center.getBoundingClientRect(), textRect: () => ctext.getBoundingClientRect(),
   };
 }
+// ---------------------------------------------------------------- the 3D table view
+// The same board printed on a thick slab on Penfight's desk, drawn by the shared kit in ../lib/tabletop.js,
+// behind exactly the interface makeDomBoard() documents above. It shows the same things: the printed face
+// carries every space, the colour bands, the owners' ribbons and the greyed mortgaged lots (repainted when
+// one changes, never per frame); houses, hotels, pawns and dice stand on it as real pieces. The rectangles
+// it reports are the board's own corners projected to the screen, so the status text, the deed, the cards
+// and the announcements land on the board wherever the camera is. Units are centimetres: one edge space
+// is E wide, the board twelve of them (corners count one and a half), as in the 2D grid.
+// mount() throws if WebGL or the kit is missing; the caller then keeps the 2D board.
+function makeTableBoard() {
+  if (!window.Tabletop) throw new Error('the tabletop kit did not load');
+  const E = 4, B = 12 * E, BH = 1.8;
+  const BT = 0.39, OT = 0.195;            // band and owner ribbon, in edge units: the 2D board's .26c and .13c
+  const SANS = '"Segoe UI", system-ui, -apple-system, Roboto, sans-serif';
+  const SERIF = '"Rozha One", Georgia, "Times New Roman", serif';
+  let kit = null, THREE = null, o = null, host = null, canvas = null, slab = null;
+  let roomy = false, repaintQueued = false, centreArt = null, lastBs = 0;
+  const printed = [];                     // { own, mort } each space is printed with
+  const drawn = [];                       // buildings shown per space
+  const wu = (u) => (u - 6) * E;          // edge units (0..12 across the board) to world cm (centred)
+
+  // ---- geometry, in edge units, the 2D grid's: corners 1.5 square, edge spaces 1 by 1.5
+  function cellRC(i) {
+    if (i <= 10) return { row: 11, col: 11 - i, side: 'bottom' };
+    if (i < 20) return { row: 11 - (i - 10), col: 1, side: 'left' };
+    if (i <= 30) return { row: 1, col: 1 + (i - 20), side: 'top' };
+    return { row: 1 + (i - 30), col: 11, side: 'right' };
+  }
+  const ts = (k) => (k === 1 ? 0 : 1.5 + (k - 2));
+  const tz = (k) => (k === 1 || k === 11 ? 1.5 : 1);
+  function cellU(i) { const { row, col, side } = cellRC(i); return { x: ts(col), y: ts(row), w: tz(col), h: tz(row), side }; }
+  // The colour band faces the centre; the owner's ribbon runs along the outer edge.
+  function bandU(i) {
+    const b = cellU(i);
+    if (b.side === 'bottom') return { x: b.x, y: b.y, w: b.w, h: BT };
+    if (b.side === 'top') return { x: b.x, y: b.y + b.h - BT, w: b.w, h: BT };
+    if (b.side === 'left') return { x: b.x + b.w - BT, y: b.y, w: BT, h: b.h };
+    return { x: b.x, y: b.y, w: BT, h: b.h };
+  }
+  function ribbonU(i) {
+    const b = cellU(i);
+    if (b.side === 'bottom') return { x: b.x, y: b.y + b.h - OT, w: b.w, h: OT };
+    if (b.side === 'top') return { x: b.x, y: b.y, w: b.w, h: OT };
+    if (b.side === 'left') return { x: b.x, y: b.y, w: OT, h: b.h };
+    return { x: b.x + b.w - OT, y: b.y, w: OT, h: b.h };
+  }
+  function bodyU(i) {
+    const b = Object.assign({}, cellU(i)), street = M.SPACES[i].type === 'street', own = M.isOwnable(i);
+    const t = street ? BT : 0, r = own ? OT : 0;
+    if (b.side === 'bottom') { b.y += t; b.h -= t + r; }
+    else if (b.side === 'top') { b.y += r; b.h -= t + r; }
+    else if (b.side === 'left') { b.x += r; b.w -= t + r; }
+    else { b.x += t; b.w -= t + r; }
+    return b;
+  }
+
+  // ---- printing: the SVG symbols the 2D board uses, painted onto the board's canvas (no image decode,
+  // so nothing can taint the canvas WebGL uploads)
+  function shapePath(el, tag) {
+    const n = (k) => +(el.getAttribute(k) || 0), p = new Path2D();
+    if (tag === 'path') return new Path2D(el.getAttribute('d'));
+    if (tag === 'circle') { p.arc(n('cx'), n('cy'), n('r'), 0, Math.PI * 2); return p; }
+    if (tag === 'ellipse') { p.ellipse(n('cx'), n('cy'), n('rx'), n('ry'), 0, 0, Math.PI * 2); return p; }
+    if (tag === 'rect') {
+      const x = n('x'), y = n('y'), w = n('width'), h = n('height'), r = Math.min(n('rx'), w / 2, h / 2);
+      p.moveTo(x + r, y); p.arcTo(x + w, y, x + w, y + h, r); p.arcTo(x + w, y + h, x, y + h, r); p.arcTo(x, y + h, x, y, r); p.arcTo(x, y, x + w, y, r); p.closePath();
+      return p;
+    }
+    return null;
+  }
+  function paintKids(x, kids, inh, opt) {
+    for (const el of kids) {
+      const g = (k) => el.getAttribute(k);
+      const st = Object.assign({}, inh);
+      for (const [a, k] of [['fill', 'fill'], ['stroke', 'stroke'], ['stroke-linecap', 'cap'], ['stroke-linejoin', 'join'], ['font-weight', 'fw'], ['font-family', 'ff'], ['text-anchor', 'anchor']]) if (g(a) != null) st[k] = g(a);
+      if (g('stroke-width') != null) st.sw = +g('stroke-width');
+      if (g('font-size') != null) st.fs = +g('font-size');
+      st.op = inh.op * (g('opacity') != null ? +g('opacity') : 1);
+      const sop = g('stroke-opacity') != null ? +g('stroke-opacity') : 1;
+      const tag = el.tagName.toLowerCase();
+      x.save();
+      const m = /rotate\(([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\)/.exec(g('transform') || '');
+      if (m) { x.translate(+m[2], +m[3]); x.rotate((+m[1] * Math.PI) / 180); x.translate(-m[2], -m[3]); }
+      const cc = (c) => (c === 'currentColor' ? opt.color || '#000' : c);
+      const fill = opt.fill || cc(st.fill), stroke = opt.stroke || cc(st.stroke);
+      if (tag === 'g') paintKids(x, el.children, st, opt);
+      else if (tag === 'use') { const ref = document.getElementById((g('href') || g('xlink:href') || '').slice(1)); if (ref) paintKids(x, [ref], st, opt); }
+      else if (tag === 'text') {
+        if (fill !== 'none') {
+          x.globalAlpha = st.op; x.fillStyle = fill; x.font = st.fw + ' ' + st.fs + 'px ' + st.ff;
+          x.textAlign = st.anchor === 'middle' ? 'center' : st.anchor === 'end' ? 'right' : 'left'; x.textBaseline = 'alphabetic';
+          x.fillText(el.textContent, +g('x') || 0, +g('y') || 0);
+        }
+      } else {
+        const p = shapePath(el, tag);
+        if (p) {
+          if (fill !== 'none' && !opt.strokeOnly) { x.globalAlpha = st.op; x.fillStyle = fill; x.fill(p); }
+          if (stroke !== 'none' && (opt.stroke || st.stroke !== 'none')) {
+            x.globalAlpha = st.op * sop; x.strokeStyle = stroke; x.lineWidth = opt.sw || st.sw; x.lineCap = st.cap; x.lineJoin = st.join; x.stroke(p);
+          }
+        }
+      }
+      x.restore();
+    }
+  }
+  // Paint symbol `id` into the box (l, t, w, h), scaled to fit and centred (or sat on the bottom edge).
+  function paintSymbol(x, id, l, t, w, h, opt) {
+    const sym = document.getElementById(id);
+    if (!sym) return;
+    opt = opt || {};
+    const vb = (sym.getAttribute('viewBox') || '0 0 24 24').split(/[\s,]+/).map(Number);
+    const s = Math.min(w / vb[2], h / vb[3]);
+    x.save();
+    x.translate(l + (w - vb[2] * s) / 2 - vb[0] * s, t + (opt.bottom ? h - vb[3] * s : (h - vb[3] * s) / 2) - vb[1] * s);
+    x.scale(s, s);
+    if (opt.alpha != null) x.globalAlpha = opt.alpha;
+    paintKids(x, sym.children, { fill: opt.defFill || '#000', stroke: 'none', sw: 1, op: opt.alpha == null ? 1 : opt.alpha, cap: 'butt', join: 'miter', fs: 16, fw: 'normal', ff: SANS, anchor: 'start' }, opt);
+    x.restore();
+  }
+  // Wrap a name onto lines that fit maxW, breaking at spaces or, inside a word too long for a line, at a
+  // soft hyphen (the 2D board's hyphens: manual), at the largest size from `size` down that fits maxH.
+  function fitName(x, text, maxW, maxH, size, min) {
+    for (let fs = size; ; fs *= 0.94) {
+      x.font = '650 ' + fs + 'px ' + SANS;
+      const lines = [];
+      let cur = '';
+      for (const word of text.split(' ')) {
+        const parts = word.split('­');
+        let pieces = [parts.join('')];
+        if (x.measureText(pieces[0]).width > maxW && parts.length > 1) {
+          pieces = []; let acc = '';
+          parts.forEach((pt, k) => {
+            const last = k === parts.length - 1;
+            if (acc && x.measureText(acc + pt + (last ? '' : '-')).width > maxW) { pieces.push(acc + '-'); acc = pt; } else acc += pt;
+          });
+          pieces.push(acc);
+        }
+        for (const pc of pieces) {
+          const tryL = cur ? cur + ' ' + pc : pc;
+          if (!cur || (x.measureText(tryL).width <= maxW && !cur.endsWith('-'))) cur = tryL; else { lines.push(cur); cur = pc; }
+        }
+      }
+      if (cur) lines.push(cur);
+      if (fs <= min || (lines.length * fs * 1.08 <= maxH && lines.every((l) => x.measureText(l).width <= maxW))) return { fs, lines };
+    }
+  }
+  function iconFor(sp) {
+    const map = { station: 'i-train', kismat: 'i-kismat', khazana: 'i-khazana' };
+    if (sp.type === 'utility') return sp.i === 12 ? 'i-bulb' : 'i-drop';
+    if (sp.type === 'tax') return sp.i === 4 ? 'i-tax' : 'i-gem';
+    return map[sp.type] || '';
+  }
+  function rrect(x, l, t, w, h, r) {
+    x.beginPath(); x.moveTo(l + r, t); x.arcTo(l + w, t, l + w, t + h, r); x.arcTo(l + w, t + h, l, t + h, r);
+    x.arcTo(l, t + h, l, t, r); x.arcTo(l, t, l + w, t, r); x.closePath();
+  }
+  function mBadge(x, cx, cy, U) {
+    const r = U * 0.135;
+    x.beginPath(); x.arc(cx, cy, r + U * 0.03, 0, Math.PI * 2); x.fillStyle = '#ffffff'; x.fill();
+    x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fillStyle = '#8e2b2b'; x.fill();
+    x.fillStyle = '#fff'; x.font = '800 ' + U * 0.17 + 'px ' + SANS; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('M', cx, cy + U * 0.008);
+  }
+  function drawSpace(x, U, i) {
+    const sp = M.SPACES[i], st = printed[i] || { own: -1, mort: false };
+    const px = (r) => ({ x: r.x * U, y: r.y * U, w: r.w * U, h: r.h * U });
+    const c = px(cellU(i)), lw = Math.max(1, U * 0.012);
+    if (i % 10 === 0) return drawCorner(x, U, sp, c);
+    x.fillStyle = st.mort ? '#e9e5dd' : '#f6eedc'; x.fillRect(c.x, c.y, c.w, c.h);
+    if (sp.type === 'street') {
+      const r = px(bandU(i));
+      if (st.mort) x.fillStyle = '#bdb7ac';
+      else {
+        const vert = r.h > r.w, gr = vert ? x.createLinearGradient(r.x, 0, r.x + r.w, 0) : x.createLinearGradient(0, r.y, 0, r.y + r.h);
+        x.fillStyle = M.GROUPS[sp.group].color; x.fillRect(r.x, r.y, r.w, r.h);
+        gr.addColorStop(0, 'rgba(255,255,255,.22)'); gr.addColorStop(1, 'rgba(0,0,0,.1)'); x.fillStyle = gr;
+      }
+      x.fillRect(r.x, r.y, r.w, r.h);
+      x.strokeStyle = 'rgba(0,0,0,.35)'; x.lineWidth = lw; x.strokeRect(r.x + lw / 2, r.y + lw / 2, r.w - lw, r.h - lw);
+      if (st.mort) mBadge(x, r.x + r.w / 2, r.y + r.h / 2, U);
+    }
+    if (st.own >= 0) {
+      const r = px(ribbonU(i));
+      x.fillStyle = COLORS[st.own]; x.fillRect(r.x, r.y, r.w, r.h);
+      x.strokeStyle = 'rgba(25,15,5,.8)'; x.lineWidth = lw; x.strokeRect(r.x + lw / 2, r.y + lw / 2, r.w - lw, r.h - lw);
+      if (roomy) { x.strokeStyle = 'rgba(255,255,255,.85)'; x.strokeRect(r.x + lw * 1.5, r.y + lw * 1.5, r.w - lw * 3, r.h - lw * 3); }
+    }
+    // the body: an icon (not on streets), the name when there is room for one, and the price
+    const b = px(bodyU(i)), amt = sp.price || sp.amount, ink = st.mort ? '#645d55' : null;
+    const items = [];
+    const gap = U * 0.04;
+    if (sp.type !== 'street') items.push({ h: roomy ? U * 0.34 : U * 0.5, ico: true });
+    let nm = null;
+    if (roomy) {
+      const priceH = amt ? U * 0.19 : 0;
+      nm = fitName(x, BOARD_NAME[i] || sp.name, b.w - U * 0.06, b.h - U * 0.1 - priceH - (items.length ? items[0].h + gap : 0) - (amt ? gap : 0), U * 0.19, U * 0.1);
+      items.push({ h: nm.lines.length * nm.fs * 1.08, name: true });
+    }
+    const pf = roomy ? U * 0.19 : U * 0.3;
+    if (amt) items.push({ h: pf, price: true });
+    const total = items.reduce((s, it) => s + it.h, 0) + gap * (items.length - 1);
+    let y = b.y + (b.h - total) / 2;
+    const cx = b.x + b.w / 2;
+    for (const it of items) {
+      if (it.ico) {
+        const w = roomy ? U * 0.42 : U * 0.62;
+        if (st.mort) { x.save(); try { x.filter = 'grayscale(1)'; } catch (e) { /* no canvas filters */ } paintSymbol(x, iconFor(sp), cx - w / 2, y, w, it.h, { alpha: 0.5 }); x.restore(); }
+        else paintSymbol(x, iconFor(sp), cx - w / 2, y, w, it.h);
+      } else if (it.name) {
+        x.font = '650 ' + nm.fs + 'px ' + SANS; x.fillStyle = ink || '#3a2c1d'; x.textAlign = 'center'; x.textBaseline = 'top';
+        nm.lines.forEach((l, k) => x.fillText(l, cx, y + k * nm.fs * 1.08));
+      } else if (it.price && st.own < 0) {
+        x.font = '700 ' + pf + 'px ' + SANS; x.fillStyle = ink || '#4a3925'; x.textAlign = 'center'; x.textBaseline = 'top';
+        x.fillText('₹' + amt, cx, y);
+      }
+      y += it.h + gap;
+    }
+    if (st.mort && sp.type !== 'street') {
+      const r = U * 0.135 + U * 0.03, s = sp.i;
+      const side = cellU(s).side;
+      mBadge(x, side === 'right' ? b.x + r + 2 : b.x + b.w - r - 2, side === 'top' ? b.y + b.h - r - 2 : b.y + r + 2, U);
+    }
+    x.strokeStyle = '#b9a582'; x.lineWidth = lw; x.strokeRect(c.x + lw / 2, c.y + lw / 2, c.w - lw, c.h - lw);
+  }
+  function drawCorner(x, U, sp, c) {
+    const t = sp.type;
+    const base = { go: '#f9e7c4', jail: '#f1e3c6', parking: '#eef0d8', gotojail: '#f7e2d8' }[t];
+    const glowc = { go: 'rgba(255,205,120,.6)', parking: 'rgba(190,220,150,.65)', gotojail: 'rgba(250,170,150,.55)' }[t];
+    x.fillStyle = base; x.fillRect(c.x, c.y, c.w, c.h);
+    if (glowc) {
+      const g = x.createRadialGradient(c.x + c.w / 2, c.y + c.h * 0.4, 0, c.x + c.w / 2, c.y + c.h * 0.4, c.w * 0.7 * 0.78);
+      g.addColorStop(0, glowc); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(c.x, c.y, c.w, c.h);
+    }
+    let bx = c.x, bw = c.w;
+    if (t === 'jail') {
+      const lw = c.w * 0.36;
+      x.fillStyle = 'rgba(150,110,60,.14)'; x.fillRect(c.x, c.y, lw, c.h);
+      x.save(); x.setLineDash([U * 0.05, U * 0.04]); x.strokeStyle = 'rgba(90,60,30,.45)'; x.lineWidth = Math.max(1, U * 0.012);
+      x.beginPath(); x.moveTo(c.x + lw, c.y); x.lineTo(c.x + lw, c.y + c.h); x.stroke(); x.restore();
+      bx = c.x + lw; bw = c.w - lw;
+    }
+    const md = 1.5 * U * 0.54, lbl = { go: 'START', jail: 'JAIL', parking: roomy ? 'CHAI BREAK' : 'CHAI', gotojail: 'TO JAIL' }[t];
+    const sub = roomy ? { go: 'collect ' + rupees(M.SALARY), parking: 'a free rest', gotojail: 'do not pass Start' }[t] : '';
+    const lf = U * 0.21, sf = U * 0.15, gap = U * 0.06;
+    const total = md + gap + lf + (sub ? gap + sf : 0);
+    let y = c.y + (c.h - total) / 2;
+    const cx = bx + bw / 2;
+    // the medal: a cream disc (a rounded square for the jail) with two soft rings
+    const shape = (r) => { if (t === 'jail') rrect(x, cx - r, y + md / 2 - r, 2 * r, 2 * r, r * 0.32); else { x.beginPath(); x.arc(cx, y + md / 2, r, 0, Math.PI * 2); } };
+    shape(md / 2 + U * 0.095); x.fillStyle = 'rgba(150,100,40,.35)'; x.fill();
+    shape(md / 2 + U * 0.07); x.fillStyle = 'rgba(255,255,255,.6)'; x.fill();
+    shape(md / 2 + U * 0.012); x.fillStyle = 'rgba(110,70,30,.4)'; x.fill();
+    shape(md / 2); x.fillStyle = '#fffaf0'; x.fill();
+    paintSymbol(x, { go: 'i-start', jail: 'c-jail', parking: 'i-chai', gotojail: 'i-siren' }[t], cx - md * 0.37, y + md * 0.13, md * 0.74, md * 0.74);
+    y += md + gap;
+    x.fillStyle = '#3a2c1d'; x.font = '800 ' + lf + 'px ' + SANS; x.textAlign = 'center'; x.textBaseline = 'top';
+    x.fillText(lbl, cx, y);
+    if (sub) { y += lf + gap; x.fillStyle = '#5a4630'; x.font = '600 ' + sf + 'px ' + SANS; x.fillText(sub, cx, y); }
+    x.strokeStyle = '#b9a582'; x.lineWidth = Math.max(1, U * 0.012); x.strokeRect(c.x, c.y, c.w, c.h);
+  }
+  // Where the centre's printed parts and the shared text sit, in edge units from the board's top edge.
+  const LOGO_Y = 3.15, DICE_Y = 5.05, TEXT = { x0: 2.1, x1: 9.9, y0: 5.95, y1: 8.15 };
+  function drawCentreArt(U) {
+    const S9 = 9 * U, c = document.createElement('canvas');
+    c.width = c.height = Math.round(S9);
+    const x = c.getContext('2d');
+    const g = x.createRadialGradient(S9 / 2, S9 * 0.4, 0, S9 / 2, S9 * 0.4, S9 * 0.56);
+    g.addColorStop(0, '#1c6762'); g.addColorStop(1, '#0f3d3b');
+    x.fillStyle = g; x.fillRect(0, 0, S9, S9);
+    // jaali: a faint lattice that fades out toward the middle, so the logo and the text sit on clear teal
+    const tile = U * 1.2, lat = document.createElement('canvas');
+    lat.width = lat.height = Math.round(S9);
+    const l = lat.getContext('2d');
+    l.strokeStyle = '#ffd54a'; l.lineWidth = Math.max(1, U * 0.03);
+    for (let ty = -tile / 2 + (S9 / 2) % tile; ty < S9; ty += tile) for (let tx = -tile / 2 + (S9 / 2) % tile; tx < S9; tx += tile) {
+      const k = tile / 40;
+      l.save(); l.translate(tx, ty); l.scale(k, k);
+      l.strokeRect(11, 11, 18, 18);
+      l.save(); l.translate(20, 20); l.rotate(Math.PI / 4); l.strokeRect(-9, -9, 18, 18); l.restore();
+      l.beginPath(); l.arc(20, 20, 3, 0, Math.PI * 2); l.stroke();
+      l.restore();
+    }
+    const mk = l.createRadialGradient(S9 / 2, S9 * 0.42, S9 * 0.3 * 0.7, S9 / 2, S9 * 0.42, S9 * 0.8 * 0.7);
+    mk.addColorStop(0, 'rgba(0,0,0,0)'); mk.addColorStop(1, 'rgba(0,0,0,1)');
+    l.globalCompositeOperation = 'destination-in'; l.fillStyle = mk; l.fillRect(0, 0, S9, S9);
+    x.globalAlpha = 0.1; x.drawImage(lat, 0, 0); x.globalAlpha = 1;
+    paintSymbol(x, 'orn', S9 * 0.06, S9 * 0.06, S9 * 0.88, S9 * 0.88, { alpha: 0.13 });
+    // the skyline stands on the bottom edge, under the shared text
+    paintSymbol(x, 'skyline', U * 0.2, S9 - U * 0.2 - U * 1.7, S9 - U * 0.4, U * 1.7, { color: '#072624', defFill: '#072624', bottom: true, alpha: 0.92 });
+    x.strokeStyle = 'rgba(255,213,74,.45)'; x.lineWidth = Math.max(1, U * 0.025);
+    rrect(x, U * 0.2, U * 0.2, S9 - U * 0.4, S9 - U * 0.4, U * 0.16); x.stroke();
+    x.strokeStyle = 'rgba(255,213,74,.17)'; rrect(x, U * 0.28, U * 0.28, S9 - U * 0.56, S9 - U * 0.56, U * 0.1); x.stroke();
+    // the logo, a little larger than the 2D centre's: it is read across a table
+    const ly = (LOGO_Y - 1.5) * U;
+    x.textAlign = 'center'; x.textBaseline = 'alphabetic';
+    x.font = Math.round(U * 1.22) + 'px ' + SERIF;
+    x.fillStyle = 'rgba(0,0,0,.35)'; x.fillText('City Tycoon', S9 / 2, ly + U * 0.05);
+    x.fillStyle = '#ffd54a'; x.fillText('City Tycoon', S9 / 2, ly);
+    x.font = '600 ' + U * 0.3 + 'px ' + SANS; x.fillStyle = '#cfe3dc';
+    try { x.letterSpacing = U * 0.1 + 'px'; } catch (e) { /* older canvas */ }
+    x.fillText('BUY THE CITY', S9 / 2, ly + U * 0.62);
+    try { x.letterSpacing = '0px'; } catch (e) { /* older canvas */ }
+    const ry = ly + U * 0.9, rg = x.createLinearGradient(S9 / 2 - U * 1.3, 0, S9 / 2 + U * 1.3, 0);
+    rg.addColorStop(0, 'rgba(255,213,74,0)'); rg.addColorStop(0.5, 'rgba(255,213,74,.75)'); rg.addColorStop(1, 'rgba(255,213,74,0)');
+    x.fillStyle = rg; x.fillRect(S9 / 2 - U * 1.3, ry, U * 2.6, Math.max(1, U * 0.025));
+    x.save(); x.translate(S9 / 2, ry); x.rotate(Math.PI / 4); x.fillStyle = '#ffd54a'; x.fillRect(-U * 0.065, -U * 0.065, U * 0.13, U * 0.13); x.restore();
+    return c;
+  }
+  function drawFace(x, w) {
+    const U = w / 12;
+    x.fillStyle = '#cdb98f'; x.fillRect(0, 0, w, w);
+    if (!centreArt || centreArt.width !== Math.round(9 * U)) centreArt = drawCentreArt(U);
+    x.drawImage(centreArt, 1.5 * U, 1.5 * U);
+    x.strokeStyle = '#b9a582'; x.lineWidth = Math.max(1, U * 0.012); x.strokeRect(1.5 * U, 1.5 * U, 9 * U, 9 * U);
+    for (const sp of M.SPACES) drawSpace(x, U, sp.i);
+  }
+  function repaint() {
+    if (repaintQueued || !slab) return;
+    repaintQueued = true;
+    Promise.resolve().then(() => { repaintQueued = false; if (slab) slab.userData.repaint(); });
+  }
+
+  // ---- pieces
+  // Animation moves pieces[p], a plain object per pawn; every frame the bones copy them, except a hidden
+  // pawn's (a bankrupt player, an empty seat), whose bone stays folded away under the desk. So no hop, flight
+  // or slide still in progress can ever bring a pawn back that the game has taken off the board.
+  const pieces = [], hidden = [];
+  let pawnMesh = null, bones = [], ring = null, houses = null, hotels = null, dice = [], flashes = [], proxies = [];
+  const pawnAt = [];           // where each pawn rests: [x, z], or undefined before the first draw
+  const anim = [];             // pawns in flight: drawTokens leaves them alone
+  let curP = -1, nPlayers = 0;
+  const drops = new Map();     // 'space:k' -> height above the band of a building still dropping
+  // Pawns: one lathe per player — a flared base, a waist, a collar and a head with a flat top carrying the
+  // player's symbol — all six in ONE skinned mesh, each pawn bound to its own bone. Moving a bone moves
+  // that pawn, so six pieces that hop independently still cost one draw call (and one for the shadow).
+  const PROF = [[0.001, 0], [0.86, 0], [0.92, 0.07], [0.9, 0.2], [0.76, 0.32], [0.55, 0.48], [0.42, 0.8], [0.36, 1.12], [0.35, 1.22], [0.52, 1.28], [0.54, 1.36], [0.4, 1.44]];
+  const HEAD_Y = 1.98, HEAD_R = 0.62;
+  for (let k = 0; k <= 8; k++) { const a = -0.96 + k * (0.96 + 0.87) / 8; PROF.push([HEAD_R * Math.cos(a), HEAD_Y + HEAD_R * Math.sin(a)]); }
+  const TOP_Y = HEAD_Y + HEAD_R * Math.sin(0.87), TOP_R = HEAD_R * Math.cos(0.87);
+  PROF.push([0.001, TOP_Y]);
+  function glyphAtlas() {
+    const cs = 128, c = document.createElement('canvas');
+    c.width = cs * 4; c.height = cs * 2;
+    const x = c.getContext('2d');
+    x.fillStyle = '#ffffff'; x.fillRect(0, 0, c.width, c.height);
+    for (let p = 0; p < 6; p++) {
+      const l = (p % 4) * cs, t = Math.floor(p / 4) * cs;
+      x.fillStyle = COLORS[p]; x.fillRect(l, t, cs, cs);
+      x.beginPath(); x.arc(l + cs / 2, t + cs / 2, cs * 0.4, 0, Math.PI * 2); x.strokeStyle = 'rgba(255,255,255,.85)'; x.lineWidth = cs * 0.035; x.stroke();
+      paintSymbol(x, 'g' + p, l + cs * 0.22, t + cs * 0.22, cs * 0.56, cs * 0.56, { fill: 'none', stroke: '#1b120a', sw: 2.6, strokeOnly: false });
+      paintSymbol(x, 'g' + p, l + cs * 0.22, t + cs * 0.22, cs * 0.56, cs * 0.56, { fill: '#ffffff', stroke: 'none' });
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.encoding = THREE.sRGBEncoding; tex.anisotropy = kit.renderer.capabilities.getMaxAnisotropy();
+    return tex;
+  }
+  function tag(geo, p, uvAt) {
+    const n = geo.attributes.position.count, colr = Tabletop.col(uvAt ? '#ffffff' : COLORS[p]);
+    const cA = new Float32Array(n * 3), sI = new Float32Array(n * 4), sW = new Float32Array(n * 4), uv = geo.attributes.uv.array;
+    for (let k = 0; k < n; k++) {
+      cA[k * 3] = colr.r; cA[k * 3 + 1] = colr.g; cA[k * 3 + 2] = colr.b;
+      sI[k * 4] = p; sW[k * 4] = 1;
+      if (uvAt) { uv[k * 2] = uvAt[0] + uv[k * 2] * 0.25; uv[k * 2 + 1] = uvAt[1] + uv[k * 2 + 1] * 0.5; }
+      else { uv[k * 2] = 0.875; uv[k * 2 + 1] = 0.25; }       // the plain white cell: the vertex colour shows
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(cA, 3));
+    geo.setAttribute('skinIndex', new THREE.BufferAttribute(sI, 4));
+    geo.setAttribute('skinWeight', new THREE.BufferAttribute(sW, 4));
+    return geo;
+  }
+  function buildPawns() {
+    const segs = kit.quality === 'high' ? 32 : 20, parts = [];
+    for (let p = 0; p < 6; p++) {
+      parts.push(tag(new THREE.LatheGeometry(PROF.map(([r, y]) => new THREE.Vector2(r, y)), segs), p, null));
+      const disc = new THREE.CircleGeometry(TOP_R * 0.97, segs);
+      disc.rotateX(-Math.PI / 2); disc.translate(0, TOP_Y + 0.012, 0);
+      parts.push(tag(disc, p, [(p % 4) * 0.25, 0.5 - Math.floor(p / 4) * 0.5]));
+    }
+    const geo = Tabletop.geo.merge(parts);
+    parts.forEach((g) => g.dispose());
+    const mat = Tabletop.mat.lacquer(null, { map: glyphAtlas(), vertexColors: true, skinning: true });
+    pawnMesh = new THREE.SkinnedMesh(geo, mat);
+    bones = [];
+    for (let p = 0; p < 6; p++) { const b = new THREE.Bone(); b.position.set(0, -6, 0); b.scale.setScalar(0.001); bones.push(b); pawnMesh.add(b); pieces.push(new THREE.Object3D()); hidden.push(true); }
+    // Bound in the pose the geometry was built in, every pawn at the origin: identity inverses.
+    pawnMesh.bind(new THREE.Skeleton(bones, bones.map(() => new THREE.Matrix4())), new THREE.Matrix4());
+    pawnMesh.frustumCulled = false; pawnMesh.castShadow = true; pawnMesh.receiveShadow = true;
+    kit.add(pawnMesh);
+    // The mover's marker: a gold ring on the board round the pawn's foot, as on the 2D board.
+    const rg = new THREE.TorusGeometry(1.12, 0.1, 8, 40); rg.rotateX(-Math.PI / 2);
+    ring = new THREE.Mesh(rg, Tabletop.mat.lacquer('#FFD54A', { emissive: Tabletop.col('#FFB400'), emissiveIntensity: 0.35 }));
+    ring.visible = false; kit.add(ring);
+  }
+  // Houses and hotels: a body and a pitched roof in one geometry (vertex colours), instanced, so all 32
+  // houses are one draw call and all 12 hotels another.
+  function bldGeo(w, d, wallH, roofH, body, roof) {
+    const parts = [];
+    const walls = new THREE.BoxGeometry(w, wallH, d); walls.translate(0, wallH / 2, 0);
+    const ov = d * 0.12, sh = new THREE.Shape();
+    sh.moveTo(-d / 2 - ov, 0); sh.lineTo(d / 2 + ov, 0); sh.lineTo(0, roofH); sh.closePath();
+    const rf = new THREE.ExtrudeGeometry(sh, { depth: w + ov, bevelEnabled: false });
+    rf.rotateY(Math.PI / 2); rf.translate(-(w + ov) / 2, wallH, 0);
+    const door = new THREE.BoxGeometry(w * 0.22, wallH * 0.62, d + 0.04); door.translate(0, wallH * 0.31, 0);
+    const paint = (g, hex) => { const c = Tabletop.col(hex), n = g.attributes.position.count, a = new Float32Array(n * 3); for (let k = 0; k < n; k++) { a[k * 3] = c.r; a[k * 3 + 1] = c.g; a[k * 3 + 2] = c.b; } g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g; };
+    parts.push(paint(walls, body), paint(rf, roof), paint(door, '#3b2416'));
+    const out = Tabletop.geo.merge(parts);
+    parts.forEach((g) => g.dispose());
+    return out;
+  }
+  function buildBuildings() {
+    mtx = new THREE.Matrix4();
+    const mat = Tabletop.mat.plastic(null, { vertexColors: true, roughness: 0.38 });
+    houses = new THREE.InstancedMesh(bldGeo(0.78, 0.72, 0.52, 0.42, '#36b860', '#1e7a3f'), mat, 40);
+    hotels = new THREE.InstancedMesh(bldGeo(1.55, 0.86, 0.74, 0.5, '#e0453a', '#9b1f17'), mat, 16);
+    for (const m of [houses, hotels]) { m.count = 0; m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; kit.add(m); }
+  }
+  let mtx = null;
+  function layoutBuildings() {
+    let nh = 0, nt = 0;
+    const q = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    for (const i of M.OWNABLE) {
+      const h = drawn[i] || 0;
+      if (!h || M.SPACES[i].type !== 'street') continue;
+      const b = bandU(i), along = b.w > b.h, cx = wu(b.x + b.w / 2), cz = wu(b.y + b.h / 2);
+      q.setFromAxisAngle(up, along ? 0 : Math.PI / 2);
+      const n = h === 5 ? 1 : h;
+      for (let k = 0; k < n; k++) {
+        const off = (k - (n - 1) / 2) * 0.95, dy = drops.get(i + ':' + (h === 5 ? 'h' : k)) || 0;
+        pos.set(cx + (along ? off : 0), BH + dy, cz + (along ? 0 : off));
+        mtx.compose(pos, q, s1);
+        if (h === 5) hotels.setMatrixAt(nt++, mtx); else houses.setMatrixAt(nh++, mtx);
+      }
+    }
+    houses.count = nh; hotels.count = nt;
+    houses.instanceMatrix.needsUpdate = true; hotels.instanceMatrix.needsUpdate = true;
+    kit.invalidate();
+  }
+  // A space lights up: a tinted sheet laid on it, faded by a tween (the 2D board's ::after flash).
+  function flash(i, color, kf, ms) {
+    let f = flashes.find((m) => !m.visible);
+    if (!f) {
+      const g = new THREE.PlaneGeometry(1, 1); g.rotateX(-Math.PI / 2);
+      f = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      f.renderOrder = 2; kit.add(f); flashes.push(f);
+    }
+    const b = cellU(i);
+    f.scale.set(b.w * E, 1, b.h * E); f.position.set(wu(b.x + b.w / 2), BH + 0.02, wu(b.y + b.h / 2));
+    f.material.color = Tabletop.col(color.hex); f.material.opacity = 0; f.visible = true;
+    kit.tween({ ms, ease: 'linear', update: (k) => { f.material.opacity = color.a * kf(k); }, done: () => { f.visible = false; } });
+  }
+  function parseColor(c) {
+    const m = /rgba?\(([^)]+)\)/.exec(c || '');
+    if (m) { const v = m[1].split(',').map((s) => +s.trim()); return { hex: '#' + v.slice(0, 3).map((n) => Math.round(n).toString(16).padStart(2, '0')).join(''), a: v[3] == null ? 1 : v[3] }; }
+    return { hex: c || '#ffe06e', a: 1 };
+  }
+
+  // ---- where a pawn stands (tokenXY of the 2D board, in centimetres). One pawn stands in the middle of
+  // the space's body; several form a staggered queue along the long axis so every head stays in view.
+  function tokenPos(p, i, inJail, others) {
+    const list = others.slice().sort((a, z) => a - z);
+    const k = Math.max(0, list.indexOf(p)), n = Math.max(1, list.length);
+    const b = cellU(i);
+    if (i === M.JAIL) {
+      if (inJail) {
+        const cols = Math.min(n, 2), gx = (k % 2) - 0.5 * (cols - 1), gy = Math.floor(k / 2) - 0.5 * (Math.ceil(n / 2) - 1);
+        return [wu(b.x + b.w * 0.68) + gx * 1.7, wu(b.y + b.h * 0.45) + gy * 1.25];
+      }
+      // Just visiting: a queue down the middle of the lane on the outer side, a pawn's width apart while
+      // three fit (the lane is 2.2 cm wide, a pawn's foot 1.8), closer beyond that.
+      const step = n > 1 ? Math.min(1.9, (b.h * E - 2) / (n - 1)) : 0;
+      return [wu(b.x + b.w * 0.18), wu(b.y + b.h / 2) + (k - (n - 1) / 2) * step];
+    }
+    const bd = bodyU(i), cx = wu(bd.x + bd.w / 2), cz = wu(bd.y + bd.h / 2);
+    if (n === 1) return [cx, cz];
+    const vert = b.h > b.w, long = (vert ? bd.h : bd.w) * E - 1.9;
+    const d = Math.min(1.35, long / (n - 1)), pp = (k % 2 ? 1 : -1) * Math.min(0.75, (vert ? bd.w : bd.h) * E * 0.18);
+    const along = (k - (n - 1) / 2) * d;
+    return vert ? [cx + pp, cz + along] : [cx + along, cz + pp];
+  }
+  const spd = () => o.speed();
+  const instant = () => spd() < 0.05 || o.reduced() || kit.reducedMotion;
+
+  // ---- projection: the board's own points, through the camera, to client pixels
+  let v3 = null;
+  function syncCam() {
+    const c = kit.rig.state, cp = Math.cos(c.pitch), cam = kit.camera;
+    cam.position.set(c.tx + c.dist * cp * Math.sin(c.yaw), c.dist * Math.sin(c.pitch), c.tz + c.dist * cp * Math.cos(c.yaw));
+    cam.lookAt(c.tx, 0, c.tz); cam.updateMatrixWorld();
+  }
+  function corners(x0, y0, x1, y1) {
+    syncCam();
+    const r = canvas.getBoundingClientRect();
+    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(([ux, uy]) => {
+      v3.set(wu(ux), BH, wu(uy)).project(kit.camera);
+      return { x: r.left + ((v3.x + 1) / 2) * r.width, y: r.top + ((1 - v3.y) / 2) * r.height };
+    });
+  }
+  const rect = (l, t, r, b) => ({ left: l, top: t, right: r, bottom: b, width: Math.max(0, r - l), height: Math.max(0, b - t), x: l, y: t });
+  function bounds(pts) { const xs = pts.map((q) => q.x), ys = pts.map((q) => q.y); return rect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)); }
+  // The largest upright rectangle inside a projected quad (far edge, near edge): the angled view draws the
+  // centre as a trapezoid, and the overlays must sit on the centre, not spill over the far spaces.
+  function inside(q) { return rect(Math.max(q[0].x, q[3].x), Math.max(q[0].y, q[1].y), Math.min(q[1].x, q[2].x), Math.min(q[2].y, q[3].y)); }
+  function spaceRect(i) { const b = cellU(i); return bounds(corners(b.x, b.y, b.x + b.w, b.y + b.h)); }
+  const centreRect = () => inside(corners(1.5, 1.5, 10.5, 10.5));
+  const textRect = () => inside(corners(TEXT.x0, TEXT.y0, TEXT.x1, TEXT.y1));
+
+  // ---- mount
+  function tap(x, y) {
+    const hit = kit.pick.at(x, y);
+    if (!hit || hit.i == null || !o) return;
+    // The kit reports a tap on pointer-up, and the browser still sends that press's click afterwards, to
+    // whatever is under the finger by then: the card that just opened, whose backdrop closes on a click.
+    // On a phone that shut most cards as they opened, so the one click this tap still owes is dropped.
+    const kill = (e) => { e.stopPropagation(); e.preventDefault(); off(); };
+    const off = () => { removeEventListener('click', kill, true); clearTimeout(t); };
+    addEventListener('click', kill, true);
+    const t = setTimeout(off, 600);
+    o.onTap(hit.i);
+  }
+  function build() {
+    let q = null;
+    try { q = new URLSearchParams(location.search).get('q'); } catch (e) { /* ignore */ }
+    canvas = document.createElement('canvas');
+    canvas.id = 'c3d';
+    canvas.setAttribute('aria-label', 'The City Tycoon board in 3D: tap a space for its deed. Drag to tilt, pinch to zoom.');
+    host.appendChild(canvas);
+    const k = Tabletop.create({ canvas, quality: q || 'auto', onTap: tap, onLost: () => { if (o && o.onLost) o.onLost(); } });
+    if (!k.ok) { canvas.remove(); canvas = null; throw new Error(k.reason); }
+    kit = k; THREE = kit.THREE; v3 = new THREE.Vector3();
+    kit.setDesk({ w: 82, d: 72 });
+    slab = kit.board({ w: B, d: B, h: BH, radius: 1.0, bevel: 0.3, draw: drawFace, side: Tabletop.mat.paintedWood('#E2B987') });
+    kit.add(slab);
+    // Tap targets: an invisible sheet over each space (and one over the centre, so a tap there opens
+    // nothing). A ray hit wins; a tap just off the board goes to the nearest space within the kit's radius.
+    const pg = new THREE.PlaneGeometry(1, 1); pg.rotateX(-Math.PI / 2);
+    const pm = new THREE.MeshBasicMaterial({ visible: false });
+    for (const s of M.SPACES) {
+      const b = cellU(s.i), m = new THREE.Mesh(pg, pm);
+      m.scale.set(b.w * E, 1, b.h * E); m.position.set(wu(b.x + b.w / 2), BH + 0.05, wu(b.y + b.h / 2));
+      kit.add(m); kit.pick.add(m, { i: s.i }); proxies.push(m);
+    }
+    const cm = new THREE.Mesh(pg, pm); cm.scale.set(9 * E, 1, 9 * E); cm.position.set(0, BH + 0.05, 0); kit.add(cm); kit.pick.add(cm, { centre: true });
+    buildPawns();
+    buildBuildings();
+    for (let d = 0; d < 2; d++) { const die = kit.makeDie({ size: 2.7, baseY: BH }); kit.add(die.mesh); dice.push(die); }
+    restDice([5, 3]);
+    kit.rig.setYaw(0, true);
+    kit.rig.fit({ w: B + 1, d: B + 1, h: 3, instant: true });
+    // The overlays follow the board while the camera moves (a view change, a drag, a pinch).
+    let camKey = '';
+    kit.onFrame(() => {
+      const c = kit.rig.state, key = [c.yaw, c.pitch, c.dist, c.tx, c.tz, canvas.clientWidth, canvas.clientHeight].map((v) => v.toFixed(3)).join();
+      if (key !== camKey) { camKey = key; if (o && o.onView) o.onView(); }
+      syncBones();
+      return false;
+    });
+    // The board prints in the display font once it has arrived (offline, Georgia stays).
+    try { document.fonts.load('40px "Rozha One"').then(() => { centreArt = null; if (slab) slab.userData.repaint(); }, () => {}); } catch (e) { /* no font loading API */ }
+  }
+  const DICE_REST = [[-1.9, 0], [1.9, 0.5]];
+  function restDice(d) {
+    dice.forEach((die, k) => { die.mesh.position.set(DICE_REST[k][0], die.restY, wu(DICE_Y) + DICE_REST[k][1]); die.show(d[k], 0.35 + k * 0.5); });
+  }
+  function mount(h, opts) {
+    host = h; o = opts;
+    host.innerHTML = '';
+    if (!kit) build(); else host.appendChild(canvas);
+    kit.resize();
+    kit.invalidate();
+  }
+  function unmount() {
+    if (kit) kit.finishAll();
+    anim.length = 0;
+    if (host) { host.style.removeProperty('width'); host.style.removeProperty('height'); }
+  }
+  function resize(bs, w) {
+    lastBs = bs;
+    host.style.width = (w || bs) + 'px'; host.style.height = bs + 'px';
+    const r = bs / 12 >= 40;            // the 2D board's rule: from 40 px an edge space has room for a name
+    if (r !== roomy) { roomy = r; centreArt = null; repaint(); }
+    kit.resize();
+  }
+  function reset() {
+    if (kit) kit.finishAll();
+    drawn.length = 0; drops.clear();
+    for (let p = 0; p < 6; p++) { pawnAt[p] = undefined; anim[p] = false; }
+    if (houses) layoutBuildings();
+  }
+  function drawSpaceState(S, i) {
+    if (!M.isOwnable(i)) return;
+    const st = { own: S.own[i], mort: !!S.mort[i] }, was = printed[i];
+    if (!was || was.own !== st.own || was.mort !== st.mort) { printed[i] = st; repaint(); }
+    if (M.SPACES[i].type !== 'street') return;
+    const h = S.houses[i], before = drawn[i] == null ? h : drawn[i];
+    if (drawn[i] === h) return;
+    drawn[i] = h;
+    // New buildings drop onto the band and bounce, one after another.
+    if (h > before && !instant()) {
+      const keys = h === 5 ? ['h'] : Array.from({ length: h - before }, (_, k) => before + k);
+      keys.forEach((kk, j) => {
+        const key = i + ':' + kk, ms = 420 * spd(), delay = j * 70 * spd(), top = 5;
+        drops.set(key, top);
+        kit.tween({ ms: ms + delay, ease: 'linear', update: (t, raw) => {
+          const u = Math.max(0, Math.min(1, (raw * (ms + delay) - delay) / ms));
+          drops.set(key, top * (1 - Tabletop.ease.outBounce(u)));
+          layoutBuildings();
+        }, done: () => { drops.delete(key); layoutBuildings(); } });
+      });
+    }
+    layoutBuildings();
+  }
+  function syncBones() {
+    for (let p = 0; p < bones.length; p++) {
+      const b = bones[p], pc = pieces[p];
+      if (hidden[p]) { b.position.set(0, -6, 0); b.scale.setScalar(0.001); } else { b.position.copy(pc.position); b.scale.copy(pc.scale); b.rotation.copy(pc.rotation); }
+    }
+    if (curP >= 0 && ring.visible) ring.position.set(pieces[curP].position.x, BH + 0.03, pieces[curP].position.z);
+  }
+  function setBone(p, x, z, show) {
+    hidden[p] = !show;
+    if (show) { pieces[p].position.set(x, BH, z); pieces[p].scale.setScalar(1); }
+    syncBones();
+  }
+  function drawTokens(S, at) {
+    nPlayers = S.players.length;
+    curP = S.phase !== 'over' ? S.cur : -1;
+    S.players.forEach((P, p) => {
+      const a = at[p] || { i: P.pos, jail: P.jail };
+      const here = S.players.map((Q, q) => q).filter((q) => !S.players[q].out && at[q] && at[q].i === a.i && at[q].jail === a.jail);
+      const [x, z] = tokenPos(p, a.i, a.jail, here);
+      if (P.out) { setBone(p, 0, 0, false); pawnAt[p] = undefined; return; }
+      if (anim[p]) return;
+      const b = pieces[p], prev = pawnAt[p];
+      pawnAt[p] = [x, z];
+      if (!prev || instant() || hidden[p]) setBone(p, x, z, true);
+      else if (Math.hypot(b.position.x - x, b.position.z - z) > 0.01) {
+        const x0 = b.position.x, z0 = b.position.z;
+        kit.tween({ ms: 170 * Math.max(0.3, spd()), ease: 'outCubic', update: (k) => b.position.set(x0 + (x - x0) * k, BH, z0 + (z - z0) * k) });
+      }
+    });
+    for (let p = S.players.length; p < 6; p++) setBone(p, 0, 0, false);
+    const show = curP >= 0 && !S.players[curP].out;
+    ring.visible = show;
+    syncBones();
+    kit.invalidate();
+  }
+  // Hop square by square, a squash on each landing (the kit's hop); a long trip hops lower and quicker.
+  async function moveToken(p, from, path) {
+    if (!path.length) return;
+    const b = pieces[p];
+    const pts = [[b.position.x, BH, b.position.z]].concat(path.map((i) => { const [x, z] = tokenPos(p, i, false, [p]); return [x, BH, z]; }));
+    const last = pts[pts.length - 1];
+    if (instant()) { b.position.set(last[0], BH, last[2]); pawnAt[p] = [last[0], last[2]]; syncBones(); kit.invalidate(); if (o.reduced()) await new Promise((r) => setTimeout(r, 90 * path.length * spd())); return; }
+    const long = path.length > 12;
+    anim[p] = true;
+    try { await kit.hop(b, pts, { height: long ? 1.3 : 2.1, stepMs: (long ? 70 : 150) * spd(), squash: 0.16 }); }
+    finally { anim[p] = false; pawnAt[p] = [last[0], last[2]]; }
+  }
+  async function jumpToken(p, from, to) {
+    const b = pieces[p], [x, z] = tokenPos(p, to, true, [p]);
+    if (instant()) { b.position.set(x, BH, z); pawnAt[p] = [x, z]; syncBones(); kit.invalidate(); return; }
+    anim[p] = true;
+    try { await kit.fly(b, [x, BH, z], { height: 12, ms: 650 * spd() }); }
+    finally { anim[p] = false; pawnAt[p] = [x, z]; }
+  }
+  // Two real dice thrown from the mover's side of the board, tumbling onto the faces the game rolled.
+  async function rollDice(d) {
+    if (instant()) { restDice(d); if (o.reduced()) await new Promise((r) => setTimeout(r, 250)); return; }
+    const src = curP >= 0 ? pieces[curP].position : { x: 0, z: 20 };
+    const fx = Math.max(-16, Math.min(16, src.x)) * 0.55, fz = Math.max(-16, Math.min(16, src.z)) * 0.55;
+    const ms = 760 * spd();
+    await Promise.all(dice.map((die, k) => die.roll(d[k], {
+      from: [fx + (k ? 1.6 : -1.6), fz], to: [DICE_REST[k][0] + (Math.random() - 0.5) * 0.8, wu(DICE_Y) + DICE_REST[k][1] + (Math.random() - 0.5) * 0.6],
+      ms: ms * (k ? 1.06 : 1), height: 6, yaw: (Math.random() - 0.5) * 0.7,
+    })));
+    await new Promise((r) => setTimeout(r, 120 * spd()));
+  }
+  function setDice(d) { if (dice.length) restDice(d); }
+  function pulse(i) {
+    if (o.reduced() || spd() < 0.05) return;
+    flash(i, { hex: '#ffe06e', a: 0.7 }, (k) => 1 - k, 550);
+  }
+  function glow(list, color, ms) {
+    if (spd() < 0.05) return;
+    const c = parseColor(color);
+    for (const j of list) flash(j, { hex: c.hex, a: 0.8 }, (k) => (k < 0.25 ? k / 0.25 : k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3), ms);
+  }
+  return {
+    mount, unmount, resize, reset, drawSpace: drawSpaceState, drawTokens, moveToken, jumpToken, rollDice, setDice, pulse, glow,
+    spaceRect, centreRect, textRect,
+    // the size of an edge space where the shared text sits, which the overlays scale their type by
+    hudUnit: () => Math.max(20, centreRect().width / 9),
+    wideStage: true,
+    setCam: (name, inst) => { kit.rig.setView(name, { instant: inst }); },
+    get cam() { return kit ? kit.rig.view : 'angled'; },
+    get kit() { return kit; },
+    bones: () => bones,
+  };
+}
 const board = $('board');
-const view = makeDomBoard();
+const domView = makeDomBoard();
+let view = domView;       // the board view in use: domView, or tableView once the 3D board is on
+let tableView = null;
 const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 // The board prints full names. Soft hyphens mark where a long word may break when a space is narrow.
 const BOARD_NAME = { 3: 'Godow­lia', 6: 'Amina­bad', 9: 'Hazrat­ganj', 16: 'Char­minar', 23: 'Espla­nade',
@@ -2111,9 +2825,15 @@ function layout() {
   const e = Math.max(20, Math.floor(bs / 12));
   const r = document.documentElement.style;
   r.setProperty('--e', e + 'px'); r.setProperty('--c', e * 1.5 + 'px'); r.setProperty('--bs', e * 12 + 'px');
-  view.resize(bs);
+  // On a phone held sideways the 3D view takes width from the side column (down to its 250 px floor):
+  // a tilted board is wider than it is tall, and in the bare square it drew about 330 x 210 at 844 x 390.
+  const stageW = !port && view.wideStage ? Math.max(bs, W - 12 - 8 - Math.max(250, Math.min(460, Math.round(W * 0.4)))) : bs;
+  view.resize(bs, stageW);
   if (S) { renderBoard(); view.drawTokens(S, tokAt); }
   placeHud();
+  const top = $('top'), logo = top.querySelector('.logo');
+  top.classList.remove('tight');
+  if (logo.scrollWidth > logo.clientWidth + 1) top.classList.add('tight');
   // The log fills whatever height is left under the buttons; below 60 px it is a sliver, so it goes.
   requestAnimationFrame(() => { const lb = $('logbox'); lb.classList.remove('tiny'); if (lb.getBoundingClientRect().height < 60) lb.classList.add('tiny'); });
 }
@@ -2123,6 +2843,8 @@ function placeHud() {
   const c = view.centreRect(), t = view.textRect(), hud = $('hud'), tx = $('hudtext');
   Object.assign(hud.style, { left: c.left + 'px', top: c.top + 'px', width: c.width + 'px', height: c.height + 'px' });
   Object.assign(tx.style, { left: (t.left - c.left) + 'px', top: (t.top - c.top) + 'px', width: t.width + 'px', height: t.height + 'px' });
+  // The 3D board reports how big an edge space looks where the text sits; the overlays' type follows it.
+  if (view.hudUnit) hud.style.setProperty('--e', view.hudUnit() + 'px'); else hud.style.removeProperty('--e');
 }
 
 // ---------------------------------------------------------------- rendering
@@ -2714,6 +3436,7 @@ $('menuBtn').addEventListener('click', () => {
     row('Rules', openRules);
     row('Game log', () => openSheet('Game log', (bb) => { bb.innerHTML = (S ? S.log.slice().reverse() : []).map((l) => '<div class="muted" style="color:var(--fg)">' + esc(l) + '</div>').join(''); }));
     row(opts.fast ? 'Speed: fast (tap for normal)' : 'Speed: normal (tap for fast)', () => { opts.fast = !opts.fast; SPEED = opts.fast ? 0.5 : 1; saveOpts(); closeSheet(); });
+    if (can3d()) row(view === tableView ? 'Board: 3D table (tap for flat 2D)' : 'Board: flat 2D (tap for the 3D table)', () => { closeSheet(); setDim(view === tableView ? '2d' : '3d', true); });
     row('New game', () => confirmSheet('Start a new game?', 'This game will be lost.', 'New game', toSetup));
     if (S) b.insertAdjacentHTML('beforeend', '<p class="muted" style="margin:0">Round ' + S.round + (S.opts.rounds ? ' of ' + S.opts.rounds : '') + ' · the game saves itself after every move.</p>');
   });
@@ -2805,11 +3528,70 @@ function begin(state) {
   saveGame(); render(); schedule();
 }
 
+// ---------------------------------------------------------------- 2D or 3D
+// The 3D table is the default wherever WebGL works. The flat 2D board stays as the fallback (no WebGL,
+// ?no3d, a lost context, anything throwing while the scene is built) and as a choice in the menu. The
+// choice and the camera are remembered in dgames.city-tycoon.view, apart from the game's save. A portrait
+// phone opens top-down -- the angled view foreshortens the far row to a few pixels a space -- and
+// everything else angled, as Ludo does.
+const VIEW_KEY = 'dgames.city-tycoon.view';
+const viewPref = (() => { try { const v = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch (e) { return {}; } })();
+const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(viewPref)); } catch (e) { /* ignore */ } };
+const portraitPhone = () => innerHeight > innerWidth && innerWidth < 700;
+const camDefault = () => viewPref.cam || (portraitPhone() ? 'top' : 'angled');
+// ?no3d asks for the 2D board outright (the switch for testing the fallback), so it is no failure to report.
+let no3d = !window.Tabletop || /[?&]no3d\b/.test(location.search);
+const can3d = () => !no3d;
+const mountOpts = { onTap: (i) => openSpace(i), speed: () => SPEED, reduced: () => RM.matches, onView: () => placeHud(),
+  onLost: () => { no3d = true; setDim('2d', false); } };
+function setDim(dim, remember) {
+  // Never mid-animation: the old view's hops and dice would be awaited on a board that is gone.
+  if (busy) { setTimeout(() => setDim(dim, remember), 120); return; }
+  let next = domView;
+  if (dim === '3d' && can3d()) { if (!tableView) tableView = makeTableBoard(); next = tableView; }
+  if (next !== view || !board.firstChild) {
+    if (view.unmount) view.unmount();
+    board.classList.toggle('t3d', next === tableView);
+    try { next.mount(board, mountOpts); } catch (e) {
+      // Anything that goes wrong building the scene leaves the 2D game playable rather than a blank board.
+      try { console.warn('3D board failed, using 2D:', e); } catch (e2) { /* ignore */ }
+      no3d = true; next = domView; board.classList.remove('t3d'); next.mount(board, mountOpts);
+    }
+    view = next;
+  }
+  document.body.classList.toggle('t3d', view === tableView);
+  if (remember) { viewPref.dim = view === tableView ? '3d' : '2d'; saveView(); }
+  if (view === tableView) view.setCam(camDefault(), true);
+  viewButton();
+  view.reset();
+  layout();
+  view.setDice(S && S.dice[0] ? S.dice : [5, 3]);
+  if (S) render();
+}
+function setCam(name, remember) {
+  if (view !== tableView) return;
+  view.setCam(name, false);
+  if (remember) { viewPref.cam = name; saveView(); }
+  viewButton();
+}
+// One button in the header: on the 3D board it flips the camera (Top / Angled, as in Ludo); on the 2D
+// board it brings the 3D one back. The 2D choice itself lives in the menu, which keeps the header to the
+// logo and two buttons -- three did not fit beside the logo on a phone held sideways.
+function viewButton() {
+  const b = $('viewBtn');
+  if (view === tableView) {
+    const top = tableView.cam === 'top';
+    b.hidden = false; b.textContent = top ? 'Angled' : 'Top';
+    b.setAttribute('aria-label', top ? 'Tilt the camera to an angled view' : 'Look straight down at the board');
+  } else { b.hidden = !can3d(); b.textContent = '3D'; b.setAttribute('aria-label', 'Show the 3D board'); }
+}
+$('viewBtn').addEventListener('click', () => { if (view === tableView) setCam(tableView.cam === 'top' ? 'angled' : 'top', true); else setDim('3d', true); });
+
 // ---------------------------------------------------------------- boot
-view.mount(board, { onTap: (i) => openSpace(i), speed: () => SPEED, reduced: () => RM.matches });
 window.addEventListener('resize', layout);
-layout();
-view.setDice([5, 3]);
+// Turning a phone over changes the default camera, unless someone picked one.
+window.addEventListener('resize', () => { if (view === tableView && !viewPref.cam) setCam(camDefault(), false); });
+setDim(viewPref.dim === '2d' ? '2d' : '3d', false);
 buildSetup();
 
 // Test hook: lets a script start a seeded game, hand every human seat to the Hard computer and run at
@@ -2821,7 +3603,8 @@ window.__cityTycoonUI = {
   setSpeed: (s) => { SPEED = s; },
   act: (fn) => act(() => fn(S, M)),
   pump: () => pump(),
-  openSpace, openTrade, openAssets, openOffer, showWin, closeSheet, layout, view,
+  openSpace, openTrade, openAssets, openOffer, showWin, closeSheet, layout, setDim, setCam,
+  get view() { return view; }, get tableView() { return tableView; }, get domView() { return domView; },
   get busy() { return busy; },
 };
 </script>
