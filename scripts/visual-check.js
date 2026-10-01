@@ -64,6 +64,11 @@ const GAMES = [
   { name: 'mahanagar', file: 'mahanagar/index.html', enter: async (p) => { await p.click('#go'); await p.waitForTimeout(900); } },
   // Life Journey opens on its setup screen; Start puts the first player at the Start fork with the road choice open.
   { name: 'life-journey', file: 'life-journey/index.html', enter: async (p) => { await p.click('#btnStart'); await p.waitForTimeout(900); } },
+  // Wordsmith opens on its setup card; Start waits for the dictionary to unpack, then the board with your rack.
+  { name: 'wordsmith', file: 'wordsmith/index.html', enter: async (p) => {
+      await p.waitForFunction(() => !document.getElementById('sStart').disabled, null, { timeout: 15000 }).catch(() => {});
+      await p.click('#sStart'); await p.waitForTimeout(900);
+    } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,

@@ -1,0 +1,2164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#0f1817">
+<link rel="icon" href="../icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="dgames">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+  /* Installable, and playable with no network once a game has been opened. Registered from every page so
+     a deep link into one game works offline too, not only a visit that started at the launcher. Over
+     file:// there is no service worker and register() rejects; the catch keeps that silent. */
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('../sw.js').catch(() => {}));
+</script>
+<meta name="description" content="Wordsmith: a crossword tile game. Build words on a 15x15 board against one to three computer opponents or friends on the same device. Offline dictionary of 168,000 words.">
+<title>Wordsmith</title>
+<style>
+  /* No web font: the page has to look the same offline on first open. Tiles use the system UI face in
+     bold; the one word of title is a serif from the OS. */
+  :root {
+    --bg: #0f1817; --bg2: #172624; --fg: #ece6d8; --muted: #9ba7a1; --line: rgba(255, 255, 255, .1);
+    --btn: rgba(255, 255, 255, .07); --btn2: rgba(255, 255, 255, .14); --brass: #e5b46c; --brass2: #c58f45;
+    --good: #86d6ab; --bad: #ff9584;
+    --frame: #10221f; --sq: #1c3936; --dl: #4a8ba3; --tl: #2b5f84; --dw: #b67468; --tw: #a2463a;
+    --t1: #fcf4df; --t2: #ead6a9; --ink: #33261a;
+    --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --bs: 360px; --cell: 23px; --pad: 6px; --rt: 46px;
+    --hs-bg: #1b2d2a; --hs-line: rgba(255, 255, 255, .14); --hs-accent: #e5b46c; --hs-fg: #ece6d8; --hs-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; color: var(--fg); font-family: var(--ui); overscroll-behavior: none;
+    background: radial-gradient(120% 90% at 50% 0%, #1b2c2a 0%, var(--bg) 60%) fixed, var(--bg); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  .b { min-height: 44px; min-width: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--btn); font-weight: 600; font-size: 15px; }
+  .b:not(:disabled):hover { background: var(--btn2); }
+  .b.primary { background: linear-gradient(180deg, #edc27f, var(--brass2)); color: #2a1d0e; border-color: transparent; }
+  .b.primary:not(:disabled):hover { background: linear-gradient(180deg, #f3cd8f, #cf9a50); }
+  .b:focus-visible, .seg button:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+  /* ---- frame: layout() in the script sets the sizes and portrait/landscape ---- */
+  #app { position: fixed; inset: 0; display: flex; gap: 8px; touch-action: none; user-select: none; -webkit-user-select: none;
+    padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); }
+  #app.portrait { flex-direction: column; align-items: center; }
+  #app.landscape { flex-direction: row; justify-content: center; align-items: center; }
+  #side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  #app.portrait #side { display: contents; }
+  #app.portrait #top { order: 0; } #app.portrait #boardWrap { order: 1; } #app.portrait #log { order: 2; } #app.portrait #dock { order: 3; margin-top: auto; padding-bottom: min(3vh, 24px); }
+  #app.landscape #side { width: var(--sw); height: var(--bs); }
+  #top { display: flex; align-items: center; gap: 6px; height: 48px; flex: none; padding-left: 52px; width: 100%; }
+  #app.portrait #top { max-width: var(--bs); }
+  #players { flex: 1; min-width: 0; display: flex; gap: 6px; }
+  .pl { flex: 1 1 0; min-width: 0; height: 44px; border-radius: 12px; background: var(--btn); border: 1px solid transparent; padding: 3px 9px;
+    display: flex; flex-direction: column; justify-content: center; transition: border-color .25s, background .25s; }
+  .pl .nm { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+  .pl .sc { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .pl.on { border-color: rgba(229, 180, 108, .7); background: rgba(229, 180, 108, .12); }
+  .pl.on .nm { color: var(--brass); }
+  .pl .sc small { font-size: 11px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+  #app.landscape #top { height: auto; align-items: flex-start; }
+  #app.landscape #players { flex-direction: column; gap: 5px; }
+  #app.landscape .pl { flex: none; height: 40px; flex-direction: row; align-items: center; justify-content: space-between; }
+  #app.landscape .pl .nm { font-size: 14px; }
+  .iconbtn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--btn); display: grid; place-items: center; flex: none; padding: 0; }
+  .iconbtn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; }
+
+  /* ---- the board ---- */
+  #boardWrap { position: relative; width: var(--bs); height: var(--bs); flex: none; overflow: hidden; border-radius: 14px; touch-action: none;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255, 255, 255, .06); background: var(--frame); }
+  #board { position: absolute; left: 0; top: 0; width: var(--bs); height: var(--bs); padding: var(--pad); transform-origin: 0 0;
+    background: radial-gradient(120% 120% at 30% 20%, #17312d, var(--frame)); }
+  #board.anim { transition: transform .32s cubic-bezier(.2, .8, .2, 1); }
+  #grid { position: relative; display: grid; grid-template-columns: repeat(15, var(--cell)); grid-template-rows: repeat(15, var(--cell)); }
+  .sq { margin: calc(var(--cell) * .045); border-radius: calc(var(--cell) * .16); background: var(--sq); display: grid; place-items: center; overflow: hidden;
+    font-size: calc(var(--cell) * .31); font-weight: 700; letter-spacing: .02em; color: rgba(255, 255, 255, .9); line-height: 1;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04), inset 0 -1px 0 rgba(0, 0, 0, .18); }
+  .sq.p1 { background: var(--dl); } .sq.p2 { background: var(--tl); } .sq.p3 { background: var(--dw); } .sq.p4 { background: var(--tw); }
+  .sq .lb small { display: none; }
+  #board.roomy .sq .lb { font-size: .78em; text-align: center; }
+  .sq.star svg { width: 62%; height: 62%; fill: rgba(255, 244, 222, .92); }
+  .sq.drop { box-shadow: inset 0 0 0 2px var(--brass), 0 0 12px rgba(229, 180, 108, .6); }
+  #tiles { position: absolute; left: var(--pad); top: var(--pad); width: calc(var(--cell) * 15); height: calc(var(--cell) * 15); pointer-events: none; }
+  .bt { position: absolute; left: calc(var(--c) * var(--cell)); top: calc(var(--r) * var(--cell)); width: var(--cell); height: var(--cell);
+    padding: calc(var(--cell) * .035); font-size: var(--cell); }
+  .bt.pend { pointer-events: auto; cursor: grab; z-index: 2; }
+  .bt.pend .tile { box-shadow: 0 0 0 2px var(--brass), 0 3px 6px rgba(0, 0, 0, .45); }
+  .bt.last .tile::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 calc(var(--cell) * .07) rgba(229, 180, 108, .75); }
+  .bt.gone { visibility: hidden; }
+  #zoomBtn { color: var(--brass); border-color: rgba(229, 180, 108, .5); }
+  .pill { position: absolute; z-index: 6; transform: translate(-50%, -115%); background: var(--brass); color: #2a1d0e; font-weight: 800;
+    font-size: 13px; padding: 2px 8px; border-radius: 999px; pointer-events: none; box-shadow: 0 2px 6px rgba(0, 0, 0, .4); white-space: nowrap; }
+
+  /* ---- tiles (rack, board, drag ghost): sized by font-size, so one rule fits every size ---- */
+  .tile { position: relative; width: 100%; height: 100%; border-radius: 14%; display: grid; place-items: center; color: var(--ink);
+    background: linear-gradient(160deg, var(--t1) 0%, #f3e3bd 55%, var(--t2) 100%);
+    box-shadow: inset 0 -0.06em 0 rgba(150, 110, 50, .35), inset 0 0.04em 0 rgba(255, 255, 255, .8), 0 0.05em 0.1em rgba(0, 0, 0, .45); }
+  .tile b { font-size: .6em; font-weight: 750; line-height: 1; transform: translate(-0.04em, -0.02em); }
+  .tile i { position: absolute; right: 9%; bottom: 6%; font-size: .25em; font-style: normal; font-weight: 700; line-height: 1; opacity: .8; }
+  .tile.blank b { color: #2f6c73; }
+  .tile.blank.unset b { opacity: .0; }
+
+  /* ---- the dock: status, rack, actions ---- */
+  #dock { display: flex; flex-direction: column; gap: 8px; width: var(--bs); flex: none; }
+  #app.landscape #dock { width: 100%; margin-top: auto; }
+  #status { min-height: 22px; display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); padding: 0 4px; }
+  #status .msg { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #status .msg.err { color: var(--bad); }
+  #status.err .bag { display: none; }
+  .bt.shake { animation: shake .42s ease-in-out; }
+  @keyframes shake { 20% { transform: translateX(-9%); } 40% { transform: translateX(8%); } 60% { transform: translateX(-6%); } 80% { transform: translateX(4%); } }
+  #status .msg.ok { color: var(--fg); }
+  #status .bag { flex: none; font-variant-numeric: tabular-nums; }
+  #chal { min-height: 32px; height: 32px; font-size: 13px; padding: 0 10px; }
+  #rack { height: calc(var(--rt) + 10px); display: flex; justify-content: center; align-items: center; gap: calc(var(--rt) * .1); padding: 5px;
+    border-radius: 14px; background: linear-gradient(180deg, rgba(0, 0, 0, .18), rgba(0, 0, 0, .3)); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .4); touch-action: none; }
+  .rt { width: var(--rt); height: var(--rt); font-size: var(--rt); flex: none; cursor: grab; transition: transform .15s; position: relative; }
+  .rt.sel { transform: translateY(-14%); }
+  .rt.sel .tile { box-shadow: 0 0 0 3px var(--brass), 0 6px 12px rgba(0, 0, 0, .5); }
+  .rt.hole { opacity: 0; }
+  .rt.back .tile { background: linear-gradient(160deg, #3a5652, #27403c); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); }
+  .rt.back .tile b, .rt.back .tile i { display: none; }
+  .ghost { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; width: var(--gs); height: var(--gs); font-size: var(--gs);
+    margin: calc(var(--gs) / -2) 0 0 calc(var(--gs) / -2); filter: drop-shadow(0 8px 10px rgba(0, 0, 0, .45)); }
+  #actions { display: grid; grid-template-columns: 1fr 1fr 1fr 1.6fr; gap: 8px; }
+  #actions .b { padding: 0 6px; font-size: 14px; }
+  #playBtn .n { font-variant-numeric: tabular-nums; }
+
+  /* ---- overlays ---- */
+  .ov { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(6, 12, 11, .62); padding: 16px; backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+  .card { width: min(420px, 100%); max-height: calc(100% - 8px); overflow: auto; background: linear-gradient(180deg, #1d2f2c, #152321); border: 1px solid var(--line);
+    border-radius: 18px; padding: 20px; box-shadow: 0 24px 60px rgba(0, 0, 0, .5); }
+  .card h2 { margin: 0 0 4px; font-family: var(--serif); font-weight: 600; font-size: 26px; color: var(--brass); letter-spacing: .5px; }
+  .card h3 { margin: 16px 0 8px; font-size: 12px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .card p { margin: 6px 0; line-height: 1.45; color: #d9d3c6; font-size: 14.5px; }
+  .card .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 4px; }
+  .seg { display: flex; gap: 4px; padding: 4px; background: rgba(0, 0, 0, .25); border-radius: 12px; }
+  .seg button { flex: 1; min-height: 40px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 600; font-size: 14px; padding: 0 6px; }
+  .seg button.on { background: var(--btn2); color: var(--fg); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+  .names { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; }
+  .names input { width: 100%; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: rgba(0, 0, 0, .25); color: var(--fg); font: inherit; padding: 0 12px; font-size: 16px; }
+  .names input:focus { outline: none; border-color: var(--brass); }
+  .row { display: flex; gap: 8px; margin-top: 18px; }
+  .row .b { flex: 1; }
+  .hint { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 1.2em; }
+  .logo { font-family: var(--serif); font-size: 34px; margin: 0; color: var(--brass); letter-spacing: 1px; font-weight: 600; }
+  .logo-tiles { display: flex; gap: 4px; margin-bottom: 10px; }
+  .logo-tiles .tile { width: 30px; height: 30px; font-size: 30px; }
+  .grid-pick { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 10px; }
+  .grid-pick button { aspect-ratio: 1; min-height: 44px; border: 0; padding: 0; background: none; font-size: 44px; }
+  .grid-pick button .tile { font-size: inherit; }
+  .grid-pick button.on .tile { box-shadow: 0 0 0 3px var(--brass); transform: translateY(-3px); }
+  #exTiles { grid-template-columns: repeat(7, 1fr); }
+  table.res { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  table.res td { padding: 7px 4px; border-top: 1px solid var(--line); font-size: 14.5px; }
+  table.res td.n { text-align: right; }
+  table.res tr.win td { color: var(--brass); font-weight: 700; }
+  table.res td small { color: var(--muted); font-weight: 400; }
+  .menu { display: grid; gap: 8px; margin-top: 12px; }
+  .menu .b { text-align: left; }
+  .unseen { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .unseen span { font-size: 13px; padding: 4px 7px; border-radius: 7px; background: var(--btn); font-variant-numeric: tabular-nums; }
+  .unseen span b { color: var(--fg); margin-right: 3px; }
+  .hist { margin: 8px 0 0; padding: 0; list-style: none; font-size: 14px; }
+  .hist li { display: flex; gap: 8px; padding: 6px 2px; border-top: 1px solid var(--line); }
+  .hist li span:first-child { color: var(--muted); width: 6.5em; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hist li span:nth-child(2) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .hist li span:last-child { font-variant-numeric: tabular-nums; }
+  #hsTable { margin-top: 10px; }
+  /* overlays keep clear of the fixed back button: below it upright, beside it sideways */
+  @media (orientation: portrait) { .ov { padding-top: 60px; } }
+  @media (orientation: landscape) { .ov { padding-left: 60px; } }
+  /* setup: one column on a phone held upright; two side by side where the screen is wide but short */
+  .card.setup { display: grid; gap: 0 28px; }
+  .card.setup .sa { display: flex; flex-direction: column; }
+  .card.setup .wordsH { order: 0; }
+  @media (max-height: 700px) and (orientation: portrait) { .card.setup .sub, .card.setup .logo-tiles { display: none; } .card h3 { margin: 12px 0 6px; } }
+  @media (orientation: landscape) and (min-width: 600px) {
+    .card.setup { width: min(780px, 100%); grid-template-columns: 1fr 1fr; align-items: start; }
+  }
+  @media (orientation: landscape) and (max-height: 520px) {
+    .ov { padding: 8px 8px 8px 60px; }
+    .card { padding: 14px 18px; }
+    .card.setup .logo-tiles { display: none; }
+    .card.setup .logo { font-size: 28px; }
+    .card h3 { margin: 10px 0 6px; }
+    .card.setup .sb > h3:first-child { margin-top: 2px; }
+    .seg button { min-height: 40px; }
+    .row { margin-top: 12px; }
+  }
+  /* the move log only has room in the landscape side panel */
+  #log { display: none; }
+  #app.portrait.roomy #log { display: block; flex: 1 1 0; min-height: 0; overflow: hidden; width: var(--bs); margin: 4px 0 0; padding: 0 6px; list-style: none; font-size: 14px; color: var(--muted);
+    -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent); mask-image: linear-gradient(180deg, #000 60%, transparent); }
+  #app.landscape #log { display: block; flex: 1 1 auto; min-height: 0; overflow: hidden; margin: 2px 0 0; padding: 0 4px; list-style: none; font-size: 13.5px; color: var(--muted);
+    -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent); mask-image: linear-gradient(180deg, #000 70%, transparent); }
+  #log li { padding: 5px 0; border-top: 1px solid var(--line); display: flex; gap: 8px; }
+  #log li:first-child { border-top: 0; color: var(--fg); }
+  #log li b { font-weight: 600; color: var(--fg); }
+  #log li .who { flex: none; width: 4.6em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #log li .pts { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+  /* ---- moments ---- */
+  .float { position: absolute; z-index: 8; pointer-events: none; font-weight: 800; color: #fff3d6; text-shadow: 0 2px 8px rgba(0, 0, 0, .65);
+    font-size: 26px; transform: translate(-50%, -50%); animation: rise 1.5s ease-out forwards; white-space: nowrap; }
+  .float.big { font-size: 38px; color: var(--brass); }
+  @keyframes rise { 0% { opacity: 0; transform: translate(-50%, -20%) scale(.7); } 15% { opacity: 1; transform: translate(-50%, -60%) scale(1.06); }
+    70% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -150%) scale(1); } }
+  #bingo { position: fixed; z-index: 30; pointer-events: none; display: grid; place-items: center; }
+  #bingo .word { font-family: var(--serif); font-size: var(--bf, 80px); padding: .35em .6em; border-radius: 24px; background: radial-gradient(closest-side, rgba(8, 16, 15, .82), rgba(8, 16, 15, .55) 70%, transparent); font-weight: 700; color: var(--brass); letter-spacing: .08em;
+    text-shadow: 0 4px 24px rgba(0, 0, 0, .6); animation: bingo 2.2s cubic-bezier(.2, .8, .2, 1) forwards; text-align: center; line-height: 1; }
+  #bingo .word small { display: block; font-family: var(--ui); font-size: .24em; letter-spacing: .08em; color: #fff3d6; margin-top: .45em; font-weight: 600; }
+  @keyframes bingo { 0% { opacity: 0; transform: scale(.6); } 18% { opacity: 1; transform: scale(1.04); } 30% { transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: scale(1.02); } }
+  .spark { position: fixed; width: 10px; height: 10px; border-radius: 2px; z-index: 31; pointer-events: none; animation: spark 1.4s ease-out forwards; }
+  @keyframes spark { 0% { transform: translate(0, 0) rotate(0); opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0; } }
+  .thinking::after { content: ""; display: inline-block; width: 1.2em; text-align: left; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  @media (prefers-reduced-motion: reduce) { .float, #bingo .word, .spark { animation-duration: .01s; } #board.anim { transition: none; } }
+</style>
+</head>
+<body>
+<style>
+  /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
+     ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
+     A dark disc with a light ring reads on a bright pastel scene and on a black one without being
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
+  .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
+    font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
+</style>
+<a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
+<div id="app" class="portrait">
+  <div id="side">
+    <header id="top">
+      <div id="players"></div>
+<button class="iconbtn" id="zoomBtn" aria-label="Zoom out" title="Zoom out" hidden><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 20 20M7.5 10.5h6"/></svg></button>
+      <button class="iconbtn" id="menuBtn" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    </header>
+    <ol id="log" aria-label="Moves"></ol>
+    <div id="dock">
+      <div id="status"><span class="msg" id="msg"></span><button class="b" id="chal" hidden>Challenge</button><span class="bag" id="bag"></span></div>
+      <div id="rack" aria-label="Your tiles"></div>
+      <div id="actions">
+        <button class="b" id="mixBtn">Shuffle</button>
+        <button class="b" id="swapBtn">Swap</button>
+        <button class="b" id="passBtn">Pass</button>
+        <button class="b primary" id="playBtn">Play</button>
+      </div>
+    </div>
+  </div>
+  <div id="boardWrap">
+    <div id="board"><div id="grid"></div><div id="tiles"></div></div>
+  </div>
+</div>
+
+<div class="ov" id="setup" hidden>
+  <div class="card setup">
+   <div class="sa">
+    <div class="logo-tiles" id="logoTiles"></div>
+    <h1 class="logo">Wordsmith</h1>
+    <p class="sub">Build crossing words on a 15×15 board. Long words, high letters and the coloured squares score big.</p>
+    <h3 class="wordsH">Words</h3>
+    <div class="seg" id="sRules"><button data-v="casual" class="on">Checked</button><button data-v="challenge">Challenge</button></div>
+    <div class="hint" id="sRulesHint"></div>
+   </div>
+   <div class="sb">
+    <h3>Opponents</h3>
+    <div class="seg" id="sMode"><button data-v="cpu" class="on">Computer</button><button data-v="pnp">Pass and play</button></div>
+    <div id="sCpu">
+      <h3>How many</h3>
+      <div class="seg" id="sCount"><button data-v="1" class="on">1</button><button data-v="2">2</button><button data-v="3">3</button></div>
+      <h3>Level</h3>
+      <div class="seg" id="sLevel"><button data-v="easy">Easy</button><button data-v="medium" class="on">Medium</button><button data-v="hard">Hard</button></div>
+    </div>
+    <div id="sPnp" hidden>
+      <h3>Players</h3>
+      <div class="seg" id="sPlayers"><button data-v="2" class="on">2</button><button data-v="3">3</button><button data-v="4">4</button></div>
+      <div class="names" id="sNames" style="margin-top:8px"></div>
+    </div>
+    <div class="row"><button class="b" id="sResume" hidden>Resume</button><button class="b primary" id="sStart" disabled>Loading words</button></div>
+    <div class="hint" id="sNote"></div>
+   </div>
+  </div>
+</div>
+
+<div class="ov" id="handoff" hidden>
+  <div class="card" style="text-align:center">
+    <h2 id="hoTitle"></h2>
+    <p id="hoLast"></p>
+    <p class="sub">Tiles stay hidden until the next player is holding the device.</p>
+    <div class="row"><button class="b primary" id="hoGo">Show my tiles</button></div>
+  </div>
+</div>
+
+<div class="ov" id="chalOv" hidden>
+  <div class="card" style="text-align:center">
+    <h2>Challenge?</h2>
+    <p id="chText"></p>
+    <p class="sub">A wrong word comes off the board and scores nothing. A good word earns its player 5 more points.</p>
+    <div class="row"><button class="b" id="chNo">Accept</button><button class="b primary" id="chYes">Challenge</button></div>
+  </div>
+</div>
+
+<div class="ov" id="blankOv" hidden>
+  <div class="card">
+    <h2>Blank tile</h2>
+    <p class="sub">Choose the letter it stands for. It scores nothing.</p>
+    <div class="grid-pick" id="blankPick"></div>
+    <div class="row"><button class="b" id="blankNo">Cancel</button></div>
+  </div>
+</div>
+
+<div class="ov" id="swapOv" hidden>
+  <div class="card">
+    <h2>Swap tiles</h2>
+    <p class="sub">Pick the tiles to put back in the bag. You draw the same number, and the turn passes.</p>
+    <div class="grid-pick" id="exTiles"></div>
+    <div class="row"><button class="b" id="exNo">Cancel</button><button class="b primary" id="exYes" disabled>Swap</button></div>
+  </div>
+</div>
+
+<div class="ov" id="confirmOv" hidden>
+  <div class="card" style="text-align:center">
+    <h2 id="cfTitle"></h2>
+    <p id="cfText"></p>
+    <div class="row"><button class="b" id="cfNo">Cancel</button><button class="b primary" id="cfYes">OK</button></div>
+  </div>
+</div>
+
+<div class="ov" id="menuOv" hidden>
+  <div class="card">
+    <h2>Wordsmith</h2>
+    <div class="menu">
+      <button class="b" id="mTiles">Tiles still to come</button>
+      <button class="b" id="mHist">Moves so far</button>
+      <button class="b" id="mHelp">How to play</button>
+      <button class="b" id="mSound">Sound: on</button>
+      <button class="b" id="mNew">New game</button>
+    </div>
+    <div id="mBody"></div>
+    <div class="row"><button class="b primary" id="mClose">Back to the game</button></div>
+  </div>
+</div>
+
+<div class="ov" id="overOv" hidden>
+  <div class="card">
+    <h2 id="ovTitle"></h2>
+    <p class="sub" id="ovWhy"></p>
+    <table class="res" id="ovTable"></table>
+    <p id="ovBest"></p>
+    <div id="hsTable"></div>
+    <div class="row"><button class="b" id="ovLook">See the board</button><button class="b primary" id="ovNew">New game</button></div>
+  </div>
+</div>
+
+<div id="bingo" hidden></div>
+<script src="words.js"></script>
+<script id="ws-js">
+'use strict';
+// ---------- Wordsmith: the pure part (tiles, board, dictionary, scoring, move generator, computer) ----------
+// Nothing above the UI marker touches the DOM or Math.random: test/*.js lift this text into node's vm, and
+// the page hands the same text to a Web Worker built from a Blob so the computer never blocks a frame.
+const N = 15, NN = 225, CENTER = 112, RACK = 7, BINGO = 50, BLANK = 26, ALL = 0x3ffffff;
+const SAVE_V = 1;
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+// ---------------------------------------------------------------- tiles
+// Our own set, derived from letter frequency rather than copied (see README, "Tiles"): 98 letters + 2 blanks.
+// Count = a letter's share of 98 tiles, where its share is the mean of (a) its frequency in the dictionary's
+// 2-8 letter words, plurals left out, and (b) its frequency in running English text. Value = 1 + round(1.4 *
+// log2(f_E / f) - 1), clamped 1..10: every halving of frequency is worth about 1.4 more points.
+const TILESET = {
+  A: [8, 1], B: [2, 4], C: [3, 3], D: [4, 2], E: [12, 1], F: [2, 4], G: [2, 3], H: [4, 2], I: [7, 1],
+  J: [1, 8], K: [1, 5], L: [5, 2], M: [3, 3], N: [6, 1], O: [7, 1], P: [2, 3], Q: [1, 9], R: [6, 1],
+  S: [5, 2], T: [7, 1], U: [3, 3], V: [1, 5], W: [2, 4], X: [1, 8], Y: [2, 4], Z: [1, 8], '?': [2, 0],
+};
+const VAL = new Int32Array(27);
+for (let l = 0; l < 26; l++) VAL[l] = TILESET[String.fromCharCode(65 + l)][1];
+const L2C = (l) => (l === BLANK ? '?' : String.fromCharCode(65 + l));
+const C2L = (c) => (c === '?' ? BLANK : c.charCodeAt(0) - 65);
+const tileValue = (c) => (c === '?' ? 0 : VAL[C2L(c)]);
+const rackValue = (rack) => rack.reduce((s, c) => s + tileValue(c), 0);
+
+// ---------------------------------------------------------------- the board
+// Our own premium layout (README, "Board"). One octant is listed; the other seven are its mirror images,
+// so the board is symmetric under every rotation and reflection and no seat is favoured.
+// 1 = double letter, 2 = triple letter, 3 = double word, 4 = triple word. The centre star doubles the first word.
+const PREM_OCTANT = [
+  [0, 3, 4],                                  // triple word: the fourth square of every edge
+  [1, 5, 3], [3, 3, 3], [2, 7, 3], [7, 7, 3], // double word: a ring of eight, a diamond of four, the star
+  [1, 1, 2], [4, 6, 2],                       // triple letter
+  [0, 0, 1], [0, 7, 1], [2, 4, 1], [6, 6, 1], [5, 7, 1], // double letter
+];
+const PREM = new Uint8Array(NN);
+for (const [r, c, t] of PREM_OCTANT) {
+  for (const [a, b] of [[r, c], [c, r]]) for (const y of [a, 14 - a]) for (const x of [b, 14 - b]) PREM[y * N + x] = t;
+}
+const LM = [1, 2, 3, 1, 1], WM = [1, 1, 1, 2, 3];
+
+// A cell is 0 (empty) or 1..26 for a letter tile, plus 32 when that tile is a blank standing for the letter.
+const cellL = (v) => (v & 31) - 1;
+const cellVal = (v) => (v & 32 ? 0 : VAL[(v & 31) - 1]);
+const cellOf = (l, blank) => (l + 1) | (blank ? 32 : 0);
+const boardEmpty = (board) => { for (let i = 0; i < NN; i++) if (board[i]) return false; return true; };
+
+// ---------------------------------------------------------------- the dictionary: a DAWG in one Uint32Array
+// Edge word: bits 0-4 letter, bit 5 "a word ends here", bit 6 "last edge of this node", bits 7-31 the child
+// node (the index of its first edge; 0 = no children). E[0] holds the root's index. A node is just a run of
+// edges, so lookup is a short linear scan and the whole thing is one flat, transferable buffer.
+const EOW = 32, LAST = 64;
+function makeDict(E) { return { E, root: E[0] }; }
+function edgeOf(E, node, l) {
+  if (!node) return -1;
+  for (let i = node; ; i++) { const e = E[i]; if ((e & 31) === l) return i; if (e & LAST) return -1; }
+}
+// Node reached after walking `word` (a string of A-Z), -1 if no word starts so; .t says it is a word itself.
+function walk(D, word) {
+  let node = D.root, e = 0;
+  for (let k = 0; k < word.length; k++) {
+    const i = edgeOf(D.E, node, word.charCodeAt(k) - 65);
+    if (i < 0) return null;
+    e = D.E[i]; node = e >>> 7;
+  }
+  return { node, t: word.length > 0 && !!(e & EOW) };
+}
+function hasWord(D, word) {
+  if (!/^[A-Z]{2,15}$/.test(word)) return false;
+  const w = walk(D, word); return !!(w && w.t);
+}
+// Builds the DAWG from a word list (any order, any case). Equal sub-tries are merged bottom-up by signature,
+// which turns a ~390k-node trie for the full list into a far smaller graph. Used by tools/build-words.js on
+// the real list and by the tests on small hand-made lists.
+function buildDawg(words) {
+  const root = { k: new Map(), t: false };
+  for (const raw of words) {
+    const w = String(raw).trim().toUpperCase();
+    if (!/^[A-Z]{2,15}$/.test(w)) continue;
+    let n = root;
+    for (let i = 0; i < w.length; i++) {
+      const l = w.charCodeAt(i) - 65;
+      let c = n.k.get(l); if (!c) { c = { k: new Map(), t: false }; n.k.set(l, c); }
+      n = c;
+    }
+    n.t = true;
+  }
+  const out = [0], reg = new Map();
+  function id(n) {
+    if (!n.k.size) return 0;
+    const ls = [...n.k.keys()].sort((a, b) => a - b);
+    const edges = ls.map((l) => { const c = n.k.get(l); return [l, c.t, id(c)]; });
+    const sig = edges.map((e) => e[0] + (e[1] ? '!' : ':') + e[2]).join(',');
+    let at = reg.get(sig);
+    if (at === undefined) {
+      at = out.length; reg.set(sig, at);
+      edges.forEach(([l, t, c], j) => out.push((l | (t ? EOW : 0) | (j === edges.length - 1 ? LAST : 0) | (c << 7)) >>> 0));
+    }
+    return at;
+  }
+  out[0] = id(root);
+  return Uint32Array.from(out);
+}
+// Every word in the DAWG, in alphabetical order (tests and the build script's self-check).
+function allWords(D, cb) {
+  const buf = [];
+  (function rec(node) {
+    for (let i = node; node; i++) {
+      const e = D.E[i]; buf.push(String.fromCharCode(65 + (e & 31)));
+      if (e & EOW) cb(buf.join(''));
+      rec(e >>> 7); buf.pop();
+      if (e & LAST) break;
+    }
+  })(D.root);
+}
+
+// ---------------------------------------------------------------- the dictionary on disk (words.js)
+// Packed as: edge count (4 bytes), one flags byte per edge (letter, end-of-word, last), then each edge's
+// child as a varint of (zigzag(edge index - child) + 1), 0 meaning no child. Children sit close to their
+// parents, so most fit in one or two bytes, and gzip then takes the 1.1 MB of flags and varints to ~270 KB.
+// See README, "Dictionary", for the sizes of the other encodings tried.
+function packDawg(E) {
+  const n = E.length, flags = new Uint8Array(n + 4), v = [];
+  flags[0] = n & 255; flags[1] = (n >>> 8) & 255; flags[2] = (n >>> 16) & 255; flags[3] = n >>> 24;
+  const put = (x) => { while (x >= 128) { v.push((x & 127) | 128); x = Math.floor(x / 128); } v.push(x); };
+  put(E[0]);
+  for (let i = 1; i < n; i++) {
+    flags[i + 4] = E[i] & 127;
+    const c = E[i] >>> 7;
+    if (!c) { put(0); continue; }
+    const d = i - c;
+    put((d >= 0 ? d * 2 : -d * 2 - 1) + 1);
+  }
+  const out = new Uint8Array(flags.length + v.length);
+  out.set(flags); out.set(v, flags.length);
+  return out;
+}
+function unpackDawg(b) {
+  const n = (b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)) >>> 0;
+  const E = new Uint32Array(n);
+  let p = n + 4;
+  const get = () => { let x = 0, m = 1, c; do { c = b[p++]; x += (c & 127) * m; m *= 128; } while (c & 128); return x; };
+  E[0] = get();
+  for (let i = 1; i < n; i++) {
+    const z = get();
+    let c = 0;
+    if (z) { const y = z - 1; c = i - (y & 1 ? -((y + 1) / 2) : y / 2); }
+    E[i] = (b[i + 4] | (c << 7)) >>> 0;
+  }
+  return E;
+}
+// gzip, inflated by hand. The page prefers the browser's DecompressionStream; this is the fallback for a
+// browser without one (Safari before 16.4), and the tests hold it to node's zlib. Follows Mark Adler's puff.
+const INF_LB = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
+const INF_LE = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+const INF_DB = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
+const INF_DE = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+function gunzip(data) {
+  if (data[0] !== 0x1f || data[1] !== 0x8b || data[2] !== 8) throw new Error('not gzip');
+  const flg = data[3];
+  let pos = 10;
+  if (flg & 4) pos += 2 + (data[pos] | (data[pos + 1] << 8));
+  if (flg & 8) { while (data[pos++]); }
+  if (flg & 16) { while (data[pos++]); }
+  if (flg & 2) pos += 2;
+  let out = new Uint8Array(Math.max(1024, data.length * 5)), olen = 0;
+  let buf = 0, cnt = 0;
+  const bits = (n) => { while (cnt < n) { buf |= (data[pos++] | 0) << cnt; cnt += 8; } const v = buf & ((1 << n) - 1); buf >>>= n; cnt -= n; return v; };
+  const room = (n) => { if (olen + n > out.length) { const o = new Uint8Array(Math.max(out.length * 2, olen + n)); o.set(out.subarray(0, olen)); out = o; } };
+  const build = (lens, n) => {
+    const count = new Uint16Array(16), offs = new Uint16Array(16), sym = new Uint16Array(n);
+    for (let i = 0; i < n; i++) count[lens[i]]++;
+    count[0] = 0;
+    for (let i = 1; i < 16; i++) offs[i] = offs[i - 1] + count[i - 1];
+    for (let i = 0; i < n; i++) if (lens[i]) sym[offs[lens[i]]++] = i;
+    return { count, sym };
+  };
+  const decode = (h) => {
+    let code = 0, first = 0, index = 0;
+    for (let len = 1; len < 16; len++) {
+      code |= bits(1);
+      const c = h.count[len];
+      if (code - c < first) return h.sym[index + (code - first)];
+      index += c; first += c; first <<= 1; code <<= 1;
+    }
+    throw new Error('bad code');
+  };
+  let fixL = null, fixD = null, last = 0;
+  do {
+    last = bits(1);
+    const type = bits(2);
+    if (type === 0) {
+      buf = 0; cnt = 0;
+      const len = data[pos] | (data[pos + 1] << 8); pos += 4;
+      room(len); out.set(data.subarray(pos, pos + len), olen); olen += len; pos += len;
+      continue;
+    }
+    let lh, dh;
+    if (type === 1) {
+      if (!fixL) {
+        const l = new Uint8Array(288);
+        for (let i = 0; i < 288; i++) l[i] = i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8;
+        fixL = build(l, 288); fixD = build(new Uint8Array(30).fill(5), 30);
+      }
+      lh = fixL; dh = fixD;
+    } else if (type === 2) {
+      const nlen = bits(5) + 257, ndist = bits(5) + 1, ncode = bits(4) + 4;
+      const ORD = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+      const cl = new Uint8Array(19);
+      for (let i = 0; i < ncode; i++) cl[ORD[i]] = bits(3);
+      const ch = build(cl, 19);
+      const lens = new Uint8Array(nlen + ndist);
+      for (let i = 0; i < nlen + ndist;) {
+        const s = decode(ch);
+        if (s < 16) lens[i++] = s;
+        else {
+          let rep = 0, val = 0;
+          if (s === 16) { val = lens[i - 1]; rep = 3 + bits(2); } else if (s === 17) rep = 3 + bits(3); else rep = 11 + bits(7);
+          while (rep--) lens[i++] = val;
+        }
+      }
+      lh = build(lens.subarray(0, nlen), nlen); dh = build(lens.subarray(nlen), ndist);
+    } else throw new Error('bad block');
+    for (;;) {
+      const s = decode(lh);
+      if (s < 256) { room(1); out[olen++] = s; } else if (s === 256) break;
+      else {
+        const li = s - 257, len = INF_LB[li] + bits(INF_LE[li]);
+        const di = decode(dh), dist = INF_DB[di] + bits(INF_DE[di]);
+        room(len);
+        for (let k = 0; k < len; k++, olen++) out[olen] = out[olen - dist];
+      }
+    }
+  } while (!last);
+  return out.subarray(0, olen);
+}
+function b64bytes(s) {
+  const T = new Uint8Array(128);
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  for (let i = 0; i < 64; i++) T[A.charCodeAt(i)] = i;
+  let n = s.length; while (n && s[n - 1] === '=') n--;
+  const out = new Uint8Array((n * 3) >> 2);
+  for (let i = 0, o = 0; i < n; i += 4) {
+    const a = T[s.charCodeAt(i)], b = T[s.charCodeAt(i + 1)], c = i + 2 < n ? T[s.charCodeAt(i + 2)] : 0, d = i + 3 < n ? T[s.charCodeAt(i + 3)] : 0;
+    const x = (a << 18) | (b << 12) | (c << 6) | d;
+    out[o++] = x >> 16; if (o < out.length) out[o++] = (x >> 8) & 255; if (o < out.length) out[o++] = x & 255;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- random numbers (seeded, saved with the game)
+function rngNext(st) { // mulberry32 over st.r, so a resumed game draws the same tiles it would have
+  let t = (st.r = (st.r + 0x6d2b79f5) | 0);
+  t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function shuffleIn(st, arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rngNext(st) * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
+
+// ---------------------------------------------------------------- placing tiles: legality and score
+// tiles: [{ sq, l, blank }]. Returns { ok:false, error } or { ok:true, words:[{ word, sqs, score }], score, bingo }.
+// This is the referee for human plays; the move generator scores its own moves faster and the tests hold
+// the two to the same numbers.
+function lineWord(board, sq, step) { // the run through sq along step (1 or N): [start, end]
+  const r = (sq / N) | 0, c = sq % N;
+  let s = sq, e = sq;
+  if (step === 1) { while (s % N > 0 && board[s - 1]) s--; while (e % N < N - 1 && board[e + 1]) e++; }
+  else { while (s >= N && board[s - N]) s -= N; while (e < NN - N && board[e + N]) e += N; }
+  void r; void c;
+  return [s, e];
+}
+function analyzePlay(board, tiles) {
+  if (!tiles || !tiles.length) return { ok: false, error: 'Place some tiles first.' };
+  const seen = new Set();
+  for (const t of tiles) {
+    if (!(t.sq >= 0 && t.sq < NN) || !(t.l >= 0 && t.l < 26)) return { ok: false, error: 'That tile is off the board.' };
+    if (board[t.sq] || seen.has(t.sq)) return { ok: false, error: 'That square is taken.' };
+    seen.add(t.sq);
+  }
+  if (tiles.length > RACK) return { ok: false, error: 'Too many tiles.' };
+  const first = boardEmpty(board);
+  const rows = new Set(tiles.map((t) => (t.sq / N) | 0)), cols = new Set(tiles.map((t) => t.sq % N));
+  if (rows.size > 1 && cols.size > 1) return { ok: false, error: 'Tiles must all be in one row or one column.' };
+  const B = board.slice ? board.slice() : Array.from(board);
+  for (const t of tiles) B[t.sq] = cellOf(t.l, t.blank);
+  const isNew = new Set(tiles.map((t) => t.sq));
+  let step = rows.size === 1 && tiles.length > 1 ? 1 : cols.size === 1 && tiles.length > 1 ? N : 0;
+  if (!step) { // one tile: its main direction is whichever way it makes a word, across first
+    const [s, e] = lineWord(B, tiles[0].sq, 1);
+    step = e > s ? 1 : N;
+  }
+  const sqs = tiles.map((t) => t.sq).sort((a, b) => a - b);
+  for (let q = sqs[0]; q <= sqs[sqs.length - 1]; q += step) if (!B[q]) return { ok: false, error: 'Tiles must make one unbroken line.' };
+  if (first) {
+    if (!isNew.has(CENTER)) return { ok: false, error: 'The first word must cover the centre star.' };
+    if (tiles.length < 2) return { ok: false, error: 'The first word needs at least two letters.' };
+  } else {
+    let touches = false;
+    for (const q of sqs) {
+      const r = (q / N) | 0, c = q % N;
+      if ((c > 0 && board[q - 1]) || (c < N - 1 && board[q + 1]) || (r > 0 && board[q - N]) || (r < N - 1 && board[q + N])) { touches = true; break; }
+    }
+    if (!touches) return { ok: false, error: 'New tiles must join the words already on the board.' };
+  }
+  const words = [];
+  const scoreRun = (s, e, st) => {
+    let sum = 0, wm = 1, word = '';
+    const list = [];
+    for (let q = s; q <= e; q += st) {
+      const v = B[q]; let pts = cellVal(v);
+      if (isNew.has(q)) { pts *= LM[PREM[q]]; wm *= WM[PREM[q]]; }
+      sum += pts; word += String.fromCharCode(65 + cellL(v)); list.push(q);
+    }
+    return { word, sqs: list, score: sum * wm };
+  };
+  const [ms, me] = lineWord(B, sqs[0], step);
+  if (me > ms) words.push(scoreRun(ms, me, step));
+  const cross = step === 1 ? N : 1;
+  for (const q of sqs) {
+    const [s, e] = lineWord(B, q, cross);
+    if (e > s) words.push(scoreRun(s, e, cross));
+  }
+  if (!words.length) return { ok: false, error: 'A word needs at least two letters.' };
+  const bingo = tiles.length === RACK;
+  const score = words.reduce((a, w) => a + w.score, 0) + (bingo ? BINGO : 0);
+  return { ok: true, words, score, bingo, dir: step === 1 ? 0 : 1 };
+}
+const badWords = (D, words) => words.filter((w) => !hasWord(D, w.word)).map((w) => w.word);
+
+// ---------------------------------------------------------------- the move generator (Appel & Jacobson, 1988)
+// For each row (then each column) we precompute, per empty square, the cross-check: the set of letters that
+// make a valid word with the tiles above and below it (26-bit mask) and those tiles' points. Anchors are the
+// empty squares next to a tile (the centre on an empty board). From each anchor we build every left part
+// that fits in the free squares to its left, out of the rack, walking the DAWG; then extend right through
+// the anchor, honouring the cross-checks and threading through tiles already on the board. Every word it
+// records is a path to a terminal edge, so it cannot produce a word the dictionary lacks.
+function makeGen(D, board, rack) {
+  const E = D.E;
+  const cnt = new Int8Array(27);
+  for (const c of rack) cnt[C2L(c)]++;
+  const rackN = rack.length;
+  const first = boardEmpty(board);
+  const moves = [];
+  const seenSingle = new Set();
+  const lines = [];
+  if (first) lines.push([0, 7], [1, 7]); else for (let d = 0; d < 2; d++) for (let i = 0; i < N; i++) lines.push([d, i]);
+  let li = 0;
+  // per-line scratch
+  const sqAt = new Int32Array(N), cell = new Int32Array(N), mask = new Int32Array(N), xs = new Int32Array(N);
+  const hasX = new Uint8Array(N), anchor = new Uint8Array(N);
+  const curL = new Int32Array(N), curB = new Uint8Array(N), isNew = new Uint8Array(N);
+  const leftL = new Int32Array(RACK), leftB = new Uint8Array(RACK);
+  let dir = 0, a = 0;
+
+  function crossFor(q, pstep) { // letters allowed at empty q given the tiles along pstep; returns [mask, points, has]
+    const r = (q / N) | 0, c = q % N;
+    let s = q, e = q;
+    if (pstep === N) { while (s >= N && board[s - N]) s -= N; while (e < NN - N && board[e + N]) e += N; }
+    else { while (s % N > 0 && board[s - 1]) s--; while (e % N < N - 1 && board[e + 1]) e++; }
+    void r; void c;
+    if (s === q && e === q) return [ALL, 0, 0];
+    let pts = 0, node = D.root, ok = true;
+    for (let p = s; p < q; p += pstep) {
+      pts += cellVal(board[p]);
+      if (ok) { const i = edgeOf(E, node, cellL(board[p])); if (i < 0) ok = false; else node = E[i] >>> 7; }
+    }
+    for (let p = q + pstep; p <= e; p += pstep) pts += cellVal(board[p]);
+    let m = 0;
+    if (ok && node) {
+      for (let i = node; ; i++) {
+        const ed = E[i];
+        let n2 = ed >>> 7, term = !!(ed & EOW), good = true;
+        for (let p = q + pstep; p <= e; p += pstep) {
+          const j = edgeOf(E, n2, cellL(board[p]));
+          if (j < 0) { good = false; break; }
+          term = !!(E[j] & EOW); n2 = E[j] >>> 7;
+        }
+        if (good && term) m |= 1 << (ed & 31);
+        if (ed & LAST) break;
+      }
+    }
+    return [m, pts, 1];
+  }
+
+  function record(endK, nPlaced, leftLen) {
+    // left part sits on a-leftLen .. a-1
+    for (let j = 0; j < leftLen; j++) { const k = a - leftLen + j; curL[k] = leftL[j]; curB[k] = leftB[j]; isNew[k] = 1; }
+    let start = a - leftLen;
+    while (start > 0 && cell[start - 1]) start--;
+    const end = endK - 1;
+    if (end - start + 1 < 2) { clearLeft(leftLen); return; }
+    if (dir === 1 && nPlaced === 1) { // a lone tile is generated across when it makes a word across; skip the copy
+      let k = 0; for (let x = start; x <= end; x++) if (isNew[x]) k = x;
+      const key = sqAt[k] * 64 + curL[k] * 2 + curB[k];
+      if (seenSingle.has(key)) { clearLeft(leftLen); return; }
+    }
+    let sum = 0, wm = 1, xsum = 0;
+    const tiles = [];
+    let word = '';
+    for (let k = start; k <= end; k++) {
+      if (isNew[k]) {
+        const q = sqAt[k], p = PREM[q];
+        const v = curB[k] ? 0 : VAL[curL[k]];
+        sum += v * LM[p]; wm *= WM[p];
+        if (hasX[k]) xsum += (xs[k] + v * LM[p]) * WM[p];
+        tiles.push({ sq: q, l: curL[k], blank: !!curB[k] });
+        word += String.fromCharCode(65 + curL[k]);
+      } else { sum += cellVal(cell[k]); word += String.fromCharCode(65 + cellL(cell[k])); }
+    }
+    if (dir === 0 && nPlaced === 1) seenSingle.add(tiles[0].sq * 64 + tiles[0].l * 2 + (tiles[0].blank ? 1 : 0));
+    const score = sum * wm + xsum + (nPlaced === RACK ? BINGO : 0);
+    moves.push({ tiles, score, word, dir });
+    clearLeft(leftLen);
+  }
+  function clearLeft(leftLen) { for (let j = 0; j < leftLen; j++) isNew[a - leftLen + j] = 0; }
+
+  function extendRight(node, k, term, nPlaced, leftLen) {
+    if (k === N || !cell[k]) {
+      if (k > a && term && nPlaced > 0) record(k, nPlaced, leftLen);
+      if (k === N || !node) return;
+      const m = mask[k];
+      if (!m) return;
+      for (let i = node; ; i++) {
+        const ed = E[i], l = ed & 31;
+        if (m & (1 << l)) {
+          if (cnt[l] > 0) {
+            cnt[l]--; curL[k] = l; curB[k] = 0; isNew[k] = 1;
+            extendRight(ed >>> 7, k + 1, !!(ed & EOW), nPlaced + 1, leftLen);
+            isNew[k] = 0; cnt[l]++;
+          }
+          if (cnt[BLANK] > 0) {
+            cnt[BLANK]--; curL[k] = l; curB[k] = 1; isNew[k] = 1;
+            extendRight(ed >>> 7, k + 1, !!(ed & EOW), nPlaced + 1, leftLen);
+            isNew[k] = 0; cnt[BLANK]++;
+          }
+        }
+        if (ed & LAST) break;
+      }
+    } else {
+      const i = edgeOf(E, node, cellL(cell[k]));
+      if (i >= 0) extendRight(E[i] >>> 7, k + 1, !!(E[i] & EOW), nPlaced, leftLen);
+    }
+  }
+  function leftPart(node, len, limit) {
+    extendRight(node, a, false, len, len);
+    if (len >= limit || !node) return;
+    for (let i = node; ; i++) {
+      const ed = E[i], l = ed & 31;
+      if (cnt[l] > 0) { cnt[l]--; leftL[len] = l; leftB[len] = 0; leftPart(ed >>> 7, len + 1, limit); cnt[l]++; }
+      if (cnt[BLANK] > 0) { cnt[BLANK]--; leftL[len] = l; leftB[len] = 1; leftPart(ed >>> 7, len + 1, limit); cnt[BLANK]++; }
+      if (ed & LAST) break;
+    }
+  }
+  function doLine(d, i) {
+    dir = d;
+    const pstep = d === 0 ? N : 1;
+    for (let k = 0; k < N; k++) {
+      const q = d === 0 ? i * N + k : k * N + i;
+      sqAt[k] = q; cell[k] = board[q]; isNew[k] = 0;
+    }
+    for (let k = 0; k < N; k++) {
+      anchor[k] = 0;
+      if (cell[k]) { mask[k] = 0; hasX[k] = 0; continue; }
+      const [m, pts, h] = crossFor(sqAt[k], pstep);
+      mask[k] = m; xs[k] = pts; hasX[k] = h;
+      const q = sqAt[k], r = (q / N) | 0, c = q % N;
+      if (first) anchor[k] = q === CENTER ? 1 : 0;
+      else anchor[k] = ((c > 0 && board[q - 1]) || (c < N - 1 && board[q + 1]) || (r > 0 && board[q - N]) || (r < N - 1 && board[q + N])) ? 1 : 0;
+    }
+    for (let k = 0; k < N; k++) {
+      if (!anchor[k]) continue;
+      a = k;
+      if (k > 0 && cell[k - 1]) { // the left part is the tiles already there
+        let s = k - 1; while (s > 0 && cell[s - 1]) s--;
+        let node = D.root, ok = true;
+        for (let x = s; x < k; x++) { const j = edgeOf(E, node, cellL(cell[x])); if (j < 0) { ok = false; break; } node = E[j] >>> 7; }
+        if (ok && node) extendRight(node, k, false, 0, 0);
+      } else {
+        let limit = 0, x = k - 1;
+        while (x >= 0 && !cell[x] && !anchor[x]) { limit++; x--; }
+        // an anchor to the left was handled from there; squares beyond it are reached via that anchor
+        leftPart(D.root, 0, Math.min(limit, rackN - 1));
+      }
+    }
+  }
+  return {
+    moves,
+    get done() { return li >= lines.length; },
+    step() { if (li < lines.length) { const [d, i] = lines[li++]; doLine(d, i); } return li >= lines.length; },
+    run() { while (li < lines.length) this.step(); return moves; },
+  };
+}
+const generateMoves = (D, board, rack) => makeGen(D, board, rack).run();
+
+// ---------------------------------------------------------------- the computer's judgement
+// Rack leave: what the tiles kept are worth for next turn. Hand-set from play experience, not from any
+// published table: blanks and S are flexible, Q without U and V/W/U are clumsy, duplicates clog, and a
+// balance of about three vowels to four letters draws best.
+const LEAVE = { '?': 22, S: 7, E: 3, A: 1.5, R: 2, T: 1, N: 1, L: 0.5, I: 0, O: -0.5, D: 0.5, H: 1, C: 0.5, M: 0.5, P: 0, X: 3, Z: 2, J: 0, K: -0.5,
+  B: -1.5, F: -1.5, G: -2, Y: -0.5, U: -3, W: -3.5, V: -5.5, Q: -8 };
+const VOWELS = new Set(['A', 'E', 'I', 'O', 'U']);
+function leaveValue(left) {
+  if (!left.length) return 0;
+  let v = 0, vow = 0, cons = 0;
+  const seen = {};
+  for (const c of left) {
+    v += LEAVE[c] || 0;
+    if (VOWELS.has(c)) vow++; else if (c !== '?') cons++;
+    seen[c] = (seen[c] || 0) + 1;
+    if (seen[c] > 1 && c !== '?') v -= seen[c] === 2 ? 3 : 5;
+  }
+  if (left.includes('Q') && left.includes('U')) v += 6;
+  const total = vow + cons;
+  if (total >= 2) { const ideal = total * 0.43; v -= 2.2 * Math.max(0, Math.abs(vow - ideal) - 0.6); }
+  if (vow === 0 && total >= 3) v -= 4;
+  return v;
+}
+function leaveAfter(rack, tiles) {
+  const left = rack.slice();
+  for (const t of tiles) { const i = left.indexOf(t.blank ? '?' : L2C(t.l)); if (i >= 0) left.splice(i, 1); }
+  return left;
+}
+// The best tiles to throw back when exchanging: keep the subset of the rack with the best leave.
+function bestExchange(rack) {
+  let best = null, bestV = -Infinity;
+  const n = rack.length;
+  for (let m = 1; m < (1 << n); m++) { // m = the tiles thrown back (at least one)
+    const keep = [], out = [];
+    for (let i = 0; i < n; i++) (m & (1 << i) ? out : keep).push(rack[i]);
+    const v = leaveValue(keep) - out.length * 0.01;
+    if (v > bestV) { bestV = v; best = out; }
+  }
+  return { tiles: best, value: bestV };
+}
+const LEVELS = ['easy', 'medium', 'hard'];
+// Picks a move. ctx: { bag (tiles left in the bag), seed (number), unseen (tiles the computer cannot see) }.
+// Easy plays real, ordinary words on purpose: up to four tiles, no long words, usually a middling score from
+// that pool, and it keeps its blanks. Medium takes the top score (now and then the second). Hard weighs the
+// score plus what it leaves on its rack, exchanges a bad rack, and in the end-game plays to go out.
+function chooseMove(moves, rack, level, ctx) {
+  const bag = ctx.bag | 0;
+  const rs = { r: (ctx.seed | 0) ^ 0x5bd1e995 };
+  const canExchange = bag >= RACK;
+  if (level === 'easy') {
+    let pool = moves.filter((m) => m.tiles.length <= 4 && m.word.length <= 6 && !m.tiles.some((t) => t.blank));
+    if (!pool.length) pool = moves.filter((m) => m.tiles.length <= 5);
+    if (!pool.length) pool = moves;
+    if (!pool.length) return canExchange ? { type: 'exchange', tiles: bestExchange(rack).tiles } : { type: 'pass' };
+    const sorted = pool.slice().sort((x, y) => x.score - y.score);
+    const f = 0.5 + 0.35 * rngNext(rs);
+    return { type: 'play', move: sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))] };
+  }
+  if (!moves.length) return canExchange ? { type: 'exchange', tiles: bestExchange(rack).tiles } : { type: 'pass' };
+  if (level === 'medium') {
+    // a good but not a searching player: a strong move from the top fifth, keeping blanks for a big one
+    let pool = moves.filter((m) => m.score >= 30 || !m.tiles.some((t) => t.blank));
+    if (!pool.length) pool = moves;
+    const sorted = pool.slice().sort((x, y) => x.score - y.score);
+    const f = 0.8 + 0.19 * rngNext(rs);
+    return { type: 'play', move: sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))] };
+  }
+  // hard
+  const unseenVal = ctx.unseen ? rackValue(ctx.unseen) : 0;
+  let best = null, bestV = -Infinity;
+  for (const m of moves) {
+    const left = leaveAfter(rack, m.tiles);
+    let v = m.score;
+    if (bag > 0) {
+      // drawing is not guaranteed: with a nearly empty bag the leave counts for less
+      v += leaveValue(left) * (bag >= 7 ? 1 : 0.5);
+    } else {
+      v += left.length ? -1.6 * rackValue(left) - 4 : 2 * unseenVal + 8;
+    }
+    if (v > bestV) { bestV = v; best = m; }
+  }
+  if (canExchange) {
+    const ex = bestExchange(rack);
+    const exV = ex.value + 2; // the value of a fresh draw, roughly
+    if (best.score < 30 && exV > bestV + 4) return { type: 'exchange', tiles: ex.tiles };
+  }
+  return { type: 'play', move: best };
+}
+
+// ---------------------------------------------------------------- the game
+// state: { v, r (rng), players:[{ name, kind:'human'|'cpu', level, rack, score }], bag, board (225 cells),
+//   turn, scoreless, moves (history), challenge, last (the latest play, for a challenge), over, result }
+function newGame(opts) {
+  const st = { v: SAVE_V, r: (opts.seed >>> 0) || 1, players: [], bag: [], board: new Array(NN).fill(0), turn: 0, scoreless: 0,
+    moves: [], challenge: !!opts.challenge, last: null, over: false, result: null, seed: opts.seed >>> 0 };
+  for (const c of Object.keys(TILESET)) for (let i = 0; i < TILESET[c][0]; i++) st.bag.push(c);
+  shuffleIn(st, st.bag);
+  for (const p of opts.players) st.players.push({ name: p.name, kind: p.kind, level: p.level || 'medium', rack: [], score: 0 });
+  for (const p of st.players) draw(st, p);
+  return st;
+}
+function draw(st, p) { const got = []; while (p.rack.length < RACK && st.bag.length) { const c = st.bag.pop(); p.rack.push(c); got.push(c); } return got; }
+const cur = (st) => st.players[st.turn];
+// Checks the tiles come from the current player's rack (a blank must be marked blank).
+function fromRack(rack, tiles) {
+  const left = rack.slice();
+  for (const t of tiles) { const i = left.indexOf(t.blank ? '?' : L2C(t.l)); if (i < 0) return null; left.splice(i, 1); }
+  return left;
+}
+// Puts a play on the board and scores it. Does NOT end the turn: in challenge mode the table gets a say first.
+function applyPlay(st, tiles) {
+  const p = cur(st);
+  const left = fromRack(p.rack, tiles);
+  if (!left) return { ok: false, error: 'Those tiles are not on your rack.' };
+  const an = analyzePlay(st.board, tiles);
+  if (!an.ok) return an;
+  for (const t of tiles) st.board[t.sq] = cellOf(t.l, t.blank);
+  const before = p.rack.slice(), sb = st.scoreless;
+  p.rack = left;
+  const drew = draw(st, p);
+  p.score += an.score;
+  st.scoreless = 0;
+  st.last = { player: st.turn, tiles: tiles.map((t) => ({ sq: t.sq, l: t.l, blank: !!t.blank })), words: an.words.map((w) => w.word), score: an.score, rackBefore: before, drew, scorelessBefore: sb };
+  st.moves.push({ p: st.turn, type: 'play', words: an.words.map((w) => w.word), main: an.words[0].word, score: an.score, bingo: an.bingo, tiles: st.last.tiles });
+  return { ok: true, analysis: an };
+}
+// Takes back the latest play after a successful challenge: tiles off the board, the drawn tiles back into the
+// bag in the order they came out, the score undone. The play still used up that player's turn.
+function withdrawLast(st) {
+  const L = st.last; if (!L) return false;
+  const p = st.players[L.player];
+  for (const t of L.tiles) st.board[t.sq] = 0;
+  for (let i = L.drew.length - 1; i >= 0; i--) st.bag.push(L.drew[i]);
+  p.rack = L.rackBefore.slice();
+  p.score -= L.score;
+  const m = st.moves[st.moves.length - 1];
+  if (m && m.type === 'play') { m.type = 'withdrawn'; m.score = 0; }
+  st.last = null;
+  st.scoreless = L.scorelessBefore + 1;
+  return true;
+}
+// A challenge of the latest play. Invalid word(s): the play comes off. All valid: the player who made it
+// gets 5 points for the trouble (a common club rule; the challenger is not named in a pass-and-play game).
+function challengeLast(st, D) {
+  const L = st.last; if (!L) return { ok: false };
+  const bad = L.words.filter((w) => !hasWord(D, w));
+  if (bad.length) { withdrawLast(st); return { ok: true, upheld: true, bad }; }
+  st.players[L.player].score += 5;
+  const m = st.moves[st.moves.length - 1]; if (m) m.challenged = true;
+  st.last = null;
+  return { ok: true, upheld: false };
+}
+function applyExchange(st, out) {
+  const p = cur(st);
+  if (st.bag.length < RACK) return { ok: false, error: 'You can only exchange while the bag has at least 7 tiles.' };
+  if (!out.length) return { ok: false, error: 'Pick tiles to exchange.' };
+  const left = p.rack.slice();
+  for (const c of out) { const i = left.indexOf(c); if (i < 0) return { ok: false, error: 'Those tiles are not on your rack.' }; left.splice(i, 1); }
+  p.rack = left;
+  draw(st, p);
+  for (const c of out) st.bag.push(c);
+  shuffleIn(st, st.bag);
+  st.scoreless++;
+  st.last = null;
+  st.moves.push({ p: st.turn, type: 'exchange', n: out.length, score: 0 });
+  return { ok: true };
+}
+function applyPass(st) {
+  st.scoreless++; st.last = null;
+  st.moves.push({ p: st.turn, type: 'pass', score: 0 });
+  return { ok: true };
+}
+// Ends the turn: either the game is over (someone went out with the bag empty, or six scoreless turns in a
+// row) or play moves to the next seat.
+function endTurn(st) {
+  const p = cur(st);
+  if (!st.bag.length && !p.rack.length) return finish(st, st.turn);
+  if (st.scoreless >= 6) return finish(st, -1);
+  st.turn = (st.turn + 1) % st.players.length;
+  return false;
+}
+// Final scoring: everyone loses what is left on their rack; a player who went out gains all of it.
+function finish(st, outIdx) {
+  const adj = st.players.map((p) => -rackValue(p.rack));
+  if (outIdx >= 0) adj[outIdx] = -adj.reduce((s, v, i) => (i === outIdx ? s : s + v), 0);
+  st.players.forEach((p, i) => { p.score += adj[i]; });
+  const top = Math.max(...st.players.map((p) => p.score));
+  st.over = true;
+  st.result = { adj, out: outIdx, winners: st.players.map((p, i) => (p.score === top ? i : -1)).filter((i) => i >= 0), reason: outIdx >= 0 ? 'out' : 'scoreless' };
+  st.last = null;
+  return true;
+}
+// Tiles a player cannot see: the bag plus every other rack.
+function unseenFor(st, idx) {
+  const u = st.bag.slice();
+  st.players.forEach((p, i) => { if (i !== idx) u.push(...p.rack); });
+  return u;
+}
+// One full computer turn on a state, synchronously (tests and the main-thread fallback use this).
+function computerDecide(D, st, idx, seed) {
+  const p = st.players[idx];
+  const moves = generateMoves(D, st.board, p.rack);
+  return chooseMove(moves, p.rack, p.level, { bag: st.bag.length, seed, unseen: unseenFor(st, idx) });
+}
+// What the worker runs: { board, rack, level, bag, seed, unseen } -> decision.
+function think(D, job) {
+  const t0 = now();
+  const moves = generateMoves(D, job.board, job.rack);
+  const d = chooseMove(moves, job.rack, job.level, job);
+  d.ms = now() - t0; d.count = moves.length;
+  return d;
+}
+function applyDecision(st, d) {
+  if (d.type === 'play') { const r = applyPlay(st, d.move.tiles); if (!r.ok) applyPass(st); return r; }
+  if (d.type === 'exchange') { const r = applyExchange(st, d.tiles); if (!r.ok) applyPass(st); return r; }
+  return applyPass(st);
+}
+
+// ---------------------------------------------------------------- save / load
+function serialize(st) { return JSON.stringify(st); }
+// A save from another version, or one that fails the shape check, comes back null: the page then starts a
+// fresh game instead of crashing on it.
+function deserialize(text) {
+  let s;
+  try { s = JSON.parse(text); } catch (e) { return null; }
+  if (!s || typeof s !== 'object' || s.v !== SAVE_V) return null;
+  const okArr = (a, n) => Array.isArray(a) && (n === undefined || a.length === n);
+  if (!okArr(s.board, NN) || !s.board.every((v) => Number.isInteger(v) && v >= 0 && v < 64 && (v === 0 || ((v & 31) >= 1 && (v & 31) <= 26)))) return null;
+  if (!okArr(s.bag) || !s.bag.every((c) => typeof c === 'string' && TILESET[c])) return null;
+  if (!okArr(s.players) || s.players.length < 2 || s.players.length > 4) return null;
+  for (const p of s.players) {
+    if (!p || typeof p.name !== 'string' || (p.kind !== 'human' && p.kind !== 'cpu') || !okArr(p.rack) || p.rack.length > RACK
+      || !p.rack.every((c) => typeof c === 'string' && TILESET[c]) || !Number.isFinite(p.score) || !LEVELS.includes(p.level)) return null;
+  }
+  if (!Number.isInteger(s.turn) || s.turn < 0 || s.turn >= s.players.length || !Number.isInteger(s.scoreless) || !okArr(s.moves) || !Number.isInteger(s.r)) return null;
+  // the tile count must add up to the set, or the save was tampered with or truncated
+  const total = Object.values(TILESET).reduce((a, t) => a + t[0], 0);
+  const n = s.bag.length + s.players.reduce((a, p) => a + p.rack.length, 0) + s.board.filter((v) => v).length;
+  if (n !== total) return null;
+  return s;
+}
+
+globalThis.__ws = { N, NN, CENTER, RACK, BINGO, BLANK, SAVE_V, TILESET, VAL, PREM, LM, WM, L2C, C2L, tileValue, rackValue,
+  cellL, cellVal, cellOf, boardEmpty, makeDict, edgeOf, walk, hasWord, buildDawg, allWords, packDawg, unpackDawg, gunzip, b64bytes, rngNext, shuffleIn,
+  analyzePlay, badWords, makeGen, generateMoves, leaveValue, leaveAfter, bestExchange, chooseMove, LEVELS,
+  newGame, draw, cur, fromRack, applyPlay, withdrawLast, challengeLast, applyExchange, applyPass, endTurn, finish,
+  unseenFor, computerDecide, think, applyDecision, serialize, deserialize, now };
+
+// ---------- UI ----------
+// ---------- dgames high scores ----------
+// Shared snippet, pasted verbatim into every game (games stay self-contained). Keeps a top-N table per
+// key in localStorage against the player's name, which is shared by every game. Usage:
+//   const hs = makeHiScores({ key: 'duck-hunt', order: 'desc', max: 10, label: v => v + ' pts' });
+//   if (hs.rank(score) >= 0) hs.prompt(score, 'round 7').then(() => hs.render(document.getElementById('scores')));
+//   hs.render(el)                       // table of the current list
+// `order` is 'desc' (bigger is better) or 'asc' (smaller is better, e.g. shots or seconds).
+// The overlay keeps key events away from the game while it is open. Styling comes from the hs-* classes
+// below; override the --hs-* custom properties to match a game's palette.
+// The name lives at `dgames.player` and is asked for once, then reused everywhere. It used to be three
+// letters read by a window keydown listener into three spans, with nothing focusable on the card -- so a
+// phone had no keyboard to summon and no way to enter a name at all, and every mobile score saved "AAA".
+// One name for the whole collection rather than one per game.
+const HS_PLAYER_KEY = 'dgames.player';
+const hsPlayer = () => { try { return (localStorage.getItem(HS_PLAYER_KEY) || '').trim().slice(0, 12); } catch (e) { return ''; } };
+const hsSetPlayer = (n) => { try { localStorage.setItem(HS_PLAYER_KEY, n); } catch (e) {} };
+
+function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), title = 'High scores' }) {
+  const KEY = 'dgames.hiscores.' + key;
+  const load = () => { try { const l = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
+  const save = (l) => { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch (e) {} };
+  const cmp = (a, b) => (order === 'desc' ? b.value - a.value : a.value - b.value) || a.time - b.time;
+  const sorted = (l) => l.slice().sort(cmp);
+  const better = (v, e) => order === 'desc' ? v > e.value : v < e.value;
+  // 0-based position a value would take, or -1 if it misses the table
+  function rank(value) { const l = sorted(load()); let i = 0; while (i < l.length && !better(value, l[i])) i++; return i < max ? i : -1; }
+  // The field is still called `initials`: entries saved before this held three letters under that key,
+  // and renaming it would orphan every score already on someone's device.
+  function add(value, initials, detail) {
+    const e = { value, initials: String(initials || 'Player').trim().slice(0, 12).trim() || 'Player', detail: detail || '', time: Date.now() };
+    const l = sorted(load().concat([e])).slice(0, max); save(l); return e;
+  }
+  const list = () => sorted(load());
+  const clear = () => save([]);
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function ensureStyle() {
+    if (document.getElementById('hs-style')) return;
+    const st = document.createElement('style'); st.id = 'hs-style';
+    st.textContent = `
+      .hs-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(3,10,20,.72);font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff)}
+      .hs-card{background:var(--hs-bg,#10233a);border:1px solid var(--hs-line,#2c4a6e);border-radius:16px;padding:22px 26px;width:min(360px,92vw);text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.45)}
+      .hs-card h2{margin:0 0 4px;font-size:22px;letter-spacing:2px;color:var(--hs-accent,#ffd54a)}
+      .hs-card .hs-val{font-size:30px;font-weight:700;margin:6px 0 2px}
+      .hs-card .hs-detail,.hs-card .hs-hint{opacity:.7;font-size:13px}
+      .hs-card .hs-rank{margin:4px 0 14px;font-size:14px}
+      .hs-name{display:block;width:100%;margin:8px 0 16px;padding:12px 14px;min-height:48px;box-sizing:border-box;text-align:center;
+        border:2px solid var(--hs-line,#2c4a6e);border-radius:10px;background:rgba(0,0,0,.25);color:inherit;font:inherit;font-size:22px;font-weight:700}
+      .hs-name:focus{outline:none;border-color:var(--hs-accent,#ffd54a)}
+      .hs-btns{display:flex;gap:8px;justify-content:center}
+      .hs-btns button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:9px 18px;cursor:pointer;background:var(--hs-accent,#ffd54a);color:#0b1a2b}
+      .hs-btns button.hs-ghost{background:transparent;color:var(--hs-fg,#fff);border:1px solid var(--hs-line,#2c4a6e);font-weight:400}
+      .hs-btns button:focus-visible{outline:2px solid var(--hs-fg,#fff);outline-offset:2px}
+      .hs-table{width:100%;border-collapse:collapse;font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff);font-variant-numeric:tabular-nums}
+      .hs-table caption{text-align:left;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7;padding:0 0 6px}
+      .hs-table td{padding:4px 6px;border-top:1px solid var(--hs-line,#2c4a6e);font-size:14px}
+      .hs-table td:first-child{opacity:.6;width:2em;text-align:right}
+      .hs-table td.hs-ini{font-weight:700;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .hs-table td.hs-score{text-align:right;color:var(--hs-accent,#ffd54a);font-weight:600}
+      .hs-table td.hs-d{opacity:.65;font-size:12px}
+      .hs-table tr.hs-new td{background:rgba(255,213,74,.12)}
+      .hs-table td.hs-empty{opacity:.55;text-align:center;padding:10px}`;
+    document.head.appendChild(st);
+  }
+  // Modal asking for the player's name, prefilled from `dgames.player` so it is typed once, ever.
+  // Resolves with the saved entry, or null if skipped. Only call when rank(value) >= 0.
+  function prompt(value, detail) {
+    ensureStyle();
+    return new Promise((resolve) => {
+      const r = rank(value);
+      const known = hsPlayer();
+      const ov = document.createElement('div'); ov.className = 'hs-overlay';
+      ov.innerHTML = `<div class="hs-card" role="dialog" aria-label="New high score"><h2>NEW HIGH SCORE</h2>
+        <div class="hs-val">${esc(label(value))}</div><div class="hs-detail">${esc(detail || '')}</div>
+        <div class="hs-rank">#${r + 1} on this device</div>
+        <label class="hs-hint" for="hs-name-input">Your name</label>
+        <input class="hs-name" id="hs-name-input" type="text" maxlength="12" autocomplete="nickname" autocapitalize="words" spellcheck="false" placeholder="Player" value="${esc(known)}">
+        <div class="hs-btns"><button class="hs-ok" type="button">Save</button><button class="hs-ghost hs-skip" type="button">Skip</button></div></div>`;
+      document.body.appendChild(ov);
+      const input = ov.querySelector('.hs-name');
+      const done = (ok) => {
+        window.removeEventListener('keydown', outside, true); window.removeEventListener('keyup', outside, true); window.removeEventListener('keypress', outside, true);
+        const name = (input.value || '').trim().slice(0, 12);
+        ov.remove();
+        if (ok && name) hsSetPlayer(name);
+        resolve(ok ? add(value, name || known || 'Player', detail) : null);
+      };
+      // Game key handlers sit on window in the bubble phase, so stopping the event at the field lets the
+      // character land while keeping the player from also jumping or firing as they type their name.
+      const field = (e) => {
+        e.stopPropagation();
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Enter') { e.preventDefault(); done(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+      };
+      input.addEventListener('keydown', field); input.addEventListener('keyup', field); input.addEventListener('keypress', field);
+      // Anything typed while the field is not focused still must not reach the game underneath.
+      const outside = (e) => {
+        if (e.target === input) return;
+        e.stopPropagation(); e.preventDefault();
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false);
+      };
+      window.addEventListener('keydown', outside, true); window.addEventListener('keyup', outside, true); window.addEventListener('keypress', outside, true);
+      ov.querySelector('.hs-ok').addEventListener('click', () => done(true));
+      ov.querySelector('.hs-skip').addEventListener('click', () => done(false));
+      // A name already known means there is nothing to type, so focus Save and leave the on-screen
+      // keyboard shut; a first-time player gets the field focused and selected instead.
+      if (known) ov.querySelector('.hs-ok').focus(); else { input.focus(); input.select(); }
+    });
+  }
+  // Renders the table into el; the entry whose time equals `newTime` is highlighted.
+  function render(el, newTime) {
+    ensureStyle();
+    const l = list();
+    const rows = l.length ? l.map((e, i) => `<tr${e.time === newTime ? ' class="hs-new"' : ''}><td>${i + 1}</td><td class="hs-ini">${esc(e.initials)}</td><td class="hs-score">${esc(label(e.value))}</td><td class="hs-d">${esc(e.detail)}</td></tr>`).join('')
+      : `<tr><td class="hs-empty" colspan="4">No scores yet. Be the first.</td></tr>`;
+    el.innerHTML = `<table class="hs-table"><caption>${esc(title)}</caption><tbody>${rows}</tbody></table>`;
+  }
+  return { key, rank, add, list, clear, prompt, render };
+}
+
+const W = globalThis.__ws;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const SAVE_KEY = 'dgames.wordsmith.save', OPTS_KEY = 'dgames.wordsmith.opts';
+const CPU_NAMES = ['Iris', 'Felix', 'Nora'];
+const hs = makeHiScores({ key: 'wordsmith', order: 'desc', max: 10, label: (v) => v + ' pts', title: 'Best games against the computer' });
+
+let D = null, st = null, loadMs = 0, token = 0, badSave = false;
+const stats = { think: [] };
+const ui = { racks: {}, pending: [], selected: null, viewer: -1, busy: false, uid: 0, note: '', noteKind: '' };
+
+// ---------------------------------------------------------------- options
+const opts = (() => {
+  const o = { mode: 'cpu', count: 1, level: 'medium', players: 2, names: ['', '', '', ''], rules: 'casual', sound: true };
+  try { const s = JSON.parse(localStorage.getItem(OPTS_KEY) || 'null'); if (s && typeof s === 'object') Object.assign(o, s); } catch (e) { /* defaults */ }
+  if (!['cpu', 'pnp'].includes(o.mode)) o.mode = 'cpu';
+  if (![1, 2, 3].includes(o.count)) o.count = 1;
+  if (!W.LEVELS.includes(o.level)) o.level = 'medium';
+  if (![2, 3, 4].includes(o.players)) o.players = 2;
+  if (!Array.isArray(o.names) || o.names.length !== 4) o.names = ['', '', '', ''];
+  if (!['casual', 'challenge'].includes(o.rules)) o.rules = 'casual';
+  return o;
+})();
+const saveOpts = () => { try { localStorage.setItem(OPTS_KEY, JSON.stringify(opts)); } catch (e) { /* private mode */ } };
+const playerName = () => { try { const n = (localStorage.getItem('dgames.player') || '').trim(); return n ? n.slice(0, 12) : 'You'; } catch (e) { return 'You'; } };
+
+// ---------------------------------------------------------------- save / resume
+function save() {
+  try {
+    if (!st || st.over) localStorage.removeItem(SAVE_KEY);
+    else localStorage.setItem(SAVE_KEY, W.serialize(st));
+  } catch (e) { /* storage full or blocked: the game goes on unsaved */ }
+}
+function loadSave() {
+  let text = null;
+  try { text = localStorage.getItem(SAVE_KEY); } catch (e) { return null; }
+  if (!text) return null;
+  const s = W.deserialize(text);
+  if (!s) { badSave = true; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
+  return s;
+}
+
+// ---------------------------------------------------------------- the dictionary
+// words.js (loaded by a plain <script>, so it works over file://) leaves the packed DAWG in WORDSMITH_DICT.
+// The browser's own gzip decoder does the work where it exists; the hand-written inflate is the fallback.
+async function loadDict() {
+  const d = window.WORDSMITH_DICT;
+  if (!d || !d.gz) throw new Error('words.js did not load');
+  const t0 = performance.now();
+  const gz = W.b64bytes(d.gz);
+  let raw;
+  if (typeof DecompressionStream === 'function' && !/[?&]inflate\b/.test(location.search)) {
+    const buf = await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    raw = new Uint8Array(buf);
+  } else raw = W.gunzip(gz);
+  D = W.makeDict(W.unpackDawg(raw));
+  loadMs = performance.now() - t0;
+  if (D.E.length !== d.edges) throw new Error('dictionary is damaged');
+}
+
+// ---------------------------------------------------------------- the computer, off the main thread
+// Move generation runs in a Web Worker built from a Blob of this script's logic half (Chrome, Firefox and
+// Safari allow a blob: worker from a file:// page). If one cannot be made, or dies, the generator runs on
+// the main thread one board line per slice (a line is a few ms), so the page still never freezes.
+// ?noworker forces that path for testing.
+const thinker = (() => {
+  let worker = null, mode = 'worker', cur = null;
+  function spawn() {
+    if (/[?&]noworker\b/.test(location.search)) { mode = 'slice'; return; }
+    try {
+      const all = $('ws-js').textContent, LOGIC = all.slice(0, all.indexOf('// ---------- ' + 'UI ----------'));
+      const url = URL.createObjectURL(new Blob([LOGIC + '\nlet D = null;\nself.onmessage = function (e) { if (e.data && e.data.dict) { D = __ws.makeDict(e.data.dict); return; } self.postMessage(__ws.think(D, e.data)); };\n'], { type: 'text/javascript' }));
+      worker = new Worker(url);
+      worker.onmessage = (e) => { const c = cur; cur = null; if (c) c.resolve(e.data); };
+      worker.onerror = (e) => { if (e && e.preventDefault) e.preventDefault(); fallback(); };
+      worker.postMessage({ dict: D.E });
+    } catch (err) { fallback(); }
+  }
+  function fallback() {
+    mode = 'slice';
+    if (worker) { try { worker.terminate(); } catch (e) { /* gone */ } worker = null; }
+    if (cur) { const c = cur; cur = null; sliced(c); }
+  }
+  function sliced(c) {
+    cur = c;
+    const job = c.job, t0 = W.now(), gen = W.makeGen(D, job.board, job.rack), ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      if (cur !== c) return;
+      const t = W.now();
+      while (!gen.done && W.now() - t < 10) gen.step();
+      if (!gen.done) { ch.port2.postMessage(0); return; }
+      const d = W.chooseMove(gen.moves, job.rack, job.level, job);
+      d.ms = W.now() - t0; d.count = gen.moves.length;
+      cur = null; c.resolve(d);
+    };
+    ch.port2.postMessage(0);
+  }
+  return {
+    start: spawn,
+    get mode() { return mode; },
+    run(job) { return new Promise((resolve) => { const c = { job, resolve }; if (mode === 'worker' && worker) { cur = c; worker.postMessage(job); } else sliced(c); }); },
+    cancel() { if (!cur) return; cur = null; if (mode === 'worker' && worker) { worker.terminate(); worker = null; spawn(); } },
+  };
+})();
+
+// ---------------------------------------------------------------- sound: wood on wood, synthesised
+let ac = null;
+function audio() {
+  if (!opts.sound) return null;
+  try {
+    if (!ac) { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null; ac = new AC(); }
+    if (ac.state === 'suspended') ac.resume();
+  } catch (e) { ac = null; }
+  return ac;
+}
+function knock(delay = 0, vol = 0.22, freq = 520) {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime + delay;
+  const len = Math.floor(a.sampleRate * 0.03), buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 4);
+  const n = a.createBufferSource(); n.buffer = buf;
+  const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq * 3; f.Q.value = 1.2;
+  const g = a.createGain(); g.gain.value = vol;
+  n.connect(f).connect(g).connect(a.destination); n.start(t);
+  const o = a.createOscillator(), og = a.createGain();
+  o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 0.6, t + 0.06);
+  og.gain.setValueAtTime(vol * 0.5, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  o.connect(og).connect(a.destination); o.start(t); o.stop(t + 0.1);
+}
+function chime(notes, gap = 0.09, vol = 0.07) {
+  const a = audio(); if (!a) return;
+  notes.forEach((hz, i) => {
+    const t = a.currentTime + i * gap, o = a.createOscillator(), g = a.createGain();
+    o.type = 'sine'; o.frequency.value = hz;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    o.connect(g).connect(a.destination); o.start(t); o.stop(t + 0.65);
+  });
+}
+
+// ---------------------------------------------------------------- the board view
+// Everything that draws the board, or turns a screen point into a square, sits behind this interface, so
+// another view (the shared 3D tabletop, later) can replace it without the game noticing:
+//   layout(px)                       size the board to px square
+//   render(cells, pending, lastSqs)  cells: 225 board cells; pending: [{ sq, l, blank, id }]; lastSqs: Set
+//   animatePlacement(sqs, from)      tiles on sqs fly in from a screen point { x, y }; resolves when landed
+//   squareAt(x, y)                   client point -> square, or -1
+//   highlight(sq)                    the drop target while dragging (-1 clears)
+//   floatText(r, c, text, big)       a rising "+24" at board coordinates (fractional r, c allowed)
+//   pill(sq, text) / pill(-1)        the score preview badge
+// Zoom (focus, zoomAt, zoomOut, pan) is particular to this flat view: a phone needs it to hit a 23px square.
+const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.7 6 6.5.6-4.9 4.3 1.5 6.4L12 16.8 6.2 20.1l1.5-6.4L2.8 9.4l6.5-.6z"/></svg>';
+function tileEl(c, blank) {
+  const d = document.createElement('div');
+  d.className = 'tile' + (blank ? ' blank' : '');
+  d.innerHTML = '<b>' + (c === '?' ? '' : c) + '</b>' + (blank ? '' : '<i>' + W.tileValue(c) + '</i>');
+  return d;
+}
+const view = (() => {
+  const wrap = $('boardWrap'), board = $('board'), grid = $('grid'), layer = $('tiles'), zoomBtn = $('zoomBtn');
+  const LABEL = ['', '2L', '3L', '2W', '3W'], NAME = ['', 'Double letter', 'Triple letter', 'Double word', 'Triple word'];
+  const sqEls = [];
+  for (let q = 0; q < W.NN; q++) {
+    const d = document.createElement('div'), p = W.PREM[q];
+    d.className = 'sq' + (p ? ' p' + p : '') + (q === W.CENTER ? ' star' : '');
+    d.innerHTML = q === W.CENTER ? STAR : p ? '<span class="lb">' + LABEL[p] + '</span>' : '';
+    if (p) d.title = NAME[p] + (q === W.CENTER ? ' (centre star)' : '');
+    grid.appendChild(d); sqEls.push(d);
+  }
+  let bs = 360, pad = 6, cell = 23, z = 1, tx = 0, ty = 0, hi = -1, pillEl = null;
+  const tiles = new Map();
+  const maxZ = () => Math.max(1, Math.min(2.6, 46 / cell));
+  function apply(anim) {
+    const min = bs - bs * z;
+    tx = Math.min(0, Math.max(min, tx)); ty = Math.min(0, Math.max(min, ty));
+    board.classList.toggle('anim', !!anim);
+    board.style.transform = z > 1.001 ? 'translate(' + tx + 'px,' + ty + 'px) scale(' + z + ')' : '';
+    zoomBtn.hidden = z <= 1.001;
+  }
+  return {
+    get cell() { return cell; },
+    get zoom() { return z; },
+    get small() { return cell < 32; },
+    layout(px) {
+      bs = px; pad = Math.max(4, Math.round(px * 0.016)); cell = (px - 2 * pad) / 15;
+      board.style.setProperty('--cell', cell + 'px'); board.style.setProperty('--pad', pad + 'px');
+      if (z > maxZ()) z = maxZ();
+      apply(false);
+    },
+    render(cells, pending, last) {
+      const want = new Map();
+      for (let q = 0; q < W.NN; q++) if (cells[q]) want.set(q, { key: 'b' + cells[q], c: W.L2C(W.cellL(cells[q])), blank: !!(cells[q] & 32), pend: false });
+      for (const p of pending) want.set(p.sq, { key: 'p' + p.id + '_' + p.l + (p.blank ? 'b' : ''), c: W.L2C(p.l), blank: p.blank, pend: true, id: p.id });
+      for (const [q, t] of tiles) if (!want.has(q) || want.get(q).key !== t.key) { t.el.remove(); tiles.delete(q); }
+      for (const [q, w] of want) {
+        let t = tiles.get(q);
+        if (!t) {
+          const el = document.createElement('div');
+          el.className = 'bt'; el.style.setProperty('--r', (q / 15) | 0); el.style.setProperty('--c', q % 15);
+          el.appendChild(tileEl(w.c, w.blank)); layer.appendChild(el);
+          t = { el, key: w.key }; tiles.set(q, t);
+        }
+        t.el.classList.toggle('pend', w.pend);
+        if (w.pend) t.el.dataset.id = w.id; else delete t.el.dataset.id;
+        t.el.classList.toggle('last', !w.pend && !!(last && last.has(q)));
+      }
+    },
+    animatePlacement(sqs, from, stagger = 120) {
+      return Promise.all(sqs.map((q, i) => {
+        const t = tiles.get(q); if (!t || !t.el.animate) return null;
+        const r = t.el.getBoundingClientRect();
+        const dx = (from.x - (r.left + r.width / 2)) / z, dy = (from.y - (r.top + r.height / 2)) / z;
+        const a = t.el.animate([
+          { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(.55)', opacity: 0 },
+          { transform: 'translate(' + dx * 0.05 + 'px,' + dy * 0.05 + 'px) scale(1.14)', opacity: 1, offset: 0.78 },
+          { transform: 'none', opacity: 1 }], { duration: 430, delay: i * stagger, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' });
+        setTimeout(() => knock(0, 0.16, 470 + 25 * i), i * stagger + 330);
+        return a.finished.catch(() => {});
+      }));
+    },
+    pop(sq) { const t = tiles.get(sq); if (t && t.el.animate) t.el.animate([{ transform: 'scale(1.18)' }, { transform: 'none' }], { duration: 180, easing: 'ease-out' }); },
+    squareAt(x, y) {
+      const r = grid.getBoundingClientRect();
+      if (x < r.left || y < r.top || x >= r.right || y >= r.bottom) return -1;
+      const c = Math.floor((x - r.left) / r.width * 15), rr = Math.floor((y - r.top) / r.height * 15);
+      return c >= 0 && c < 15 && rr >= 0 && rr < 15 ? rr * 15 + c : -1;
+    },
+    squareRect(sq) { return sqEls[sq].getBoundingClientRect(); },
+    highlight(sq) { if (hi === sq) return; if (hi >= 0) sqEls[hi].classList.remove('drop'); hi = sq; if (sq >= 0) sqEls[sq].classList.add('drop'); },
+    floatText(r, c, text, big) {
+      const el = document.createElement('div');
+      el.className = 'float' + (big ? ' big' : ''); el.textContent = text;
+      el.style.left = (c + 0.5) * cell + 'px'; el.style.top = (r + 0.5) * cell + 'px';
+      el.style.fontSize = Math.max(20, cell * (big ? 1.5 : 1.05)) / z + 'px';
+      layer.appendChild(el); setTimeout(() => el.remove(), 1600);
+    },
+    pill(sq, text) {
+      if (pillEl) { pillEl.remove(); pillEl = null; }
+      if (sq < 0) return;
+      pillEl = document.createElement('div'); pillEl.className = 'pill'; pillEl.textContent = text;
+      pillEl.style.left = ((sq % 15) + 0.5) * cell + 'px'; pillEl.style.top = ((sq / 15) | 0) * cell + 'px';
+      pillEl.style.fontSize = Math.max(12, cell * 0.5) / z + 'px';
+      layer.appendChild(pillEl);
+    },
+    // ---- zoom (this view only)
+    canZoom() { return maxZ() > 1.05; },
+    focus(sq, anim = true) { const r = (sq / 15) | 0, c = sq % 15; z = maxZ(); tx = bs / 2 - (pad + (c + 0.5) * cell) * z; ty = bs / 2 - (pad + (r + 0.5) * cell) * z; apply(anim); },
+    zoomAt(nz, cx, cy, anim) {
+      const w = wrap.getBoundingClientRect(), px = cx - w.left, py = cy - w.top;
+      nz = Math.max(1, Math.min(maxZ(), nz));
+      const wx = (px - tx) / z, wy = (py - ty) / z;
+      z = nz; tx = px - wx * z; ty = py - wy * z; apply(anim);
+    },
+    zoomOut() { if (z === 1) return; z = 1; tx = 0; ty = 0; apply(true); },
+    pan(x0, y0, dx, dy) { tx = x0 + dx; ty = y0 + dy; apply(false); },
+    get offset() { return [tx, ty]; },
+  };
+})();
+
+// ---------------------------------------------------------------- layout
+// Portrait: players across the top, the board, then status, rack and buttons. Landscape: a side panel on
+// the left (under the back button) and the board on the right, as tall as the screen allows.
+function layout() {
+  const vw = innerWidth, vh = innerHeight, app = $('app'), root = document.documentElement.style;
+  const pad = 6, gap = 8;
+  const land = vw > vh * 1.08;
+  app.className = land ? 'landscape' : 'portrait';
+  let bs, rt, sw = 0;
+  if (!land) {
+    rt = 48;
+    for (let k = 0; k < 2; k++) {
+      const fixed = 48 + 22 + (rt + 10) + 44 + gap * 4 + pad * 2;
+      bs = Math.floor(Math.min(vw - 2 * pad, vh - fixed, 720));
+      rt = Math.max(30, Math.min(58, Math.floor((bs - 10) / 7.8)));
+    }
+  } else {
+    bs = Math.floor(Math.min(vh - 2 * pad, vw - 2 * pad - gap - 250, 900));
+    sw = Math.floor(Math.min(440, vw - 2 * pad - gap - bs));
+    rt = Math.max(28, Math.min(56, Math.floor((sw - 10) / 7.8)));
+  }
+  // a tall phone has room under the board for the last few moves
+  if (!land) app.classList.toggle('roomy', vh - bs - (48 + 22 + (rt + 10) + 44 + gap * 4 + pad * 2) > 110);
+  root.setProperty('--bs', bs + 'px'); root.setProperty('--sw', sw + 'px'); root.setProperty('--rt', rt + 'px');
+  view.layout(bs);
+  ui.rt = rt;
+}
+
+// ---------------------------------------------------------------- drawing the game
+const human = (i) => st.players[i].kind === 'human';
+const humanCount = () => st.players.filter((p) => p.kind === 'human').length;
+const myTurn = () => st && !st.over && human(st.turn) && ui.viewer === st.turn && !ui.busy;
+const lastSqs = () => {
+  for (let i = st.moves.length - 1; i >= 0; i--) { const m = st.moves[i]; if (m.type === 'play') return new Set(m.tiles.map((t) => t.sq)); if (m.type === 'withdrawn') continue; }
+  return new Set();
+};
+function rackOf(idx) {
+  // The on-screen order of a player's rack is theirs to arrange; it is kept here and only reconciled
+  // with the real rack (tiles gone, tiles drawn) after each turn.
+  const real = st.players[idx].rack.slice();
+  const old = ui.racks[idx] || [];
+  const keep = [];
+  for (const t of old) { const i = real.indexOf(t.c); if (i >= 0) { keep.push(t); real.splice(i, 1); } }
+  for (const c of real) keep.push({ id: ++ui.uid, c });
+  ui.racks[idx] = keep;
+  return keep;
+}
+function renderPlayers() {
+  const many = st.players.length > 2;
+  $('players').innerHTML = st.players.map((p, i) => '<div class="pl' + (i === st.turn && !st.over ? ' on' : '') + '"><span class="nm">' + esc(p.name)
+    + (p.kind === 'cpu' && !many ? ' · ' + cap(p.level) : '') + '</span><span class="sc">' + p.score + '</span></div>').join('');
+}
+function renderRack() {
+  const el = $('rack'); el.innerHTML = '';
+  if (ui.viewer < 0) {
+    const n = st.players[st.turn].rack.length;
+    for (let i = 0; i < n; i++) { const d = document.createElement('div'); d.className = 'rt back'; d.appendChild(tileEl('?', true)); el.appendChild(d); }
+    return;
+  }
+  const pend = new Set(ui.pending.map((p) => p.id));
+  for (const t of rackOf(ui.viewer)) {
+    if (pend.has(t.id)) continue;
+    const d = document.createElement('div');
+    d.className = 'rt' + (ui.selected === t.id ? ' sel' : ''); d.dataset.id = t.id;
+    d.appendChild(tileEl(t.c, t.c === '?'));
+    el.appendChild(d);
+  }
+}
+function renderLog() {
+  const el = $('log');
+  if (getComputedStyle(el).display === 'none') return;
+  el.innerHTML = st.moves.slice(-14).reverse().map((m) => '<li><span class="who">' + esc(st.players[m.p].name) + '</span><span>'
+    + (m.type === 'play' ? '<b>' + esc(m.main) + '</b>' + (m.bingo ? ' bingo' : '') : esc(describe(m, false))) + '</span><span class="pts">' + (m.type === 'play' ? m.score : '') + '</span></li>').join('');
+}
+function setMsg(text, kind) { ui.note = text; ui.noteKind = kind || ''; const m = $('msg'); m.textContent = text; m.className = 'msg' + (kind ? ' ' + kind : ''); $('status').classList.toggle('err', kind === 'err'); }
+function describe(m, withName = true) {
+  const p = st.players[m.p], who = withName ? p.name + ' ' : '';
+  if (m.type === 'play') return who + (withName ? 'played ' : '') + m.main + ' for ' + m.score + (m.words.length > 1 ? ' (' + m.words.length + ' words)' : '') + (m.bingo ? ', a bingo' : '') + (m.challenged ? ' (+5 challenge)' : '');
+  if (m.type === 'withdrawn') return who + 'lost a turn: ' + m.main + ' was not a word';
+  if (m.type === 'exchange') return who + 'swapped ' + m.n + ' tile' + (m.n > 1 ? 's' : '');
+  return who + 'passed';
+}
+function defaultMsg() {
+  if (!st) return;
+  if (st.over) { setMsg('Game over', 'ok'); return; }
+  const p = W.cur(st), last = st.moves[st.moves.length - 1];
+  const lead = last && last.p !== st.turn ? describe(last) + ' · ' : '';
+  if (p.kind === 'cpu') return;
+  const hint = W.boardEmpty(st.board) ? ': the first word covers the star' : '';
+  setMsg(lead + (humanCount() > 1 ? p.name + ', your turn' : 'Your turn') + hint, lead ? '' : 'ok');
+}
+function render() {
+  if (!st) return;
+  renderPlayers();
+  view.render(st.board, ui.pending, lastSqs());
+  renderRack();
+  renderLog();
+  $('bag').textContent = st.bag.length + ' in bag';
+  const can = myTurn();
+  $('mixBtn').textContent = ui.pending.length ? 'Recall' : 'Shuffle';
+  $('mixBtn').disabled = !can;
+  $('swapBtn').disabled = !can || st.bag.length < W.RACK;
+  $('swapBtn').title = st.bag.length < W.RACK ? 'Swapping needs at least 7 tiles in the bag' : 'Swap tiles';
+  $('passBtn').disabled = !can;
+  const L = st.last;
+  $('chal').hidden = !(can && st.challenge && L && L.player !== st.turn && !ui.pending.length && humanCount() === 1);
+  preview();
+}
+function pendingTiles() { return ui.pending.map((p) => ({ sq: p.sq, l: p.l, blank: p.blank })); }
+function preview() {
+  const btn = $('playBtn');
+  view.pill(-1);
+  if (!myTurn() || !ui.pending.length) { btn.innerHTML = 'Play'; btn.disabled = true; if (myTurn() && !ui.keepNote) defaultMsg(); return; }
+  const an = W.analyzePlay(st.board, pendingTiles());
+  if (an.ok) {
+    btn.innerHTML = 'Play <span class="n">' + an.score + '</span>'; btn.disabled = false;
+    const main = an.words[0].sqs;
+    view.pill(main[main.length - 1], '+' + an.score);
+    if (!ui.keepNote) setMsg(an.words.map((w) => w.word).join(' · ') + (an.bingo ? ' · bingo +50' : ''), 'ok');
+  } else {
+    btn.innerHTML = 'Play'; btn.disabled = true;
+    if (!ui.keepNote) setMsg(an.error);
+  }
+  ui.keepNote = false;
+}
+
+// ---------------------------------------------------------------- placing tiles
+function rackTile(id) { return (ui.racks[ui.viewer] || []).find((t) => t.id === id); }
+function pickBlank() {
+  return new Promise((resolve) => {
+    const ov = $('blankOv'), pick = $('blankPick');
+    pick.innerHTML = '';
+    for (let l = 0; l < 26; l++) {
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('aria-label', W.L2C(l));
+      b.appendChild(tileEl(W.L2C(l), true)); b.onclick = () => { if (performance.now() - opened > 400) done(l); }; pick.appendChild(b);
+    }
+    // The picker opens from a pointerup; on a touch screen the browser then fires a click at the same spot,
+    // which would land on whichever letter now sits under the finger. Clicks in the first 400 ms are ignored.
+    const opened = performance.now();
+    const done = (l) => { ov.hidden = true; $('blankNo').onclick = null; resolve(l); };
+    $('blankNo').onclick = () => done(null);
+    ov.hidden = false;
+  });
+}
+async function place(id, sq) {
+  if (!myTurn() || sq < 0 || st.board[sq]) return false;
+  const t = rackTile(id); if (!t) return false;
+  const other = ui.pending.find((p) => p.sq === sq);
+  if (other && other.id !== id) return false;
+  const was = ui.pending.find((p) => p.id === id);
+  if (was) { was.sq = sq; }
+  else {
+    let l, blank = false;
+    if (t.c === '?') { l = await pickBlank(); if (l === null) { render(); return false; } blank = true; }
+    else l = W.C2L(t.c);
+    if (!myTurn() || st.board[sq] || ui.pending.some((p) => p.sq === sq)) { render(); return false; }
+    ui.pending.push({ id, sq, l, blank });
+  }
+  ui.selected = null;
+  render(); view.pop(sq); knock(0, 0.18, 540);
+  return true;
+}
+function unplace(id, at) {
+  const i = ui.pending.findIndex((p) => p.id === id); if (i < 0) return;
+  ui.pending.splice(i, 1);
+  if (at !== undefined) moveInRack(id, at);
+  render();
+}
+function recall() { ui.pending = []; ui.selected = null; view.zoomOut(); render(); }
+function moveInRack(id, at) {
+  const r = ui.racks[ui.viewer]; const i = r.findIndex((t) => t.id === id); if (i < 0) return;
+  const [t] = r.splice(i, 1);
+  // `at` counts visible rack tiles; translate it to an index in the full order (pending tiles are hidden)
+  const pend = new Set(ui.pending.map((p) => p.id));
+  let vis = 0, k = 0;
+  for (; k < r.length; k++) { if (pend.has(r[k].id)) continue; if (vis === at) break; vis++; }
+  r.splice(k, 0, t);
+}
+function shuffleRack() {
+  const r = ui.racks[ui.viewer]; if (!r) return;
+  for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
+  render();
+  const els = $('rack').children;
+  for (let i = 0; i < els.length; i++) if (els[i].animate) els[i].animate([{ transform: 'translateY(-18%) rotate(' + (i % 2 ? 4 : -4) + 'deg)' }, { transform: 'none' }], { duration: 260, delay: i * 18, easing: 'ease-out' });
+}
+function rackInsertIndex(x) {
+  const els = [...$('rack').querySelectorAll('.rt:not(.hole)')];
+  let i = 0;
+  for (; i < els.length; i++) { const r = els[i].getBoundingClientRect(); if (x < r.left + r.width / 2) break; }
+  return i;
+}
+
+// ---------------------------------------------------------------- pointer input: tap, drag, pinch, pan
+// One set of pointer handlers for mouse and touch. A rack tile: tap selects it, drag carries it. A placed
+// (not yet played) tile on the board: tap sends it home, drag moves it. The board: tap places the selected
+// tile; on a phone-sized board the first tap zooms in on that spot instead, so the second tap lands on the
+// square meant. Two fingers pinch-zoom, one finger pans a zoomed board, a double tap zooms in or out.
+const pts = new Map();
+let drag = null, bp = null, pinch = null, lastTap = { t: 0, x: 0, y: 0 };
+function startDrag(d) {
+  d.started = true;
+  const t = rackTile(d.id); if (!t) { drag = null; return; }
+  const g = document.createElement('div'); g.className = 'ghost';
+  const p = ui.pending.find((q) => q.id === d.id);
+  g.appendChild(tileEl(p && p.blank ? W.L2C(p.l) : t.c, t.c === '?'));
+  const size = Math.max(40, Math.min(64, ui.rt * 1.1));
+  g.style.setProperty('--gs', size + 'px');
+  document.body.appendChild(g); d.ghost = g; d.lift = d.touch ? size * 0.75 : 0;
+  if (d.el) d.el.classList.add(d.from === 'rack' ? 'hole' : 'gone');
+  ui.selected = null;
+  for (const el of document.querySelectorAll('.rt.sel')) el.classList.remove('sel');
+}
+function moveDrag(d, x, y) {
+  const gx = x, gy = y - d.lift;
+  d.ghost.style.transform = 'translate(' + gx + 'px,' + gy + 'px)';
+  const sq = view.squareAt(gx, gy);
+  view.highlight(sq >= 0 && !st.board[sq] && !ui.pending.some((p) => p.sq === sq && p.id !== d.id) ? sq : -1);
+}
+async function endDrag(d, x, y) {
+  view.highlight(-1);
+  if (d.ghost) d.ghost.remove();
+  const gx = x, gy = y - d.lift;
+  const sq = view.squareAt(gx, gy);
+  const rr = $('rack').getBoundingClientRect();
+  if (sq >= 0 && !st.board[sq] && !ui.pending.some((p) => p.sq === sq && p.id !== d.id)) {
+    const ok = await place(d.id, sq);
+    if (ok && view.small && view.zoom === 1 && view.canZoom()) view.focus(sq);
+  } else if (gy > rr.top - 30 && gy < rr.bottom + 30 && gx > rr.left - 20 && gx < rr.right + 20) {
+    const at = rackInsertIndex(gx);
+    if (d.from === 'board') unplace(d.id, at); else { moveInRack(d.id, at); render(); }
+  } else render();
+}
+function onDown(e) {
+  if (!st || $('app').inert) return;
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pts.size === 2 && !drag) {
+    const [a, b] = [...pts.values()];
+    pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: view.zoom };
+    bp = null; return;
+  }
+  const rt = e.target.closest && e.target.closest('.rt');
+  const bt = e.target.closest && e.target.closest('.bt.pend');
+  if (rt && !rt.classList.contains('back') && myTurn()) {
+    e.preventDefault();
+    drag = { id: +rt.dataset.id, from: 'rack', el: rt, sx: e.clientX, sy: e.clientY, pid: e.pointerId, started: false, touch: e.pointerType !== 'mouse' };
+  } else if (bt && myTurn()) {
+    e.preventDefault();
+    drag = { id: +bt.dataset.id, from: 'board', el: bt, sx: e.clientX, sy: e.clientY, pid: e.pointerId, started: false, touch: e.pointerType !== 'mouse' };
+  } else if (e.target.closest && e.target.closest('#boardWrap') && !e.target.closest('#zoomBtn')) {
+    const [x0, y0] = view.offset;
+    bp = { sx: e.clientX, sy: e.clientY, x0, y0, moved: false, pid: e.pointerId };
+  }
+}
+function onMove(e) {
+  if (!pts.has(e.pointerId)) return;
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && pts.size >= 2) {
+    const [a, b] = [...pts.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    view.zoomAt(pinch.z0 * d / pinch.d0, (a.x + b.x) / 2, (a.y + b.y) / 2, false);
+    return;
+  }
+  if (drag && drag.pid === e.pointerId) {
+    if (!drag.started && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 7) startDrag(drag);
+    if (drag && drag.started) moveDrag(drag, e.clientX, e.clientY);
+    return;
+  }
+  if (bp && bp.pid === e.pointerId) {
+    const dx = e.clientX - bp.sx, dy = e.clientY - bp.sy;
+    if (!bp.moved && Math.hypot(dx, dy) > 8) bp.moved = true;
+    if (bp.moved && view.zoom > 1) view.pan(bp.x0, bp.y0, dx, dy);
+  }
+}
+function onUp(e) {
+  if (!pts.has(e.pointerId)) return;
+  pts.delete(e.pointerId);
+  if (pinch) { if (pts.size < 2) { pinch = null; bp = null; } return; }
+  if (drag && drag.pid === e.pointerId) {
+    const d = drag; drag = null;
+    if (e.type === 'pointercancel') { if (d.ghost) d.ghost.remove(); view.highlight(-1); render(); return; }
+    if (d.started) { endDrag(d, e.clientX, e.clientY); return; }
+    if (d.from === 'rack') { ui.selected = ui.selected === d.id ? null : d.id; render(); if (ui.selected !== null) { ui.keepNote = true; setMsg(view.small && view.zoom === 1 ? 'Tap the board where it goes (the first tap zooms in)' : 'Now tap a square'); preview(); } }
+    else unplace(d.id);
+    return;
+  }
+  if (bp && bp.pid === e.pointerId) {
+    const b = bp; bp = null;
+    if (!b.moved && e.type !== 'pointercancel') boardTap(e.clientX, e.clientY);
+  }
+}
+function boardTap(x, y) {
+  const sq = view.squareAt(x, y);
+  const now = performance.now(), dbl = now - lastTap.t < 320 && Math.hypot(x - lastTap.x, y - lastTap.y) < 30;
+  lastTap = { t: now, x, y };
+  if (ui.selected !== null && myTurn()) {
+    if (view.small && view.zoom === 1 && view.canZoom()) { view.zoomAt(9, x, y, true); setMsg('Now tap the square'); return; }
+    if (sq >= 0 && !st.board[sq] && !ui.pending.some((p) => p.sq === sq)) place(ui.selected, sq);
+    return;
+  }
+  if (dbl && view.canZoom()) { lastTap.t = 0; if (view.zoom > 1) view.zoomOut(); else view.zoomAt(9, x, y, true); }
+}
+document.addEventListener('pointerdown', onDown, { passive: false });
+window.addEventListener('pointermove', onMove);
+window.addEventListener('pointerup', onUp);
+window.addEventListener('pointercancel', onUp);
+$('boardWrap').addEventListener('wheel', (e) => { if (!view.canZoom()) return; e.preventDefault(); view.zoomAt(view.zoom * (e.deltaY < 0 ? 1.25 : 0.8), e.clientX, e.clientY, false); }, { passive: false });
+$('zoomBtn').addEventListener('click', () => view.zoomOut());
+
+// ---------------------------------------------------------------- moments: score, bingo
+function celebrate(an, who) {
+  const main = an.words[0].sqs;
+  const a = main[0], b = main[main.length - 1];
+  const r = (((a / 15) | 0) + ((b / 15) | 0)) / 2, c = ((a % 15) + (b % 15)) / 2;
+  if (an.bingo) { bingo.an = an; bingo(who); return; }
+  view.floatText(r, c, '+' + an.score, an.score >= 40);
+  chime(an.score >= 30 ? [523, 659, 784] : [587, 784], 0.08);
+}
+function bingo(who) {
+  const el = $('bingo');
+  const an = bingo.an || { words: [{ word: '' }], score: 0 };
+  el.innerHTML = '<div class="word">BINGO<small>' + esc((who ? who + ': ' : '') + an.words[0].word + ' · ' + an.score + ' points') + '</small></div>';
+  const br = $('boardWrap').getBoundingClientRect();
+  Object.assign(el.style, { left: br.left + 'px', top: br.top + 'px', width: br.width + 'px', height: br.height + 'px' });
+  el.style.setProperty('--bf', Math.min(92, br.width * 0.19) + 'px');
+  el.hidden = false;
+  chime([523, 659, 784, 1047, 1319], 0.1, 0.08);
+  const r = $('boardWrap').getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  for (let i = 0; i < (reduce ? 0 : 36); i++) {
+    const s = document.createElement('div'); s.className = 'spark';
+    const ang = (i / 36) * Math.PI * 2 + Math.random() * 0.3, dist = 120 + Math.random() * Math.min(r.width, 340) * 0.6;
+    s.style.left = cx + 'px'; s.style.top = cy + 'px';
+    s.style.background = ['#e5b46c', '#fcf4df', '#b67468', '#4a8ba3'][i % 4];
+    s.style.setProperty('--dx', Math.cos(ang) * dist + 'px'); s.style.setProperty('--dy', Math.sin(ang) * dist + 'px'); s.style.setProperty('--rot', (Math.random() * 540 - 270) + 'deg');
+    s.style.animationDelay = Math.random() * 0.15 + 's';
+    document.body.appendChild(s); setTimeout(() => s.remove(), 1700);
+  }
+  clearTimeout(bingo.t); bingo.t = setTimeout(() => { el.hidden = true; }, 2300);
+}
+
+// ---------------------------------------------------------------- turns
+function confirmBox(title, text, yes = 'OK') {
+  return new Promise((resolve) => {
+    $('cfTitle').textContent = title; $('cfText').textContent = text; $('cfYes').textContent = yes;
+    const done = (v) => { $('confirmOv').hidden = true; $('cfYes').onclick = $('cfNo').onclick = null; resolve(v); };
+    $('cfYes').onclick = () => done(true); $('cfNo').onclick = () => done(false);
+    $('confirmOv').hidden = false; $('cfYes').focus();
+  });
+}
+async function onPlay() {
+  if (!myTurn() || !ui.pending.length) return;
+  const tiles = pendingTiles();
+  const an = W.analyzePlay(st.board, tiles);
+  if (!an.ok) { setMsg(an.error, 'err'); return; }
+  if (!st.challenge) {
+    const bad = W.badWords(D, an.words);
+    if (bad.length) {
+      ui.keepNote = true;
+      setMsg('Not in the dictionary: ' + bad.join(', ') + '. No penalty, try again.', 'err');
+      for (const el of document.querySelectorAll('.bt.pend')) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); }
+      chime([311, 262], 0.12, 0.05); preview(); return;
+    }
+  }
+  const tok = token;
+  const r = W.applyPlay(st, tiles);
+  if (!r.ok) { setMsg(r.error, 'err'); return; }
+  ui.pending = []; ui.selected = null; ui.busy = true;
+  view.zoomOut();
+  render();
+  celebrate(r.analysis, humanCount() > 1 ? W.cur(st).name : '');
+  await wait(r.analysis.bingo ? 1500 : 650);
+  if (tok !== token) return;
+  if (st.challenge) await challengeWindow();
+  if (tok !== token) return;
+  finishTurn();
+}
+// After a human play in challenge mode: computer opponents challenge a word they know is wrong (Easy notices
+// half the time, Medium most of the time, Hard always); at a pass-and-play table anyone may call it.
+async function challengeWindow() {
+  const L = st.last; if (!L) return;
+  const who = st.players[L.player];
+  if (humanCount() === 1) {
+    const bad = L.words.filter((w) => !W.hasWord(D, w));
+    if (!bad.length) return;
+    const cpus = st.players.map((p, i) => i).filter((i) => !human(i));
+    for (const i of cpus) {
+      const p = st.players[i], chance = { easy: 0.5, medium: 0.85, hard: 1 }[p.level];
+      if (W.rngNext(st) < chance) {
+        W.challengeLast(st, D);
+        render();
+        setMsg(p.name + ' challenged: ' + bad.join(', ') + ' is not a word. Your tiles come back.', 'err');
+        chime([311, 262], 0.12, 0.05);
+        await wait(1800);
+        return;
+      }
+    }
+    return;
+  }
+  $('chText').textContent = who.name + ' played ' + L.words.join(', ') + ' for ' + L.score + '.';
+  const yes = await new Promise((resolve) => {
+    const done = (v) => { $('chalOv').hidden = true; resolve(v); };
+    $('chYes').onclick = () => done(true); $('chNo').onclick = () => done(false);
+    $('chalOv').hidden = false;
+  });
+  if (!yes) return;
+  const res = W.challengeLast(st, D);
+  render();
+  if (res.upheld) { setMsg('Challenge upheld: ' + res.bad.join(', ') + ' is not in the dictionary. The play comes off.', 'err'); chime([311, 262], 0.12, 0.05); }
+  else { setMsg('Challenge failed: every word is good. ' + who.name + ' gets 5 points.', 'ok'); chime([587, 784]); }
+  await wait(1700);
+}
+async function humanChallenge() {
+  if (!myTurn() || !st.last) return;
+  const L = st.last, who = st.players[L.player];
+  const res = W.challengeLast(st, D);
+  if (res.upheld) setMsg('Upheld: ' + res.bad.join(', ') + ' is not a word.', 'err');
+  else { ui.keepNote = true; setMsg(L.words.join(', ') + (L.words.length > 1 ? ' are all' : ' is') + ' good. ' + who.name + ' gets 5 points.', 'ok'); }
+  save(); render();
+}
+function finishTurn() {
+  ui.busy = false;
+  W.endTurn(st);
+  save();
+  beginTurn();
+}
+function beginTurn() {
+  if (!st) return;
+  ui.pending = []; ui.selected = null;
+  if (st.over) { ui.viewer = humanCount() === 1 ? st.players.findIndex((p) => p.kind === 'human') : -1; render(); showOver(); return; }
+  const p = W.cur(st);
+  if (p.kind === 'cpu') {
+    ui.viewer = st.players.findIndex((q) => q.kind === 'human');
+    render(); computerTurn();
+    return;
+  }
+  if (humanCount() > 1 && ui.viewer !== st.turn) {
+    ui.viewer = -1; render();
+    const last = st.moves[st.moves.length - 1];
+    $('hoTitle').textContent = p.name + ', your turn';
+    $('hoLast').textContent = last ? describe(last) + '.' : 'First move: cover the centre star.';
+    $('handoff').hidden = false;
+    $('hoGo').focus();
+    return;
+  }
+  ui.viewer = st.turn;
+  render();
+}
+async function computerTurn() {
+  const tok = token, idx = st.turn, p = st.players[idx];
+  ui.busy = true; render();
+  setMsg(p.name + ' is thinking', 'thinking');
+  $('msg').classList.add('thinking');
+  const t0 = performance.now();
+  const job = { board: st.board.slice(), rack: p.rack.slice(), level: p.level, bag: st.bag.length, seed: (st.seed ^ Math.imul(st.moves.length + 1, 2654435761)) | 0, unseen: W.unseenFor(st, idx) };
+  const d = await thinker.run(job);
+  const wall = performance.now() - t0;
+  stats.think.push({ level: p.level, ms: d.ms, wall, count: d.count, mode: thinker.mode, tiles: st.board.filter((v) => v).length });
+  if (tok !== token) return;
+  await wait(Math.max(0, 650 - wall));
+  if (tok !== token) return;
+  $('msg').classList.remove('thinking');
+  const chip = $('players').children[idx].getBoundingClientRect();
+  const from = { x: chip.left + chip.width / 2, y: chip.top + chip.height / 2 };
+  if (d.type === 'play') {
+    const r = W.applyPlay(st, d.move.tiles);
+    if (r.ok) {
+      render();
+      await view.animatePlacement(d.move.tiles.slice().sort((a, b) => a.sq - b.sq).map((t) => t.sq), from);
+      if (tok !== token) return;
+      celebrate(r.analysis, p.name);
+      setMsg(describe(st.moves[st.moves.length - 1]), 'ok');
+      await wait(r.analysis.bingo ? 1700 : 900);
+    } else { W.applyPass(st); setMsg(p.name + ' passed'); await wait(900); }
+  } else if (d.type === 'exchange') {
+    const r = W.applyExchange(st, d.tiles);
+    if (!r.ok) W.applyPass(st);
+    render(); setMsg(describe(st.moves[st.moves.length - 1])); await wait(1100);
+  } else { W.applyPass(st); render(); setMsg(p.name + ' passed'); await wait(1100); }
+  if (tok !== token) return;
+  finishTurn();
+}
+async function onSwap() {
+  if (!myTurn() || st.bag.length < W.RACK) return;
+  recall();
+  const tiles = rackOf(ui.viewer), sel = new Set();
+  const box = $('exTiles'); box.innerHTML = '';
+  for (const t of tiles) {
+    const b = document.createElement('button'); b.type = 'button'; b.appendChild(tileEl(t.c, t.c === '?'));
+    b.onclick = () => { if (sel.has(t.id)) sel.delete(t.id); else sel.add(t.id); b.classList.toggle('on', sel.has(t.id)); upd(); };
+    box.appendChild(b);
+  }
+  const upd = () => { $('exYes').disabled = !sel.size; $('exYes').textContent = sel.size ? 'Swap ' + sel.size : 'Swap'; };
+  upd();
+  const ok = await new Promise((resolve) => {
+    const done = (v) => { $('swapOv').hidden = true; resolve(v); };
+    $('exYes').onclick = () => done(true); $('exNo').onclick = () => done(false);
+    $('swapOv').hidden = false;
+  });
+  if (!ok || !myTurn()) return;
+  const out = tiles.filter((t) => sel.has(t.id)).map((t) => t.c);
+  const r = W.applyExchange(st, out);
+  if (!r.ok) { setMsg(r.error, 'err'); return; }
+  ui.racks[ui.viewer] = tiles.filter((t) => !sel.has(t.id));
+  setMsg('Swapped ' + out.length + ' tile' + (out.length > 1 ? 's' : ''), 'ok');
+  knock(0, 0.15, 400); knock(0.08, 0.15, 450);
+  finishTurn();
+}
+async function onPass() {
+  if (!myTurn()) return;
+  const ok = await confirmBox('Pass this turn?', st.scoreless >= 5 ? 'Six scoreless turns in a row end the game. This would be the sixth.' : 'You score nothing and keep your tiles.', 'Pass');
+  if (!ok || !myTurn()) return;
+  recall();
+  W.applyPass(st);
+  finishTurn();
+}
+
+// ---------------------------------------------------------------- end of game
+function showOver() {
+  const R = st.result, P = st.players;
+  const order = P.map((p, i) => i).sort((a, b) => P[b].score - P[a].score);
+  const win = R.winners;
+  const hi = humanCount() === 1 ? P.findIndex((p) => p.kind === 'human') : -1;
+  $('ovTitle').textContent = win.length > 1 ? 'A tie' : hi >= 0 ? (win[0] === hi ? 'You win' : P[win[0]].name + ' wins') : P[win[0]].name + ' wins';
+  $('ovWhy').textContent = R.reason === 'out' ? P[R.out].name + ' used every tile.' : 'Six turns in a row without a score.';
+  $('ovTable').innerHTML = order.map((i) => {
+    const adj = R.adj[i];
+    return '<tr' + (win.includes(i) ? ' class="win"' : '') + '><td>' + esc(P[i].name) + '</td><td class="n"><small>' + (adj > 0 ? '+' + adj + ' from racks' : adj < 0 ? adj + ' left on rack' : '') + '</small></td><td class="n">' + P[i].score + '</td></tr>';
+  }).join('');
+  let best = null;
+  for (const m of st.moves) if (m.type === 'play' && (!best || m.score > best.score)) best = m;
+  $('ovBest').textContent = best ? 'Best play: ' + best.main + ' by ' + P[best.p].name + ' for ' + best.score + '.' : '';
+  $('hsTable').innerHTML = '';
+  $('overOv').hidden = false;
+  chime(win.includes(hi) || hi < 0 ? [523, 659, 784, 1047] : [440, 392, 330], 0.14, 0.07);
+  if (hi >= 0 && !st.hsDone) {
+    st.hsDone = true;
+    const cpu = P.filter((p) => p.kind === 'cpu');
+    const detail = (win.includes(hi) ? 'won' : 'lost') + ' vs ' + cpu.length + ' ' + cap(cpu[0].level);
+    const score = P[hi].score;
+    if (score > 0 && hs.rank(score) >= 0) hs.prompt(score, detail).then((e) => hs.render($('hsTable'), e && e.time));
+    else hs.render($('hsTable'));
+  }
+}
+$('ovLook').onclick = () => { $('overOv').hidden = true; setMsg('Game over. Menu → New game to play again.', 'ok'); };
+$('ovNew').onclick = () => { $('overOv').hidden = true; showSetup(); };
+
+// ---------------------------------------------------------------- setup
+function seg(id, value, onPick) {
+  const el = $(id);
+  for (const b of el.querySelectorAll('button')) {
+    b.classList.toggle('on', b.dataset.v === String(value));
+    b.onclick = () => { for (const x of el.querySelectorAll('button')) x.classList.toggle('on', x === b); onPick(b.dataset.v); };
+  }
+}
+function setupNames() {
+  const box = $('sNames'); box.innerHTML = '';
+  for (let i = 0; i < opts.players; i++) {
+    const inp = document.createElement('input'); inp.type = 'text'; inp.maxLength = 12; inp.placeholder = 'Player ' + (i + 1); inp.value = opts.names[i] || '';
+    inp.setAttribute('aria-label', 'Name of player ' + (i + 1));
+    inp.oninput = () => { opts.names[i] = inp.value.trim(); saveOpts(); };
+    box.appendChild(inp);
+  }
+}
+function setupRefresh() {
+  $('sCpu').hidden = opts.mode !== 'cpu'; $('sPnp').hidden = opts.mode !== 'pnp';
+  $('sRulesHint').textContent = opts.rules === 'casual'
+    ? 'Every word is checked as you play it. A word the dictionary lacks is simply refused; you lose nothing.'
+    : 'Words are not checked when played. Anyone may challenge: a wrong word comes off and its player loses the turn; a good word earns them 5 points.';
+  setupNames();
+}
+function showSetup() {
+  token++; thinker.cancel();
+  $('overOv').hidden = true; $('menuOv').hidden = true; $('handoff').hidden = true;
+  seg('sMode', opts.mode, (v) => { opts.mode = v; saveOpts(); setupRefresh(); });
+  seg('sCount', opts.count, (v) => { opts.count = +v; saveOpts(); });
+  seg('sLevel', opts.level, (v) => { opts.level = v; saveOpts(); });
+  seg('sPlayers', opts.players, (v) => { opts.players = +v; saveOpts(); setupRefresh(); });
+  seg('sRules', opts.rules, (v) => { opts.rules = v; saveOpts(); setupRefresh(); });
+  setupRefresh();
+  const saved = st && !st.over ? st : null;
+  $('sResume').hidden = !saved;
+  if (!D) $('sResume').disabled = true;
+  $('sNote').textContent = badSave ? 'Your saved game could not be read, so it was cleared.' : '';
+  $('setup').hidden = false;
+}
+function startGame() {
+  token++; thinker.cancel();
+  const players = [];
+  if (opts.mode === 'cpu') {
+    players.push({ name: playerName(), kind: 'human' });
+    for (let i = 0; i < opts.count; i++) players.push({ name: CPU_NAMES[i], kind: 'cpu', level: opts.level });
+  } else {
+    for (let i = 0; i < opts.players; i++) players.push({ name: (opts.names[i] || '').trim() || 'Player ' + (i + 1), kind: 'human' });
+  }
+  const seed = (Math.random() * 4294967296) >>> 0;
+  st = W.newGame({ players, challenge: opts.rules === 'challenge', seed });
+  ui.racks = {}; ui.pending = []; ui.selected = null; ui.viewer = -1; ui.busy = false;
+  badSave = false;
+  $('setup').hidden = true;
+  view.zoomOut();
+  save();
+  beginTurn();
+}
+$('sStart').onclick = () => startGame();
+$('sResume').onclick = () => { $('setup').hidden = true; ui.viewer = -1; beginTurn(); };
+$('hoGo').onclick = () => { $('handoff').hidden = true; ui.viewer = st.turn; render(); };
+
+// ---------------------------------------------------------------- menu
+function menuBody(html) { $('mBody').innerHTML = html; }
+$('menuBtn').onclick = () => { if (!st) return; $('mSound').textContent = 'Sound: ' + (opts.sound ? 'on' : 'off'); menuBody(''); $('menuOv').hidden = false; };
+$('mClose').onclick = () => { $('menuOv').hidden = true; };
+$('mSound').onclick = () => { opts.sound = !opts.sound; saveOpts(); $('mSound').textContent = 'Sound: ' + (opts.sound ? 'on' : 'off'); };
+$('mNew').onclick = async () => {
+  $('menuOv').hidden = true;
+  if (st && !st.over && st.moves.length && !(await confirmBox('Start a new game?', 'This game will be lost.', 'New game'))) return;
+  showSetup();
+};
+$('mTiles').onclick = () => {
+  const me = ui.viewer >= 0 ? ui.viewer : st.turn;
+  const u = W.unseenFor(st, me), count = {};
+  for (const c of u) count[c] = (count[c] || 0) + 1;
+  const keys = Object.keys(W.TILESET).filter((c) => count[c]);
+  menuBody('<h3>Tiles still to come (' + u.length + ')</h3><p class="sub">The bag plus the other racks: ' + st.bag.length + ' in the bag.</p><div class="unseen">'
+    + keys.map((c) => '<span><b>' + (c === '?' ? 'Blank' : c) + '</b>' + count[c] + '</span>').join('') + '</div>');
+};
+$('mHist').onclick = () => {
+  const items = st.moves.slice().reverse().map((m) => '<li><span>' + esc(st.players[m.p].name) + '</span><span>' + esc(describe(m, false)) + '</span></li>').join('');
+  menuBody('<h3>Moves so far</h3><ul class="hist">' + (items || '<li><span></span><span>No moves yet.</span></li>') + '</ul>');
+};
+$('mHelp').onclick = () => {
+  menuBody('<h3>How to play</h3>'
+    + '<p>Make words across or down that join the words already on the board. The first word must cover the centre star.</p>'
+    + '<p>Drag tiles from your rack onto the board, or tap a tile and then a square. On a phone the first tap zooms in; pinch or double-tap to zoom too. Tap a placed tile to take it back.</p>'
+    + '<p>A word scores its letters. <b>2L</b> and <b>3L</b> squares multiply a letter, <b>2W</b> and <b>3W</b> the whole word, only on the turn a tile first covers them. Every new word you make counts. Using all seven tiles earns 50 more.</p>'
+    + '<p>Blanks stand for any letter and score nothing. Swap tiles (while 7 or more are in the bag) or pass instead of playing. The game ends when someone uses their last tile with the bag empty, or after six scoreless turns in a row; tiles left on a rack count against it, and the player who went out gains them.</p>'
+    + '<p class="sub">Dictionary: ENABLE, a public-domain word list of 168,551 words.</p>');
+};
+
+// ---------------------------------------------------------------- buttons and keys
+$('playBtn').onclick = onPlay;
+$('mixBtn').onclick = () => { if (!myTurn()) return; if (ui.pending.length) recall(); else shuffleRack(); };
+$('swapBtn').onclick = onSwap;
+$('passBtn').onclick = onPass;
+$('chal').onclick = humanChallenge;
+window.addEventListener('keydown', (e) => {
+  if (e.target && e.target.tagName === 'INPUT') return;
+  if (e.key === 'Escape') {
+    for (const id of ['menuOv', 'blankOv']) if (!$(id).hidden) { if (id === 'blankOv') $('blankNo').click(); else $(id).hidden = true; return; }
+    if (myTurn() && ui.pending.length) recall();
+  } else if (e.key === 'Enter' && myTurn() && ui.pending.length && $('menuOv').hidden && $('confirmOv').hidden) { e.preventDefault(); onPlay(); }
+});
+window.addEventListener('resize', () => { layout(); render(); });
+
+// ---------------------------------------------------------------- start
+(async function boot() {
+  layout();
+  const logo = $('logoTiles');
+  for (const c of 'WORDS') logo.appendChild(tileEl(c, false));
+  const saved = loadSave();
+  st = saved;
+  if (st) { render(); }
+  showSetup();
+  try {
+    await loadDict();
+    thinker.start();
+    $('sStart').disabled = false; $('sStart').textContent = 'Start'; $('sResume').disabled = false;
+  } catch (err) {
+    $('sStart').textContent = 'Dictionary missing';
+    $('sNote').textContent = 'words.js did not load, so words cannot be checked. Keep it next to index.html.';
+  }
+})();
+window.__wsUI = { get st() { return st; }, get D() { return D; }, ui, view, thinker, stats, get loadMs() { return loadMs; }, place, onPlay, startGame, layout };
+</script>
+</body>
+</html>
