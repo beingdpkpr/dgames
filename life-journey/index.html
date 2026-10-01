@@ -1,0 +1,1995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#f6efe3">
+<link rel="icon" href="../icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="dgames">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+  /* Installable, and playable with no network once a game has been opened. Registered from every page so
+     a deep link into one game works offline too, not only a visit that started at the launcher. Over
+     file:// there is no service worker and register() rejects; the catch keeps that silent. */
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('../sw.js').catch(() => {}));
+</script>
+<meta name="description" content="Life Journey: a family board game about a whole life, from school to retirement. Spin, choose your roads, collect pay days and memories. Two to six players, each human or computer.">
+<title>Life Journey</title>
+<!-- Fredoka for headings and numbers on the board. Offline it falls back to the system font; every size is
+     set in px or computed, never measured from the font, so nothing overflows without it. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Warm paper around a bright meadow board. The board is the colourful thing; the panels stay quiet. */
+    --bg: #f6efe3; --panel: #fffaf2; --panel2: #fff3e1; --line: #e6d6bd; --ink: #2f2a36; --muted: #7b7084;
+    --accent: #f26b3a; --accent2: #e2552a; --teal: #2a9d8f; --gold: #f4b400; --good: #2f9e57; --bad: #d64545;
+    --spin: 120px; --side: 320px; --pcols: 3;
+    --round: "Fredoka", "Segoe UI", system-ui, sans-serif;
+    /* the shared high-score module, themed for a light page through its own custom properties */
+    --hs-fg: #2f2a36; --hs-bg: #fffaf2; --hs-line: #e6d6bd; --hs-accent: #e2552a;
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; overscroll-behavior: none; }
+  button, select, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:disabled { opacity: .45; cursor: default; }
+
+  /* ---- frame: portrait stacks top / board / hud; landscape puts top + hud in a side column ---- */
+  #app { position: fixed; inset: 0; display: grid; gap: 6px;
+    padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); }
+  #app.portrait { grid-template-rows: 46px minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "board" "hud"; }
+  #app.landscape { grid-template-columns: var(--side) minmax(0, 1fr); grid-template-rows: 46px minmax(0, 1fr); grid-template-areas: "top board" "hud board"; }
+  #top { grid-area: top; display: flex; align-items: center; gap: 6px; padding-left: 52px; min-width: 0; }
+  .logo { font-family: var(--round); font-weight: 700; font-size: 22px; margin: 0; line-height: 1; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .logo span { color: var(--accent); }
+  #app.landscape .logo { font-size: clamp(16px, calc((var(--side) - 150px) / 6.2), 22px); }
+  .iconbtn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); display: grid; place-items: center; flex: none; padding: 0; }
+  .iconbtn svg { width: 22px; height: 22px; fill: none; stroke: var(--ink); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---- board ---- */
+  #boardWrap { grid-area: board; position: relative; overflow: hidden; border-radius: 16px; background: #bfe0a6; box-shadow: inset 0 0 0 1px rgba(60, 90, 40, .25); min-height: 0; touch-action: none; }
+  #board { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; -webkit-user-select: none; cursor: grab; }
+  #board.panning { cursor: grabbing; }
+  .space-lbl { font-family: var(--round); font-weight: 600; font-size: 12px; fill: #3a2f2a; }
+  .space-ico { font-size: 15px; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  .glyph { font-family: var(--round); font-weight: 700; fill: #fff; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  .pulse { animation: pulse .9s ease-out; transform-box: fill-box; transform-origin: center; }
+  @keyframes pulse { 0% { transform: scale(1); } 35% { transform: scale(1.35); } 100% { transform: scale(1); } }
+  #overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .bubble { position: absolute; transform: translate(-50%, -100%); font-family: var(--round); font-weight: 700; white-space: nowrap; padding: 5px 11px; border-radius: 999px;
+    color: #fff; background: var(--good); box-shadow: 0 4px 12px rgba(0,0,0,.2); font-size: 15px; animation: bubble 1.3s ease-out forwards; }
+  .bubble.pay { background: linear-gradient(#3cba68, #23874a); font-size: 17px; }
+  .bubble.bad { background: var(--bad); }
+  .bubble.info { background: #5b6ee1; }
+  @keyframes bubble { 0% { opacity: 0; margin-top: 10px; transform: translate(-50%, -100%) scale(.6); } 15% { opacity: 1; transform: translate(-50%, -100%) scale(1.08); }
+    30% { transform: translate(-50%, -100%) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; margin-top: -34px; } }
+  .coin { position: absolute; width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff6b0, #f4b400 55%, #b98100); box-shadow: 0 1px 2px rgba(0,0,0,.3);
+    animation: coin .9s cubic-bezier(.2,.7,.4,1) forwards; }
+  @keyframes coin { from { transform: translate(0, 0) scale(.5); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) scale(1); opacity: 0; } }
+  #banner { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 8px 16px; border-radius: 14px;
+    background: rgba(255, 250, 242, .96); box-shadow: 0 6px 20px rgba(0,0,0,.18); font-family: var(--round); font-weight: 600; font-size: 15px; text-align: center; pointer-events: none;
+    transition: opacity .25s, transform .25s; }
+  #banner.off { opacity: 0; transform: translate(-50%, -10px); }
+  #tip { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: min(320px, calc(100% - 20px)); background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 10px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.2); font-size: 14px; line-height: 1.35; }
+  #tip b { font-family: var(--round); font-size: 16px; display: block; margin-bottom: 2px; }
+  #mapBtns { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; }
+
+  /* ---- hud ---- */
+  #hud { grid-area: hud; display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
+  #players { display: grid; grid-template-columns: repeat(var(--pcols), minmax(0, 1fr)); gap: 6px; flex: none; }
+  .pl { position: relative; display: flex; align-items: center; gap: 6px; height: 44px; padding: 3px 7px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); min-width: 0; text-align: left; }
+  .pl.cur { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; background: #fff; }
+  .pl.done { opacity: .6; }
+  .pl .car { width: 26px; height: 26px; flex: none; }
+  .pl .tx { min-width: 0; flex: 1; display: flex; flex-direction: column; line-height: 1.15; }
+  .pl .nm { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl .cash { font-family: var(--round); font-weight: 700; font-size: 15px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .pl .bits { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .pl .bits b { color: var(--bad); font-weight: 700; }
+  .pl .float { position: absolute; right: 6px; top: -6px; font-family: var(--round); font-weight: 700; font-size: 14px; pointer-events: none; animation: flt 1.1s ease-out forwards; }
+  .pl .float.up { color: var(--good); } .pl .float.down { color: var(--bad); }
+  @keyframes flt { from { opacity: 0; transform: translateY(8px); } 20% { opacity: 1; } to { opacity: 0; transform: translateY(-14px); } }
+  #turnbar { display: flex; gap: 10px; align-items: center; flex: none; min-width: 0; }
+  #spinWrap { width: var(--spin); height: var(--spin); flex: none; position: relative; }
+  #spinner { width: 100%; height: 100%; display: block; cursor: pointer; touch-action: none; }
+  #spinner.off { cursor: default; }
+  #turnInfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  #who { font-family: var(--round); font-weight: 700; font-size: 17px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+  #who span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #who .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  #msg { font-size: 13px; color: var(--muted); line-height: 1.3; min-height: 2.6em; max-height: 3.9em; overflow: hidden; }
+  #btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn { min-height: 44px; min-width: 44px; padding: 8px 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); font-weight: 600; font-size: 15px; }
+  .btn.primary { background: linear-gradient(#ff8a52, var(--accent2)); border-color: #c4461f; color: #fff; font-family: var(--round); font-weight: 700; letter-spacing: .5px; box-shadow: 0 3px 0 #b33f1b; }
+  .btn.primary:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 #b33f1b; }
+  .btn.grow { flex: 1 1 auto; }
+  #app.landscape #btns .btn { flex: 1 1 auto; }
+  #logbox { flex: 1; min-height: 0; overflow: auto; font-size: 12.5px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px; line-height: 1.45; }
+  #logbox div:last-child { color: var(--ink); }
+  #app.portrait #logbox { display: none; }
+  #logbox.tiny { display: none; }
+
+  /* ---- sheets ---- */
+  .veil { position: fixed; inset: 0; background: rgba(40, 30, 20, .42); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 10px; }
+  .sheet { background: var(--panel); border-radius: 18px; width: min(100%, 640px); max-height: 100%; display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0,0,0,.3); animation: rise .25s ease-out; }
+  @keyframes rise { from { transform: translateY(24px); opacity: 0; } }
+  .sheet .sh { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 16px; border-bottom: 1px solid var(--line); flex: none; }
+  .sheet .sh h2 { font-family: var(--round); font-size: 18px; margin: 0; flex: 1; min-width: 0; }
+  .sheet .sb { overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .sheet .sf { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); flex: none; flex-wrap: wrap; justify-content: flex-end; }
+  .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .opt { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 12px 10px; border-radius: 14px; border: 2px solid var(--line); background: #fff; min-height: 44px; transition: transform .12s, border-color .12s; }
+  .opt:hover, .opt:focus-visible { border-color: var(--accent); transform: translateY(-2px); outline: none; }
+  .opt .oi { font-size: 34px; line-height: 1.1; }
+  .opt .on { font-family: var(--round); font-weight: 700; font-size: 16px; }
+  .opt .ob { font-size: 13px; color: var(--muted); line-height: 1.3; }
+  .opt .os { font-family: var(--round); font-weight: 700; font-size: 20px; color: var(--good); }
+  .opt .warn { font-size: 12px; color: var(--bad); font-weight: 600; }
+  .opt svg.hs { width: 90px; height: 62px; }
+  .compact .opt { padding: 8px 8px; }
+  .compact .opt .oi { font-size: 26px; }
+  .compact .opt .ob { font-size: 12px; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .muted { color: var(--muted); font-size: 13px; }
+
+  /* ---- event card ---- */
+  #card { position: fixed; inset: 0; z-index: 55; display: grid; place-items: center; background: rgba(40, 30, 20, .3); perspective: 900px; cursor: pointer; padding: 10px; }
+  .ecard { width: min(330px, 92vw); max-height: 100%; overflow: auto; background: #fffdf7; border-radius: 18px; border: 4px solid #f39c32; box-shadow: 0 18px 50px rgba(0,0,0,.35); padding: 16px 18px 14px; text-align: center;
+    animation: flip .5s ease-out; }
+  @keyframes flip { from { transform: rotateY(90deg) scale(.8); opacity: .3; } to { transform: none; opacity: 1; } }
+  .ecard .kind { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #c96d0f; font-weight: 700; }
+  .ecard .ei { font-size: 46px; line-height: 1.2; margin: 4px 0; }
+  .ecard h3 { font-family: var(--round); font-size: 22px; margin: 0 0 6px; }
+  .ecard p { margin: 0 0 8px; line-height: 1.4; font-size: 15px; }
+  .ecard .fx { font-family: var(--round); font-weight: 700; font-size: 17px; color: var(--teal); }
+  .ecard .fx.cost { color: var(--bad); }
+  .ecard .who { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .ecard.house { border-color: var(--teal); }
+  .ecard.house .kind { color: var(--teal); }
+  .ecard .stamp { display: inline-block; margin-top: 6px; padding: 4px 14px; border: 3px solid var(--bad); color: var(--bad); border-radius: 8px; font-family: var(--round); font-weight: 700; font-size: 20px;
+    transform: rotate(-8deg); animation: stamp .45s .35s cubic-bezier(.3,1.6,.5,1) both; }
+  @keyframes stamp { from { transform: rotate(-8deg) scale(2.4); opacity: 0; } to { transform: rotate(-8deg) scale(1); opacity: 1; } }
+  .ecard svg.hs { width: 150px; height: 100px; }
+
+  /* ---- setup and final screens ---- */
+  .screen { position: fixed; inset: 0; z-index: 40; background: var(--bg); overflow: auto; padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom)); }
+  .screen .inner { max-width: 620px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; padding-top: 44px; }
+  .hero { text-align: center; }
+  .hero h1 { font-family: var(--round); font-size: 36px; margin: 0; line-height: 1.05; }
+  .hero h1 span { color: var(--accent); }
+  .hero p { margin: 6px 0 0; color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .card h2 { font-family: var(--round); font-size: 17px; margin: 0; }
+  .seat { display: flex; gap: 6px; align-items: center; }
+  .seat .car { width: 34px; height: 34px; flex: none; }
+  .seat input { flex: 1; min-width: 0; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: #fff; padding: 0 10px; font-size: 15px; }
+  .seat select { height: 44px; border-radius: 10px; border: 1px solid var(--line); background: #fff; padding: 0 6px; font-size: 14px; max-width: 46%; }
+  .seg { display: flex; gap: 6px; }
+  .seg button { flex: 1; min-height: 44px; border-radius: 12px; border: 2px solid var(--line); background: #fff; font-weight: 600; padding: 6px 8px; line-height: 1.2; }
+  .seg button small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .seg button.on { border-color: var(--accent); background: #fff1e8; }
+  .notice { background: #fff1d6; border: 1px solid #f0c674; border-radius: 12px; padding: 8px 12px; font-size: 14px; }
+  #final .inner { max-width: 560px; }
+  .podium { display: flex; flex-direction: column; gap: 8px; }
+  .prow { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); animation: rise .4s ease-out both; }
+  .prow.win { border: 2px solid var(--gold); background: #fff8dc; }
+  .prow .medal { font-size: 26px; width: 34px; text-align: center; flex: none; }
+  .prow .car { width: 34px; height: 34px; flex: none; }
+  .prow .pn { flex: 1; min-width: 0; }
+  .prow .pn b { font-family: var(--round); font-size: 17px; display: block; }
+  .prow .pn small { color: var(--muted); font-size: 12.5px; display: block; line-height: 1.35; }
+  .prow .w { font-family: var(--round); font-weight: 700; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .tiles { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+  .tl { font-size: 11px; font-weight: 700; padding: 2px 5px; border-radius: 6px; background: #4a90d9; color: #fff; animation: rise .3s ease-out both; }
+  .rules { font-size: 14px; line-height: 1.5; }
+  .rules h3 { font-family: var(--round); font-size: 15px; color: var(--accent2); margin: 10px 0 2px; }
+  .rules p { margin: 0 0 6px; }
+  #fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 70; }
+</style>
+</head>
+<body>
+<style>
+  /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
+     ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
+     A dark disc with a light ring reads on a bright pastel scene and on a black one without being
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
+  .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
+    font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
+</style>
+<a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
+<div id="app" class="portrait">
+  <header id="top">
+    <h1 class="logo">Life <span>Journey</span></h1>
+    <button id="btnView" class="iconbtn" type="button" title="Whole map" aria-label="Show the whole map"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button id="btnMenu" class="iconbtn" type="button" title="Menu" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </header>
+  <div id="boardWrap">
+    <svg id="board" aria-label="The board"></svg>
+    <div id="overlay"></div>
+    <div id="banner" class="off"></div>
+    <div id="tip" hidden></div>
+  </div>
+  <section id="hud">
+    <div id="players"></div>
+    <div id="turnbar">
+      <div id="spinWrap"><svg id="spinner" viewBox="-110 -116 220 226" role="button" aria-label="Spinner: tap to spin"></svg></div>
+      <div id="turnInfo">
+        <div id="who"></div>
+        <div id="msg"></div>
+        <div id="btns">
+          <button id="btnSpin" class="btn primary grow" type="button">Spin</button>
+          <button id="btnBank" class="btn" type="button">Bank</button>
+        </div>
+      </div>
+    </div>
+    <div id="logbox"></div>
+  </section>
+</div>
+
+<div id="setup" class="screen">
+  <div class="inner">
+    <div class="hero">
+      <h1>Life <span>Journey</span></h1>
+      <p>From school to retirement in one sitting. Spin, choose your roads, and see whose life was worth the most.</p>
+    </div>
+    <div id="saveNote" class="notice" hidden></div>
+    <button id="btnResume" class="btn primary" type="button" hidden>Resume saved game</button>
+    <div class="card">
+      <h2>Players</h2>
+      <div id="seats"></div>
+      <div class="row"><button id="btnAdd" class="btn" type="button">+ Add player</button><span class="muted">2 to 6 players. Humans pass the device on their turn.</span></div>
+    </div>
+    <div class="card">
+      <h2>Game length</h2>
+      <div class="seg" id="segLen">
+        <button type="button" data-q="0">Full journey<small>about 22 turns each</small></button>
+        <button type="button" data-q="1">Quick<small>spins move double · about 13 turns</small></button>
+      </div>
+      <div class="seg" id="segSpeed">
+        <button type="button" data-f="0">Normal speed</button>
+        <button type="button" data-f="1">Fast animations</button>
+      </div>
+    </div>
+    <button id="btnStart" class="btn primary" type="button">Start the journey</button>
+    <div class="card"><div id="scores"></div></div>
+    <button id="btnRules" class="btn" type="button">How to play</button>
+  </div>
+</div>
+
+<div id="final" class="screen" hidden>
+  <div class="inner">
+    <div class="hero"><h1>The Retirement <span>Party</span></h1><p id="finalSub"></p></div>
+    <div class="podium" id="podium"></div>
+    <div class="row" style="justify-content:center;flex-wrap:wrap">
+      <button id="btnAgain" class="btn primary" type="button">Play again</button>
+      <button id="btnSetup" class="btn" type="button">New setup</button>
+    </div>
+    <div class="card"><div id="scores2"></div></div>
+  </div>
+</div>
+
+<div id="veil" class="veil" hidden><div class="sheet" role="dialog" aria-modal="true"><div class="sh"><h2 id="shTitle"></h2><button id="shClose" class="iconbtn" type="button" aria-label="Close" hidden><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="sb" id="shBody"></div><div class="sf" id="shFoot" hidden></div></div></div>
+<div id="card" hidden></div>
+<canvas id="fx"></canvas>
+<script>
+'use strict';
+// ---------- rules ----------
+// Everything above the UI marker is the game itself: the track, the cards, money, the computer players.
+// No DOM, no clock and no Math.random here. Every spin comes from a generator whose state lives in the
+// game (S.rng), and a test can script spins outright with S.script = [7, 3, ...]. The tests lift this
+// section into node's vm and drive it directly.
+//
+// Money is counted in thousands of rupees: 60 means ₹60K. Integers throughout.
+
+const SAVE_VERSION = 1;
+const START_CASH = 50;          // ₹50K pocket money at the start
+const LOAN = 50;                // a bank loan is ₹50K
+const LOAN_END = 60;            // ...and costs ₹60K to settle at retirement (₹50K any time before)
+const TUITION = 100;            // college fees
+const NIGHT_SCHOOL = 60;
+const RETIRE_BONUS = [100, 60, 40, 20, 10, 10];   // by the order players retire
+const HILL_PENSION = 40;
+const COAST = { at: 6, win: 100, lose: 20 };       // spin 6+ wins, else pays
+const BABY_GIFT = 5;            // from each other player still on the road
+const MAX_KIDS = 4;             // the car has four back seats
+const TURN_CAP = 80;            // per player; a game that reaches it is retired by force (never seen)
+const MAX_PLAYERS = 6;
+
+// ---------------------------------------------------------------- the track
+// Built from pieces: a straight run of spaces, or a fork of two roads of any length that rejoin at the
+// first space of the next run. The fork happens at the last space before it, so a player either stops
+// there (and chooses before the next spin) or passes it mid-move (and chooses on the way).
+// Red stop spaces stop a car even with steps left; pay days pay whenever they are passed or landed on.
+const STOPS = { grad: 1, job: 1, wedding: 1, home: 1, pitch: 1, crossroads: 1, fair: 1, retire: 1 };
+const PIECES = [
+  { main: ['start'] },
+  { fork: 'school', options: [
+    { key: 'college', name: 'College', icon: '🎓',
+      blurb: 'Three years of exams and canteen snacks. Fees ₹100K (the bank lends it), then a degree job with a bigger salary.',
+      spaces: ['event', 'life', 'event', 'event', 'life', 'event', 'life', 'event', 'event', 'grad'] },
+    { key: 'work', name: 'Start working', icon: '🧰',
+      blurb: 'Straight into a job. A smaller salary, but pay days start right away and no fees.',
+      spaces: ['job', 'payday', 'event', 'life', 'event', 'payday', 'event'] }] },
+  { main: ['payday', 'event', 'life', 'event', 'payday', 'event', 'life', 'event', 'payday', 'event', 'life', 'event', 'payday', 'life', 'wedding',
+    'event', 'life', 'payday', 'event', 'event', 'life', 'payday', 'event', 'home'] },
+  { fork: 'family', options: [
+    { key: 'family', name: 'Family road', icon: '🍼',
+      blurb: 'Babies, school runs and a very full car. Each new arrival brings gifts from the other players.',
+      spaces: ['baby', 'event', 'life', 'payday', 'baby', 'event', 'twins', 'life', 'event', 'payday', 'life', 'event'] },
+    { key: 'adventure', name: 'Adventure road', icon: '🧭',
+      blurb: 'Trips, hobbies and the scenic route. Travel costs money and makes memories.',
+      spaces: ['trip', 'event', 'life', 'payday', 'pet', 'event', 'trip', 'life', 'event', 'payday', 'life', 'event'] }] },
+  { main: ['payday', 'event', 'life', 'event', 'payday', 'life'] },
+  { fork: 'town', options: [
+    { key: 'city', name: 'City lights', icon: '🏙️',
+      blurb: 'Move to the big city: more pay days and a lot more happening, good and bad.',
+      spaces: ['payday', 'event', 'event', 'life', 'payday', 'event', 'event', 'payday', 'event', 'life'] },
+    { key: 'hometown', name: 'Hometown', icon: '🏡',
+      blurb: 'Stay close to home: fewer pay days, more memories, and the festival night.',
+      spaces: ['life', 'event', 'payday', 'life', 'festival', 'event', 'life', 'payday', 'event', 'life'] }] },
+  { main: ['event', 'payday', 'life', 'event', 'life'] },
+  { fork: 'risk', options: [
+    { key: 'startup', name: 'Startup gamble', icon: '🚀',
+      blurb: 'Quit the job and start a company. No pay days on this road, a big Pitch Day spin, and investors who may or may not call back.',
+      spaces: ['burn', 'event', 'investor', 'pitch', 'event', 'burn', 'investor', 'life'] },
+    { key: 'steady', name: 'Steady road', icon: '🛣️',
+      blurb: 'Keep the job, keep the pension, keep your hair. Three pay days, no surprises.',
+      spaces: ['payday', 'event', 'life', 'event', 'payday', 'event', 'life', 'payday'] }] },
+  { main: ['event', 'crossroads', 'payday', 'event', 'life', 'event', 'payday', 'event', 'life', 'event', 'fair', 'event', 'payday',
+    'life', 'event', 'event', 'payday', 'life', 'event', 'payday', 'event', 'life', 'event', 'payday', 'event', 'life', 'event', 'retire'] },
+];
+
+const SPACE_INFO = {
+  start: ['Start', 'Everyone starts here. Choose college or work, then spin.'],
+  payday: ['Pay Day', 'Collect your salary every time you pass or land here.'],
+  event: ['Life Event', 'Draw an event card: good news, bad news, or something in between.'],
+  life: ['Memory', 'Take a memory. Its value stays hidden until the retirement party.'],
+  baby: ['A Baby!', 'A new peg in the car, and every other player sends a ₹5K gift.'],
+  twins: ['Twins!', 'Two new pegs, two lots of gifts.'],
+  trip: ['Big Trip', 'Pay ₹20K for the trip and take a memory.'],
+  pet: ['A Dog Adopts You', 'Take a memory. Buy dog food.'],
+  burn: ['Burn Rate', 'Office rent, servers and a ping-pong table: pay ₹40K.'],
+  festival: ['Festival Night', 'The whole town turns out, and you run the stall everyone queues at. Collect ₹10K from each player.'],
+  investor: ['Investor Call', 'Spin: 6 or more and they invest ₹120K. Otherwise pay ₹20K for the coffee.'],
+  grad: ['Graduation Day', 'Stop. Pick your career from two degree jobs.'],
+  job: ['First Job', 'Stop. Pick your career from two jobs.'],
+  wedding: ['Wedding Season', 'Stop. A big family wedding, a small ceremony, or not now.'],
+  home: ['Find a Home', 'Stop. Buy one of two houses, or keep renting.'],
+  pitch: ['Pitch Day', 'Stop and spin. 1–3: the investors pass. 4–7: a small deal. 8–10: you are the next big thing.'],
+  crossroads: ['Midlife Crossroads', 'Stop. Keep your job, switch careers, or go to night school.'],
+  fair: ['Property Fair', 'Stop. Buy another house, sell one (spin for the price), or walk past.'],
+  retire: ['Retirement', 'Stop. Sell your houses, settle the loans, and pick the hills or the coast.'],
+};
+
+function buildTrack() {
+  const T = [];
+  const add = (type, lane, extra) => { const n = Object.assign({ id: T.length, type, next: [], lane, s: 0 }, extra || {}); T.push(n); return n; };
+  let last = null, pendingEnds = [], forks = [];
+  const D = 58;
+  let s = 0;
+  for (let pi = 0; pi < PIECES.length; pi++) {
+    const pc = PIECES[pi];
+    if (pc.main) {
+      for (const type of pc.main) {
+        const n = add(type, 0); n.s = s; s += D;
+        for (const e of pendingEnds) e.next.push(n.id);
+        pendingEnds = [];
+        if (last && !last.fork) last.next.push(n.id);
+        last = n;
+      }
+    } else {
+      const fork = last; fork.fork = pc.fork; fork.options = [];
+      const sf = fork.s;
+      const span = Math.max(...pc.options.map((o) => o.spaces.length));
+      pc.options.forEach((o, li) => {
+        let prev = null;
+        o.spaces.forEach((type, i) => {
+          const n = add(type, li ? 1 : -1, { road: o.key });
+          n.s = sf + (i + 1) * (span + 1) * D / (o.spaces.length + 1);
+          if (prev) prev.next.push(n.id); else { fork.next.push(n.id); fork.options.push({ key: o.key, name: o.name, icon: o.icon, blurb: o.blurb, first: n.id }); }
+          prev = n;
+        });
+        pendingEnds.push(prev);
+      });
+      s = sf + (span + 1) * D;
+      forks.push(fork.id);
+      last = { fork: true };   // the rejoining run links from the road ends, not from the fork
+    }
+  }
+  return { T, length: s - D };
+}
+const BUILT = buildTrack();
+const TRACK = BUILT.T;
+const START = 0;
+const RETIRE = TRACK.findIndex((n) => n.type === 'retire');
+
+// Layout, in a 1000-wide world: the road snakes left-right in rows 190 apart, turning in half circles.
+// The two roads of a fork run side by side, 34 units either side of the centre line. Pure geometry, kept
+// here so any view (the SVG one below, a 3D one later) places spaces the same way.
+const WORLD = { W: 1000, X0: 150, X1: 850, R: 95, Y0: 150, LANE: 34 };
+function spine(s) {
+  const { X0, X1, R, Y0 } = WORLD, Ls = X1 - X0, P = Ls + Math.PI * R;
+  const k = Math.floor(s / P), u = s - k * P, y0 = Y0 + k * 2 * R, dir = k % 2 ? -1 : 1;
+  if (u <= Ls) return { x: dir > 0 ? X0 + u : X1 - u, y: y0, tx: dir, ty: 0, row: k };
+  const a = (u - Ls) / R, cx = dir > 0 ? X1 : X0;
+  return { x: cx + dir * R * Math.sin(a), y: y0 + R - R * Math.cos(a), tx: dir * Math.cos(a), ty: Math.sin(a), row: k };
+}
+for (const n of TRACK) {
+  const p = spine(n.s);
+  n.x = Math.round((p.x + p.ty * n.lane * WORLD.LANE) * 10) / 10;   // normal = (ty, -tx)
+  n.y = Math.round((p.y - p.tx * n.lane * WORLD.LANE) * 10) / 10;
+  n.row = p.row; n.tx = Math.round(p.tx * 1000) / 1000; n.ty = Math.round(p.ty * 1000) / 1000;
+}
+WORLD.H = Math.ceil(Math.max(...TRACK.map((n) => n.y)) + 150);
+
+// ---------------------------------------------------------------- cards
+const CAREERS = [
+  // degree careers
+  { id: 'doctor', name: 'Doctor', salary: 110, degree: true, icon: '🩺' },
+  { id: 'pilot', name: 'Airline Pilot', salary: 105, degree: true, icon: '✈️' },
+  { id: 'coder', name: 'Software Engineer', salary: 100, degree: true, icon: '💻' },
+  { id: 'lawyer', name: 'Lawyer', salary: 95, degree: true, icon: '⚖️' },
+  { id: 'accountant', name: 'Chartered Accountant', salary: 90, degree: true, icon: '🧮' },
+  { id: 'architect', name: 'Architect', salary: 85, degree: true, icon: '📐' },
+  { id: 'scientist', name: 'Space Scientist', salary: 85, degree: true, icon: '🛰️' },
+  { id: 'vet', name: 'Vet', salary: 75, degree: true, icon: '🐾' },
+  { id: 'journalist', name: 'Journalist', salary: 70, degree: true, icon: '📰' },
+  { id: 'teacher', name: 'Teacher', salary: 65, degree: true, icon: '📚' },
+  // no degree needed
+  { id: 'coach', name: 'Cricket Coach', salary: 80, degree: false, icon: '🏏' },
+  { id: 'electrician', name: 'Electrician', salary: 75, degree: false, icon: '⚡' },
+  { id: 'mechanic', name: 'Mechanic', salary: 70, degree: false, icon: '🔧' },
+  { id: 'chef', name: 'Street Food Chef', salary: 65, degree: false, icon: '🍳' },
+  { id: 'shop', name: 'Shopkeeper', salary: 65, degree: false, icon: '🏪' },
+  { id: 'yoga', name: 'Yoga Teacher', salary: 60, degree: false, icon: '🧘' },
+  { id: 'tailor', name: 'Tailor', salary: 55, degree: false, icon: '🧵' },
+  { id: 'driver', name: 'Bus Driver', salary: 55, degree: false, icon: '🚌' },
+  { id: 'rider', name: 'Delivery Rider', salary: 55, degree: false, icon: '🛵' },
+  { id: 'drummer', name: 'Wedding Band Drummer', salary: 50, degree: false, icon: '🥁' },
+];
+const CAREER = Object.fromEntries(CAREERS.map((c) => [c.id, c]));
+
+// Sale prices: spin 1-5 sells at `low`, 6-10 at `high`. Every house is worth a little more than it
+// costs on average, so buying is good and a loan to buy is roughly even.
+const HOUSES = [
+  { id: 'tinroof', name: 'Tin-Roof Bungalow', price: 100, low: 80, high: 160, wall: '#f2c879', roof: '#9aa5ad' },
+  { id: 'studio', name: 'Studio Flat by the Metro', price: 150, low: 120, high: 220, wall: '#b9d7ea', roof: '#5b7f99' },
+  { id: 'treehouse', name: 'Treehouse Duplex', price: 180, low: 140, high: 280, wall: '#c9a06b', roof: '#5d8a3a' },
+  { id: 'cottage', name: 'Hillside Cottage', price: 200, low: 160, high: 300, wall: '#f4e1c1', roof: '#b5523b' },
+  { id: 'courtyard', name: 'Old Courtyard House', price: 250, low: 180, high: 400, wall: '#f0b27a', roof: '#8e3b2e' },
+  { id: 'lakeview', name: 'Lake-View Apartment', price: 300, low: 250, high: 420, wall: '#d6e4f0', roof: '#3d6f9e' },
+  { id: 'farm', name: 'Farmhouse with a Mango Orchard', price: 350, low: 280, high: 520, wall: '#f7e08a', roof: '#6b8e23' },
+  { id: 'penthouse', name: 'Rooftop Penthouse', price: 400, low: 300, high: 600, wall: '#d9d2e9', roof: '#5b4a8b' },
+  { id: 'villa', name: 'Seafront Villa', price: 450, low: 360, high: 650, wall: '#fbeee0', roof: '#d0743c' },
+  { id: 'mansion', name: 'Heritage Mansion', price: 500, low: 380, high: 760, wall: '#f5d0c5', roof: '#a23e48' },
+];
+const HOUSE = Object.fromEntries(HOUSES.map((h) => [h.id, h]));
+
+const TILE_NAMES = [
+  'Taught your nephew to ride a bicycle', 'Planted a mango tree on your street', 'Ran your first 10K',
+  'Fed the stray cats every morning', 'Fixed your grandfather\'s old radio', 'Organised the neighbourhood cricket match',
+  'Finally learned your mother\'s famous curry', 'Volunteered at the village library', 'Watched the sunrise from a mountain top',
+  'Wrote a thank-you letter to your old teacher', 'Gave blood, twice', 'Started a book club',
+  'Learned to swim', 'Danced at a stranger\'s wedding (you were invited, eventually)', 'Helped a neighbour move house',
+  'Taught your parents to use a smartphone', 'Grew tomatoes on the balcony', 'Rescued a kite from a tree',
+  'Sang on stage, badly, proudly', 'Cleaned up a beach', 'Mentored a first-year student',
+  'Built a bird feeder', 'Learned a new language', 'Took your grandparents on a train trip',
+  'Coached the kids\' football team', 'Painted a mural on the school wall', 'Finished a 1000-piece puzzle',
+  'Made peace with your noisy neighbour', 'Saw a tiger in the wild', 'Cooked for fifty people at a festival',
+  'Taught a free evening class', 'Returned a lost wallet', 'Played in a band for one night only',
+  'Kept a houseplant alive for ten years', 'Hosted a family reunion', 'Climbed to a mountain temple',
+  'Learned to play the flute', 'Donated books to a rural school', 'Got a short story published',
+  'Watched every sunset for a month',
+];
+const TILE_VALUES = [50, 50, 50, 50, 50, 50, 50, 50, 75, 75, 75, 75, 75, 75, 75, 75, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+  150, 150, 150, 150, 150, 150, 150, 200, 200, 200, 200, 200, 250, 250];
+const TILES = TILE_NAMES.map((name, i) => ({ id: i, name, value: TILE_VALUES[i] }));
+const SPARE_TILE = -1;           // drawn when the pile is empty; worth ₹50K
+const tileValue = (id) => (id === SPARE_TILE ? 50 : TILES[id].value);
+
+// Event cards. Effects are data, applied by one function, so a test can walk every card.
+//   gain n / pay n / raise n (salary) / tile / kidGain n / kidPay n (per child) / housePay n (per house)
+//   collect n (from each other player still on the road) / spin {at, win, lose}
+const EVENTS = [
+  { id: 'mango', icon: '🥭', title: 'Mango Season', text: 'Your mango tree finally delivers and the whole street wants some.', fx: [{ k: 'gain', n: 20 }] },
+  { id: 'leak', icon: '🌧️', title: 'Monsoon Leak', text: 'Right over the bed. A plumber, three buckets and a lot of patience later, peace.', fx: [{ k: 'pay', n: 15 }] },
+  { id: 'diwali', icon: '🪔', title: 'Festival Bonus', text: 'The office hands out festival bonuses, and for once yours is not a box of sweets.', fx: [{ k: 'gain', n: 30 }] },
+  { id: 'quiz', icon: '🎤', title: 'Quiz Champion', text: 'You win the neighbourhood quiz on old film songs. Prize money and lasting fame.', fx: [{ k: 'gain', n: 10 }] },
+  { id: 'scooter', icon: '🛵', title: 'Scooter Trouble', text: 'New clutch, new horn, and possibly a new scooter.', fx: [{ k: 'pay', n: 20 }] },
+  { id: 'cousins', icon: '🧳', title: 'Cousins Visit', text: 'They said two days. It has been three weeks. The groceries add up.', fx: [{ k: 'pay', n: 15 }] },
+  { id: 'promo', icon: '📈', title: 'Promotion!', text: 'Your boss finally learns your name. Your salary goes up.', fx: [{ k: 'raise', n: 10 }] },
+  { id: 'video', icon: '📱', title: 'Grandma Online', text: 'You teach your grandmother video calls. She now calls daily, with the camera pointed at the ceiling.', fx: [{ k: 'tile' }] },
+  { id: 'tip', icon: '💈', title: 'Hot Stock Tip', text: 'The barber has a stock tip. Spin: 6 or more and it pays off; anything less and it does not.', fx: [{ k: 'spin', at: 6, win: 60, lose: 30 }] },
+  { id: 'six', icon: '🏏', title: 'Winning Six', text: 'You hit the winning six in the office final. Everyone chips in for the celebration.', fx: [{ k: 'collect', n: 5 }] },
+  { id: 'cyclone', icon: '🌀', title: 'Storm Damage', text: 'A cyclone visits the coast and a few roof tiles go with it. Repairs on every house you own.', fx: [{ k: 'housePay', n: 15 }] },
+  { id: 'fees', icon: '🎒', title: 'School Fees Season', text: 'New uniforms, new books, and somehow new shoes every month. For each child you have.', fx: [{ k: 'kidPay', n: 10 }] },
+  { id: 'play', icon: '🎭', title: 'The School Play', text: 'Your kids sell tickets to their play to every relative they can find. Per child.', fx: [{ k: 'kidGain', n: 10 }] },
+  { id: 'trees', icon: '🌳', title: 'Tree Planting', text: 'You plant a hundred trees with the local school. Some of them are even the right way up.', fx: [{ k: 'tile' }] },
+  { id: 'phone', icon: '🛺', title: 'Honest Driver', text: 'You leave your phone in an auto-rickshaw and the driver brings it back. You tip him well and tell everyone.', fx: [{ k: 'pay', n: 2 }, { k: 'tile' }] },
+  { id: 'weddings', icon: '🎁', title: 'Wedding Invitations', text: 'Three weddings in one month, three gifts, one very tired suit.', fx: [{ k: 'pay', n: 15 }] },
+  { id: 'blog', icon: '🍲', title: 'Viral Food Blog', text: 'Your street-food reviews go viral. Collect the ad money.', fx: [{ k: 'gain', n: 25 }] },
+  { id: 'refund', icon: '🧾', title: 'Tax Refund', text: 'A tax refund arrives, only four years late.', fx: [{ k: 'gain', n: 20 }] },
+  { id: 'relief', icon: '🤝', title: 'Relief Camp', text: 'You spend a week volunteering at a flood relief camp.', fx: [{ k: 'tile' }] },
+  { id: 'honk', icon: '📯', title: 'Traffic Fine', text: 'Fined for honking in a no-honking zone. You had a very good reason. The officer did not agree.', fx: [{ k: 'pay', n: 5 }] },
+  { id: 'pickle', icon: '🫙', title: 'Pickle Empire', text: 'Your weekend pickle business takes off. A little extra every pay day.', fx: [{ k: 'raise', n: 5 }] },
+  { id: 'raffle', icon: '🎟️', title: 'Office Raffle', text: 'Spin: 9 or 10 wins the big prize. Anything else and you have paid for a ticket.', fx: [{ k: 'spin', at: 9, win: 100, lose: 5 }] },
+  { id: 'speech', icon: '🏫', title: 'Old School Calls', text: 'Your old school invites you to give a speech to the students. Nobody falls asleep. Nearly.', fx: [{ k: 'tile' }] },
+  { id: 'caterer', icon: '🍛', title: 'Family Wedding', text: 'A cousin is getting married and you are in charge of the caterer. Two hundred guests became four hundred.', fx: [{ k: 'pay', n: 25 }] },
+  { id: 'hills', icon: '⛰️', title: 'Hill Station Holiday', text: 'A week in the hills: cold air, hot tea, and a photo of every cloud.', fx: [{ k: 'pay', n: 20 }, { k: 'tile' }] },
+  { id: 'laptop', icon: '💻', title: 'Laptop Dies', text: 'The night before the big deadline, naturally.', fx: [{ k: 'pay', n: 30 }] },
+  { id: 'rally', icon: '📊', title: 'Market Rally', text: 'Your savings account wakes up and does something exciting for once.', fx: [{ k: 'gain', n: 40 }] },
+  { id: 'birthday', icon: '🎂', title: 'Birthday!', text: 'Every player still on the road sends a present. Cash, thankfully, not socks.', fx: [{ k: 'collect', n: 10 }] },
+  { id: 'swim', icon: '🏊', title: 'Never Too Late', text: 'You learn to swim at forty and do a victory lap of the shallow end.', fx: [{ k: 'tile' }] },
+  { id: 'reno', icon: '🛠️', title: 'Kitchen Makeover', text: 'One small change to the kitchen turns into a whole new kitchen. For every house you own.', fx: [{ k: 'housePay', n: 10 }] },
+  { id: 'gold', icon: '🪙', title: 'Grandma\'s Gold', text: 'Grandma hands down an old gold coin. You put it in the bank instead of the cupboard.', fx: [{ k: 'gain', n: 30 }] },
+  { id: 'trainrace', icon: '🚆', title: 'Missed the Train', text: 'You run for the train, miss it, and pay for a taxi across town.', fx: [{ k: 'pay', n: 10 }] },
+];
+const EVENT = Object.fromEntries(EVENTS.map((e) => [e.id, e]));
+
+// ---------------------------------------------------------------- generator
+function rand(S) {   // mulberry32; its whole state is S.rng, so a saved game resumes the same way
+  let t = (S.rng = (S.rng + 0x6D2B79F5) >>> 0);
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function spinValue(S) {
+  if (S.script && S.script.length) return S.script.shift();
+  return 1 + Math.floor(rand(S) * 10);
+}
+function shuffle(S, a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand(S) * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+
+// ---------------------------------------------------------------- game state
+const KINDS = ['human', 'cautious', 'risky'];
+function newGame(o) {
+  const players = (o.players || []).slice(0, MAX_PLAYERS);
+  if (players.length < 2) throw new Error('need 2 to 6 players');
+  const S = {
+    v: SAVE_VERSION, rng: (o.seed >>> 0) || 1, quick: !!o.quick,
+    players: players.map((p, i) => ({
+      name: String(p.name || 'Player ' + (i + 1)).slice(0, 14), kind: KINDS.includes(p.kind) ? p.kind : 'human', color: i,
+      node: START, cash: START_CASH, loans: 0, career: null, raise: 0, degree: false, spouse: false, kids: 0,
+      houses: [], tiles: [], retired: false, place: -1, turns: 0, roads: {}, wedding: null, dest: null, final: null,
+    })),
+    cur: 0, phase: 'spin', choice: null, moveLeft: 0, forkPick: null, turn: 0, retired: 0, endReason: null,
+    decks: {}, log: [], ev: [], steps: 0,
+  };
+  S.decks.degree = shuffle(S, CAREERS.filter((c) => c.degree).map((c) => c.id));
+  S.decks.basic = shuffle(S, CAREERS.filter((c) => !c.degree).map((c) => c.id));
+  S.decks.house = shuffle(S, HOUSES.map((h) => h.id));
+  S.decks.tile = shuffle(S, TILES.map((t) => t.id));
+  S.decks.event = shuffle(S, EVENTS.map((e) => e.id));
+  S.decks.used = [];
+  beginTurn(S);
+  return S;
+}
+
+const emit = (S, e) => { S.ev.push(e); };
+function log(S, msg) { S.log.push(msg); if (S.log.length > 80) S.log.splice(0, S.log.length - 80); emit(S, { t: 'log', msg }); }
+const salaryOf = (P) => (P.career ? CAREER[P.career].salary + P.raise : 0);
+const fmt = (k) => {
+  const neg = k < 0, a = Math.abs(k);
+  const s = a >= 1000 ? '₹' + (a / 1000).toFixed(2).replace(/\.?0+$/, '') + 'M' : a ? '₹' + a + 'K' : '₹0';
+  return (neg ? '−' : '') + s;
+};
+const active = (S) => S.players.filter((P) => !P.retired);
+
+// Pay, borrowing whole ₹50K loans when cash runs short. Cash never goes negative during the game.
+function pay(S, pi, n, why) {
+  const P = S.players[pi];
+  if (n <= 0) return;
+  if (P.cash < n) {
+    const k = Math.ceil((n - P.cash) / LOAN);
+    P.loans += k; P.cash += k * LOAN;
+    emit(S, { t: 'loan', p: pi, n: k, auto: true });
+    log(S, `${P.name} borrows ${fmt(k * LOAN)} from the bank.`);
+  }
+  P.cash -= n;
+  emit(S, { t: 'cash', p: pi, d: -n, why });
+}
+function gain(S, pi, n, why) {
+  if (n <= 0) return;
+  S.players[pi].cash += n;
+  emit(S, { t: 'cash', p: pi, d: n, why });
+}
+function takeTile(S, pi) {
+  const id = S.decks.tile.length ? S.decks.tile.pop() : SPARE_TILE;
+  S.players[pi].tiles.push(id);
+  emit(S, { t: 'tile', p: pi, id });
+  return id;
+}
+function addKids(S, pi, k) {
+  const P = S.players[pi];
+  let added = 0;
+  for (let i = 0; i < k; i++) {
+    if (P.kids < MAX_KIDS) { P.kids++; added++; } else takeTile(S, pi);   // car full: a memory instead
+  }
+  if (added) emit(S, { t: 'kid', p: pi, n: added });
+  for (let j = 0; j < S.players.length; j++) {
+    if (j === pi || S.players[j].retired) continue;
+    for (let i = 0; i < k; i++) { pay(S, j, BABY_GIFT, 'gift'); gain(S, pi, BABY_GIFT, 'gift'); }
+  }
+}
+function collectEach(S, pi, n) {
+  for (let j = 0; j < S.players.length; j++) {
+    if (j === pi || S.players[j].retired) continue;
+    pay(S, j, n, 'gift'); gain(S, pi, n, 'gift');
+  }
+}
+function doSpin(S, why) {
+  const v = spinValue(S);
+  emit(S, { t: 'spin', p: S.cur, v, why });
+  return v;
+}
+
+function applyFx(S, pi, fx) {
+  const P = S.players[pi];
+  for (const f of fx) {
+    if (f.k === 'gain') gain(S, pi, f.n, 'event');
+    else if (f.k === 'pay') pay(S, pi, f.n, 'event');
+    else if (f.k === 'raise') { P.raise += f.n; emit(S, { t: 'raise', p: pi, n: f.n }); }
+    else if (f.k === 'tile') takeTile(S, pi);
+    else if (f.k === 'kidGain') gain(S, pi, f.n * P.kids, 'event');
+    else if (f.k === 'kidPay') pay(S, pi, f.n * P.kids, 'event');
+    else if (f.k === 'housePay') pay(S, pi, f.n * P.houses.length, 'event');
+    else if (f.k === 'collect') collectEach(S, pi, f.n);
+    else if (f.k === 'spin') { const v = doSpin(S, 'event'); if (v >= f.at) gain(S, pi, f.win, 'event'); else pay(S, pi, f.lose, 'event'); }
+  }
+}
+function drawEvent(S) {
+  if (!S.decks.event.length) { S.decks.event = shuffle(S, S.decks.used); S.decks.used = []; }
+  const id = S.decks.event.pop();
+  S.decks.used.push(id);
+  return id;
+}
+
+// ---------------------------------------------------------------- turns
+function beginTurn(S) {
+  const P = S.players[S.cur];
+  S.choice = null; S.moveLeft = 0; S.forkPick = null;
+  const node = TRACK[P.node];
+  if (node.next.length > 1) { askPath(S, true); return; }
+  S.phase = 'spin';
+}
+function askPath(S, pre) {
+  const node = TRACK[S.players[S.cur].node];
+  S.phase = 'choose';
+  S.choice = { kind: 'path', p: S.cur, pre, fork: node.fork, opts: node.options.map((o) => ({ id: o.key, name: o.name, icon: o.icon, blurb: o.blurb })) };
+}
+function setChoice(S, kind, opts, extra) {
+  S.phase = 'choose';
+  S.choice = Object.assign({ kind, p: S.cur, opts }, extra || {});
+}
+
+// The main action: spin and move. Quick games move twice the spin.
+function spin(S) {
+  if (S.phase !== 'spin') return false;
+  const v = doSpin(S, 'move');
+  S.players[S.cur].lastSpin = v;
+  S.moveLeft = S.quick ? v * 2 : v;
+  continueMove(S);
+  return true;
+}
+function continueMove(S) {
+  const pi = S.cur, P = S.players[pi];
+  S.phase = 'move';
+  while (S.moveLeft > 0) {
+    const node = TRACK[P.node];
+    if (!node.next.length) { S.moveLeft = 0; break; }
+    let nxt;
+    if (node.next.length > 1) {
+      if (S.forkPick == null) { askPath(S, false); return; }
+      nxt = node.next[S.forkPick]; S.forkPick = null;
+    } else nxt = node.next[0];
+    P.node = nxt; S.moveLeft--;
+    emit(S, { t: 'step', p: pi, to: nxt });
+    const t = TRACK[nxt];
+    if (t.type === 'payday') payday(S, pi);
+    if (STOPS[t.type]) S.moveLeft = 0;
+  }
+  land(S);
+}
+function payday(S, pi) {
+  const P = S.players[pi], n = salaryOf(P);
+  if (!n) return;
+  P.cash += n;
+  emit(S, { t: 'payday', p: pi, n });
+}
+
+function land(S) {
+  const pi = S.cur, P = S.players[pi], node = TRACK[P.node], type = node.type;
+  emit(S, { t: 'land', p: pi, node: node.id, type });
+  switch (type) {
+    case 'event': {
+      const id = drawEvent(S), e = EVENT[id];
+      emit(S, { t: 'card', p: pi, id });
+      log(S, `${P.name}: ${e.title}${/[!?]$/.test(e.title) ? '' : '.'}`);
+      applyFx(S, pi, e.fx);
+      break;
+    }
+    case 'life': takeTile(S, pi); log(S, `${P.name} takes a memory.`); break;
+    case 'baby': addKids(S, pi, 1); log(S, `${P.name} welcomes a baby!`); break;
+    case 'twins': addKids(S, pi, 2); log(S, `${P.name} welcomes twins!`); break;
+    case 'pet': takeTile(S, pi); log(S, `A dog adopts ${P.name}.`); break;
+    case 'festival': collectEach(S, pi, 10); log(S, `${P.name}'s festival stall sells out.`); break;
+    case 'trip': pay(S, pi, 20, 'trip'); takeTile(S, pi); log(S, `${P.name} goes on a big trip.`); break;
+    case 'burn': pay(S, pi, 40, 'burn'); log(S, `${P.name}'s startup burns ${fmt(40)}.`); break;
+    case 'investor': {
+      const v = doSpin(S, 'investor');
+      if (v >= 6) { gain(S, pi, 120, 'investor'); log(S, `An investor backs ${P.name}: +${fmt(120)}!`); }
+      else { pay(S, pi, 20, 'investor'); log(S, `The investor "will get back to" ${P.name}.`); }
+      break;
+    }
+    case 'pitch': {
+      const v = doSpin(S, 'pitch');
+      if (v <= 3) { pay(S, pi, 60, 'pitch'); emit(S, { t: 'pitch', p: pi, v, res: 'pass' }); log(S, `The investors pass on ${P.name}'s pitch.`); }
+      else if (v <= 7) { gain(S, pi, 100, 'pitch'); emit(S, { t: 'pitch', p: pi, v, res: 'deal' }); log(S, `${P.name} lands a small deal: +${fmt(100)}.`); }
+      else { gain(S, pi, 400, 'pitch'); takeTile(S, pi); emit(S, { t: 'pitch', p: pi, v, res: 'big' }); log(S, `${P.name}'s startup takes off: +${fmt(400)}!`); }
+      break;
+    }
+    case 'grad': P.degree = true; offerCareers(S, 'degree', 'grad'); return;
+    case 'job': offerCareers(S, 'basic', 'job'); return;
+    case 'wedding':
+      setChoice(S, 'wedding', [
+        { id: 'big', name: 'Big family wedding', icon: '🎉', blurb: `Pay ₹100K. Every other player gives a ₹10K gift. Two memories and a partner in the car.` },
+        { id: 'small', name: 'Small, simple ceremony', icon: '💐', blurb: 'Pay ₹15K. One memory and a partner in the car.' },
+        { id: 'single', name: 'Not now', icon: '🎒', blurb: 'Stay single for now: a solo trip of a lifetime (one memory) and ₹10K saved.' }]);
+      return;
+    case 'home': offerHouses(S, 'home'); return;
+    case 'crossroads': {
+      const opts = [{ id: 'keep', name: 'Keep your job', icon: '🪑', blurb: `Stay a ${CAREER[P.career] ? CAREER[P.career].name : 'free spirit'} on ${fmt(salaryOf(P))} a pay day.` },
+        { id: 'switch', name: 'Switch careers', icon: '🔀', blurb: 'See two other jobs and pick one (or keep yours).' }];
+      if (!P.degree) opts.push({ id: 'night', name: 'Night school', icon: '🌙', blurb: `Pay ₹${NIGHT_SCHOOL}K, earn a degree, then pick from two degree jobs.` });
+      setChoice(S, 'crossroads', opts);
+      return;
+    }
+    case 'fair': {
+      const opts = [{ id: 'buy', name: 'Buy a house', icon: '🏡', blurb: 'See two houses for sale.' }];
+      P.houses.forEach((h, i) => opts.push({ id: 'sell:' + i, name: 'Sell ' + HOUSE[h].name, icon: '🪧', blurb: `Spin: 1–5 sells for ${fmt(HOUSE[h].low)}, 6–10 for ${fmt(HOUSE[h].high)}.`, house: h }));
+      opts.push({ id: 'pass', name: 'Walk past', icon: '🚶', blurb: 'Nothing today, thanks.' });
+      setChoice(S, 'fair', opts);
+      return;
+    }
+    case 'retire':
+      setChoice(S, 'retire', [
+        { id: 'hill', name: 'Hill station cottage', icon: '🌲', blurb: `Cool air and a steady pension: collect ₹${HILL_PENSION}K.` },
+        { id: 'coast', name: 'House by the sea', icon: '🌴', blurb: `Spin: 6 or more and the holiday rentals pay ₹${COAST.win}K. Less, and salt air costs ₹${COAST.lose}K in repairs.` }]);
+      return;
+    default: break;   // pay day (already paid), start
+  }
+  endTurn(S);
+}
+
+function offerCareers(S, deck, why, keep) {
+  const d = S.decks[deck];
+  const ids = [d.shift(), d.shift()].filter(Boolean);
+  const opts = ids.map((id) => ({ id: 'c:' + id, name: CAREER[id].name, icon: CAREER[id].icon, salary: CAREER[id].salary, blurb: `${fmt(CAREER[id].salary)} every pay day${CAREER[id].degree ? ' · degree job' : ''}` }));
+  if (keep) opts.push({ id: 'keep', name: 'Keep your job', icon: '🪑', blurb: `${CAREER[S.players[S.cur].career].name}, ${fmt(salaryOf(S.players[S.cur]))}` });
+  setChoice(S, 'career', opts, { why, deck, drawn: ids });
+}
+function offerHouses(S, why) {
+  const d = S.decks.house;
+  const ids = [d.shift(), d.shift()].filter(Boolean);
+  const opts = ids.map((id) => ({ id: 'h:' + id, name: HOUSE[id].name, house: id, price: HOUSE[id].price, blurb: `Costs ${fmt(HOUSE[id].price)} · sells for ${fmt(HOUSE[id].low)}–${fmt(HOUSE[id].high)}` }));
+  opts.push({ id: 'rent', name: why === 'home' ? 'Keep renting' : 'Not these', icon: '🔑', blurb: why === 'home' ? 'No house for now. You can buy at the Property Fair later.' : 'Walk on.' });
+  setChoice(S, 'house', opts, { why, drawn: ids });
+}
+function sellHouse(S, pi, idx) {
+  const P = S.players[pi], h = P.houses[idx], H = HOUSE[h];
+  const v = doSpin(S, 'sale');
+  const price = v >= 6 ? H.high : H.low;
+  P.houses.splice(idx, 1);
+  S.decks.house.push(h);
+  gain(S, pi, price, 'sale');
+  emit(S, { t: 'sale', p: pi, house: h, v, price });
+  log(S, `${P.name} sells the ${H.name} for ${fmt(price)}.`);
+  return price;
+}
+
+// Resolve the pending choice with option `id`. Returns false (and changes nothing) for a bad id.
+function choose(S, id) {
+  if (S.phase !== 'choose' || !S.choice || !S.choice.opts.some((o) => o.id === id)) return false;
+  const C = S.choice, pi = C.p, P = S.players[pi];
+  S.choice = null;
+  switch (C.kind) {
+    case 'path': {
+      const node = TRACK[P.node];
+      const k = node.options.findIndex((o) => o.key === id);
+      P.roads[node.fork] = id;
+      emit(S, { t: 'road', p: pi, fork: node.fork, node: node.id, key: id });
+      log(S, `${P.name} chooses: ${node.options[k].name}.`);
+      if (id === 'college') pay(S, pi, TUITION, 'fees');
+      S.forkPick = k;
+      if (C.pre) { S.phase = 'spin'; return true; }
+      continueMove(S);
+      return true;
+    }
+    case 'career': {
+      const deck = S.decks[C.deck];
+      if (id === 'keep') { for (const d of C.drawn) deck.push(d); break; }
+      const cid = id.slice(2);
+      for (const d of C.drawn) if (d !== cid) deck.push(d);
+      if (P.career) S.decks[CAREER[P.career].degree ? 'degree' : 'basic'].push(P.career);
+      P.career = cid;
+      emit(S, { t: 'career', p: pi, id: cid });
+      log(S, `${P.name} becomes a ${CAREER[cid].name}: ${fmt(CAREER[cid].salary)} a pay day.`);
+      break;
+    }
+    case 'wedding': {
+      P.wedding = id;
+      emit(S, { t: 'wedding', p: pi, kind: id });   // the celebration first, then the bills
+      if (id === 'big') { pay(S, pi, 100, 'wedding'); collectEach(S, pi, 10); takeTile(S, pi); takeTile(S, pi); P.spouse = true; }
+      else if (id === 'small') { pay(S, pi, 15, 'wedding'); takeTile(S, pi); P.spouse = true; }
+      else { takeTile(S, pi); gain(S, pi, 10, 'saved'); }
+      log(S, id === 'single' ? `${P.name} goes travelling instead.` : `${P.name} gets married${id === 'big' ? ' — the whole town dances' : ''}!`);
+      break;
+    }
+    case 'house': {
+      if (id === 'rent') { for (const d of C.drawn) S.decks.house.push(d); log(S, `${P.name} keeps renting.`); break; }
+      const hid = id.slice(2);
+      for (const d of C.drawn) if (d !== hid) S.decks.house.push(d);
+      pay(S, pi, HOUSE[hid].price, 'house');
+      P.houses.push(hid);
+      emit(S, { t: 'house', p: pi, id: hid });
+      log(S, `${P.name} buys the ${HOUSE[hid].name}.`);
+      break;
+    }
+    case 'crossroads': {
+      if (id === 'keep') { log(S, `${P.name} keeps the day job.`); break; }
+      if (id === 'night') { pay(S, pi, NIGHT_SCHOOL, 'school'); P.degree = true; log(S, `${P.name} goes to night school.`); offerCareers(S, 'degree', 'night', true); return true; }
+      offerCareers(S, P.degree ? 'degree' : 'basic', 'switch', true);
+      return true;
+    }
+    case 'fair': {
+      if (id === 'buy') { offerHouses(S, 'fair'); return true; }
+      if (id.startsWith('sell:')) { sellHouse(S, pi, +id.slice(5)); break; }
+      break;
+    }
+    case 'retire': retirePlayer(S, pi, id); break;
+    default: return false;
+  }
+  endTurn(S);
+  return true;
+}
+
+function retirePlayer(S, pi, dest) {
+  const P = S.players[pi];
+  P.dest = dest;
+  P.place = S.retired;
+  const bonus = RETIRE_BONUS[S.retired] || 10;
+  S.retired++;
+  gain(S, pi, bonus, 'bonus');
+  emit(S, { t: 'retire', p: pi, place: P.place, bonus, dest });
+  log(S, `${P.name} retires ${P.place === 0 ? 'first' : ''} to the ${dest === 'coast' ? 'coast' : 'hills'}: +${fmt(bonus)}.`.replace('  ', ' '));
+  if (dest === 'hill') gain(S, pi, HILL_PENSION, 'pension');
+  else { const v = doSpin(S, 'coast'); if (v >= COAST.at) gain(S, pi, COAST.win, 'coast'); else pay(S, pi, COAST.lose, 'coast'); }
+  while (P.houses.length) sellHouse(S, pi, 0);
+  if (P.loans) {
+    const owe = P.loans * LOAN_END;
+    emit(S, { t: 'settle', p: pi, loans: P.loans, owe });
+    log(S, `${P.name} settles ${P.loans} loan${P.loans > 1 ? 's' : ''}: −${fmt(owe)}.`);
+    P.cash -= owe; P.loans = 0;     // the one place cash may go below zero: it is the final count
+  }
+  P.retired = true;
+  P.final = score(P);
+}
+const tilesValue = (P) => P.tiles.reduce((a, id) => a + tileValue(id), 0);
+// Final worth: cash (houses already sold, loans already settled) plus the memories. Before retirement
+// the same sum counts houses at their price and loans at their retirement cost.
+function score(P) {
+  return P.cash + tilesValue(P) + (P.retired ? 0 : P.houses.reduce((a, h) => a + HOUSE[h].price, 0) - P.loans * LOAN_END);
+}
+function ranking(S) {
+  return S.players.map((P, i) => ({ i, worth: score(P), tiles: P.tiles.length })).sort((a, b) => b.worth - a.worth || b.tiles - a.tiles || a.i - b.i);
+}
+
+function endTurn(S) {
+  const P = S.players[S.cur];
+  P.turns++; S.turn++;
+  S.choice = null; S.moveLeft = 0; S.forkPick = null;
+  if (S.players.every((Q) => Q.retired)) { finish(S, 'retired'); return; }
+  if (S.turn >= TURN_CAP * S.players.length) {
+    for (let i = 0; i < S.players.length; i++) if (!S.players[i].retired) { S.cur = i; retirePlayer(S, i, 'hill'); }
+    finish(S, 'cap'); return;
+  }
+  let n = S.cur;
+  do { n = (n + 1) % S.players.length; } while (S.players[n].retired);
+  S.cur = n;
+  emit(S, { t: 'turn', p: n });
+  beginTurn(S);
+}
+function finish(S, why) {
+  S.phase = 'over'; S.endReason = why;
+  S.result = ranking(S);
+  S.winner = S.result[0].i;
+  emit(S, { t: 'over' });
+  log(S, `${S.players[S.winner].name} wins with ${fmt(S.result[0].worth)}!`);
+}
+
+// Banking, allowed for the current player before they spin.
+function takeLoan(S) {
+  if (S.phase !== 'spin') return false;
+  const P = S.players[S.cur];
+  P.loans++; P.cash += LOAN;
+  emit(S, { t: 'loan', p: S.cur, n: 1 });
+  log(S, `${P.name} takes a ${fmt(LOAN)} loan.`);
+  return true;
+}
+function repayLoan(S) {
+  if (S.phase !== 'spin') return false;
+  const P = S.players[S.cur];
+  if (!P.loans || P.cash < LOAN) return false;
+  P.loans--; P.cash -= LOAN;
+  emit(S, { t: 'repay', p: S.cur });
+  log(S, `${P.name} repays a loan.`);
+  return true;
+}
+
+// ---------------------------------------------------------------- computer players
+// Two personalities. Cautious keeps cash, avoids loans and gambles, and repays early. Risky takes the
+// startup road, the big wedding and the dearer house, and retires to the coast. A little randomness from
+// the game's own generator so two computers of one style do not play in lockstep.
+function aiChoose(S) {
+  const C = S.choice, P = S.players[C.p], risky = P.kind === 'risky';
+  const r = rand(S);
+  const has = (id) => C.opts.some((o) => o.id === id);
+  switch (C.kind) {
+    case 'path':
+      if (C.fork === 'school') return r < (risky ? 0.7 : 0.45) ? 'college' : 'work';
+      if (C.fork === 'family') return r < 0.5 ? 'family' : 'adventure';
+      if (C.fork === 'town') return r < (risky ? 0.6 : 0.35) ? 'city' : 'hometown';
+      if (C.fork === 'risk') return r < (risky ? 0.8 : 0.15) ? 'startup' : 'steady';
+      return C.opts[0].id;
+    case 'career': {
+      let best = C.opts[0];
+      const val = (o) => (o.id === 'keep' ? salaryOf(P) : o.salary);
+      for (const o of C.opts) if (val(o) > val(best)) best = o;
+      return best.id;
+    }
+    case 'wedding':
+      if (risky) return r < 0.8 ? 'big' : 'small';
+      return r < 0.6 ? 'small' : r < 0.85 ? 'single' : 'big';
+    case 'house': {
+      const houses = C.opts.filter((o) => o.house);
+      if (!houses.length) return 'rent';
+      houses.sort((a, b) => a.price - b.price);
+      if (risky) return P.loans <= 6 ? houses[houses.length - 1].id : houses[0].id;
+      const h = houses[0];
+      return P.cash + LOAN >= h.price || (C.why === 'home' && P.cash + 2 * LOAN >= h.price) ? h.id : 'rent';
+    }
+    case 'crossroads':
+      if (!P.degree && has('night') && (risky || P.cash >= 150)) return 'night';
+      if (salaryOf(P) < (risky ? 90 : 60)) return 'switch';
+      return 'keep';
+    case 'fair': {
+      if (P.loans >= 4 && P.houses.length) return 'sell:0';
+      if (risky ? P.loans <= 3 : P.cash >= 250 && !P.loans) return 'buy';
+      return 'pass';
+    }
+    case 'retire': return risky ? 'coast' : 'hill';
+    default: return C.opts[0].id;
+  }
+}
+function aiBank(S) {
+  const P = S.players[S.cur];
+  const reserve = P.kind === 'risky' ? 150 : 30;
+  while (P.loans && P.cash - LOAN >= reserve) repayLoan(S);
+}
+function isAI(S) { return S.phase !== 'over' && S.players[S.phase === 'choose' && S.choice ? S.choice.p : S.cur].kind !== 'human'; }
+// One computer action. `force` plays a human seat as Cautious (used by tests and the browser check).
+function aiAct(S, force) {
+  if (S.phase === 'over') return false;
+  if (!force && !isAI(S)) return false;
+  S.steps++;
+  if (S.phase === 'spin') { aiBank(S); return spin(S); }
+  if (S.phase === 'choose') return choose(S, aiChoose(S));
+  return false;
+}
+function simulate(seed, kinds, o) {
+  const S = newGame(Object.assign({ seed, players: kinds.map((k, i) => ({ name: 'P' + i, kind: k })) }, o || {}));
+  while (S.phase !== 'over' && S.steps < 20000) { aiAct(S, true); S.ev.length = 0; }
+  return S;
+}
+
+// ---------------------------------------------------------------- save
+function serialize(S) {
+  const o = Object.assign({}, S); delete o.ev; delete o.script;
+  return JSON.stringify(o);
+}
+// Anything malformed, from another version, or describing an impossible state comes back null and the UI
+// starts a fresh game: a crash on resume is the worst outcome, a lost save the second worst.
+function deserialize(text) {
+  let S;
+  try { S = JSON.parse(text); } catch (e) { return null; }
+  try {
+    if (!S || typeof S !== 'object' || S.v !== SAVE_VERSION) return null;
+    if (!Array.isArray(S.players) || S.players.length < 2 || S.players.length > MAX_PLAYERS) return null;
+    const int = (x) => Number.isInteger(x);
+    for (const P of S.players) {
+      if (!P || typeof P.name !== 'string' || !KINDS.includes(P.kind)) return null;
+      if (!int(P.node) || P.node < 0 || P.node >= TRACK.length || !int(P.cash) || !int(P.loans) || P.loans < 0) return null;
+      if (P.career !== null && !CAREER[P.career]) return null;
+      if (!Array.isArray(P.houses) || !P.houses.every((h) => HOUSE[h])) return null;
+      if (!Array.isArray(P.tiles) || !P.tiles.every((t) => t === SPARE_TILE || (int(t) && TILES[t]))) return null;
+      if (!int(P.kids) || P.kids < 0 || P.kids > MAX_KIDS || !int(P.raise) || typeof P.retired !== 'boolean') return null;
+      if (!P.roads || typeof P.roads !== 'object') return null;
+    }
+    if (!int(S.cur) || S.cur < 0 || S.cur >= S.players.length || !int(S.rng)) return null;
+    if (!['spin', 'choose', 'over'].includes(S.phase)) return null;
+    if (S.phase !== 'over' && S.players[S.cur].retired) return null;
+    if (S.phase === 'choose' && (!S.choice || !Array.isArray(S.choice.opts) || !S.choice.opts.length)) return null;
+    const d = S.decks;
+    if (!d || !['degree', 'basic', 'house', 'tile', 'event', 'used'].every((k) => Array.isArray(d[k]))) return null;
+    if (!d.degree.concat(d.basic).every((c) => CAREER[c]) || !d.house.every((h) => HOUSE[h]) || !d.event.concat(d.used).every((e) => EVENT[e])) return null;
+    if (!Array.isArray(S.log)) S.log = [];
+    S.ev = [];
+    return S;
+  } catch (e) { return null; }
+}
+
+globalThis.__life = {
+  SAVE_VERSION, START_CASH, LOAN, LOAN_END, TUITION, NIGHT_SCHOOL, RETIRE_BONUS, HILL_PENSION, COAST, BABY_GIFT, MAX_KIDS, TURN_CAP,
+  STOPS, PIECES, SPACE_INFO, TRACK, START, RETIRE, WORLD, spine, CAREERS, CAREER, HOUSES, HOUSE, TILES, SPARE_TILE, tileValue, EVENTS, EVENT,
+  rand, spinValue, newGame, spin, choose, takeLoan, repayLoan, aiChoose, aiAct, isAI, simulate, serialize, deserialize,
+  score, ranking, salaryOf, fmt, applyFx, land, pay, gain, sellHouse, retirePlayer, beginTurn, endTurn,
+};
+
+// ---------- UI ----------
+const M = globalThis.__life;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const COLORS = ['#e8505b', '#3d8fe0', '#2fae66', '#f2a127', '#9b6be0', '#12aebb'];
+const DARK = ['#a8323b', '#245f9e', '#1d7745', '#a86b10', '#6a44a6', '#0b7882'];
+const CPU_NAMES = ['Asha', 'Kabir', 'Meera', 'Arjun', 'Zoya', 'Dev'];
+const KIND_LABEL = { human: 'Human', cautious: '🤖 Cautious', risky: '🤖 Risky' };
+const SAVE_KEY = 'dgames.life-journey.save', OPTS_KEY = 'dgames.life-journey.opts', SOUND_KEY = 'dgames.life-journey.sound';
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------- dgames high scores ----------
+// Shared snippet, pasted verbatim into every game (games stay self-contained). Keeps a top-N table per
+// key in localStorage against the player's name, which is shared by every game. Usage:
+//   const hs = makeHiScores({ key: 'duck-hunt', order: 'desc', max: 10, label: v => v + ' pts' });
+//   if (hs.rank(score) >= 0) hs.prompt(score, 'round 7').then(() => hs.render(document.getElementById('scores')));
+//   hs.render(el)                       // table of the current list
+// `order` is 'desc' (bigger is better) or 'asc' (smaller is better, e.g. shots or seconds).
+// The overlay keeps key events away from the game while it is open. Styling comes from the hs-* classes
+// below; override the --hs-* custom properties to match a game's palette.
+// The name lives at `dgames.player` and is asked for once, then reused everywhere. It used to be three
+// letters read by a window keydown listener into three spans, with nothing focusable on the card -- so a
+// phone had no keyboard to summon and no way to enter a name at all, and every mobile score saved "AAA".
+// One name for the whole collection rather than one per game.
+const HS_PLAYER_KEY = 'dgames.player';
+const hsPlayer = () => { try { return (localStorage.getItem(HS_PLAYER_KEY) || '').trim().slice(0, 12); } catch (e) { return ''; } };
+const hsSetPlayer = (n) => { try { localStorage.setItem(HS_PLAYER_KEY, n); } catch (e) {} };
+
+function makeHiScores({ key, order = 'desc', max = 10, label = v => String(v), title = 'High scores' }) {
+  const KEY = 'dgames.hiscores.' + key;
+  const load = () => { try { const l = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } };
+  const save = (l) => { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch (e) {} };
+  const cmp = (a, b) => (order === 'desc' ? b.value - a.value : a.value - b.value) || a.time - b.time;
+  const sorted = (l) => l.slice().sort(cmp);
+  const better = (v, e) => order === 'desc' ? v > e.value : v < e.value;
+  // 0-based position a value would take, or -1 if it misses the table
+  function rank(value) { const l = sorted(load()); let i = 0; while (i < l.length && !better(value, l[i])) i++; return i < max ? i : -1; }
+  // The field is still called `initials`: entries saved before this held three letters under that key,
+  // and renaming it would orphan every score already on someone's device.
+  function add(value, initials, detail) {
+    const e = { value, initials: String(initials || 'Player').trim().slice(0, 12).trim() || 'Player', detail: detail || '', time: Date.now() };
+    const l = sorted(load().concat([e])).slice(0, max); save(l); return e;
+  }
+  const list = () => sorted(load());
+  const clear = () => save([]);
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function ensureStyle() {
+    if (document.getElementById('hs-style')) return;
+    const st = document.createElement('style'); st.id = 'hs-style';
+    st.textContent = `
+      .hs-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(3,10,20,.72);font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff)}
+      .hs-card{background:var(--hs-bg,#10233a);border:1px solid var(--hs-line,#2c4a6e);border-radius:16px;padding:22px 26px;width:min(360px,92vw);text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.45)}
+      .hs-card h2{margin:0 0 4px;font-size:22px;letter-spacing:2px;color:var(--hs-accent,#ffd54a)}
+      .hs-card .hs-val{font-size:30px;font-weight:700;margin:6px 0 2px}
+      .hs-card .hs-detail,.hs-card .hs-hint{opacity:.7;font-size:13px}
+      .hs-card .hs-rank{margin:4px 0 14px;font-size:14px}
+      .hs-name{display:block;width:100%;margin:8px 0 16px;padding:12px 14px;min-height:48px;box-sizing:border-box;text-align:center;
+        border:2px solid var(--hs-line,#2c4a6e);border-radius:10px;background:rgba(0,0,0,.25);color:inherit;font:inherit;font-size:22px;font-weight:700}
+      .hs-name:focus{outline:none;border-color:var(--hs-accent,#ffd54a)}
+      .hs-btns{display:flex;gap:8px;justify-content:center}
+      .hs-btns button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:9px 18px;cursor:pointer;background:var(--hs-accent,#ffd54a);color:#0b1a2b}
+      .hs-btns button.hs-ghost{background:transparent;color:var(--hs-fg,#fff);border:1px solid var(--hs-line,#2c4a6e);font-weight:400}
+      .hs-btns button:focus-visible{outline:2px solid var(--hs-fg,#fff);outline-offset:2px}
+      .hs-table{width:100%;border-collapse:collapse;font-family:var(--hs-font,"Segoe UI",system-ui,sans-serif);color:var(--hs-fg,#fff);font-variant-numeric:tabular-nums}
+      .hs-table caption{text-align:left;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7;padding:0 0 6px}
+      .hs-table td{padding:4px 6px;border-top:1px solid var(--hs-line,#2c4a6e);font-size:14px}
+      .hs-table td:first-child{opacity:.6;width:2em;text-align:right}
+      .hs-table td.hs-ini{font-weight:700;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .hs-table td.hs-score{text-align:right;color:var(--hs-accent,#ffd54a);font-weight:600}
+      .hs-table td.hs-d{opacity:.65;font-size:12px}
+      .hs-table tr.hs-new td{background:rgba(255,213,74,.12)}
+      .hs-table td.hs-empty{opacity:.55;text-align:center;padding:10px}`;
+    document.head.appendChild(st);
+  }
+  // Modal asking for the player's name, prefilled from `dgames.player` so it is typed once, ever.
+  // Resolves with the saved entry, or null if skipped. Only call when rank(value) >= 0.
+  function prompt(value, detail) {
+    ensureStyle();
+    return new Promise((resolve) => {
+      const r = rank(value);
+      const known = hsPlayer();
+      const ov = document.createElement('div'); ov.className = 'hs-overlay';
+      ov.innerHTML = `<div class="hs-card" role="dialog" aria-label="New high score"><h2>NEW HIGH SCORE</h2>
+        <div class="hs-val">${esc(label(value))}</div><div class="hs-detail">${esc(detail || '')}</div>
+        <div class="hs-rank">#${r + 1} on this device</div>
+        <label class="hs-hint" for="hs-name-input">Your name</label>
+        <input class="hs-name" id="hs-name-input" type="text" maxlength="12" autocomplete="nickname" autocapitalize="words" spellcheck="false" placeholder="Player" value="${esc(known)}">
+        <div class="hs-btns"><button class="hs-ok" type="button">Save</button><button class="hs-ghost hs-skip" type="button">Skip</button></div></div>`;
+      document.body.appendChild(ov);
+      const input = ov.querySelector('.hs-name');
+      const done = (ok) => {
+        window.removeEventListener('keydown', outside, true); window.removeEventListener('keyup', outside, true); window.removeEventListener('keypress', outside, true);
+        const name = (input.value || '').trim().slice(0, 12);
+        ov.remove();
+        if (ok && name) hsSetPlayer(name);
+        resolve(ok ? add(value, name || known || 'Player', detail) : null);
+      };
+      // Game key handlers sit on window in the bubble phase, so stopping the event at the field lets the
+      // character land while keeping the player from also jumping or firing as they type their name.
+      const field = (e) => {
+        e.stopPropagation();
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Enter') { e.preventDefault(); done(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+      };
+      input.addEventListener('keydown', field); input.addEventListener('keyup', field); input.addEventListener('keypress', field);
+      // Anything typed while the field is not focused still must not reach the game underneath.
+      const outside = (e) => {
+        if (e.target === input) return;
+        e.stopPropagation(); e.preventDefault();
+        if (e.type !== 'keydown') return;
+        if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false);
+      };
+      window.addEventListener('keydown', outside, true); window.addEventListener('keyup', outside, true); window.addEventListener('keypress', outside, true);
+      ov.querySelector('.hs-ok').addEventListener('click', () => done(true));
+      ov.querySelector('.hs-skip').addEventListener('click', () => done(false));
+      // A name already known means there is nothing to type, so focus Save and leave the on-screen
+      // keyboard shut; a first-time player gets the field focused and selected instead.
+      if (known) ov.querySelector('.hs-ok').focus(); else { input.focus(); input.select(); }
+    });
+  }
+  // Renders the table into el; the entry whose time equals `newTime` is highlighted.
+  function render(el, newTime) {
+    ensureStyle();
+    const l = list();
+    const rows = l.length ? l.map((e, i) => `<tr${e.time === newTime ? ' class="hs-new"' : ''}><td>${i + 1}</td><td class="hs-ini">${esc(e.initials)}</td><td class="hs-score">${esc(label(e.value))}</td><td class="hs-d">${esc(e.detail)}</td></tr>`).join('')
+      : `<tr><td class="hs-empty" colspan="4">No scores yet. Be the first.</td></tr>`;
+    el.innerHTML = `<table class="hs-table"><caption>${esc(title)}</caption><tbody>${rows}</tbody></table>`;
+  }
+  return { key, rank, add, list, clear, prompt, render };
+}
+
+const hs = makeHiScores({ key: 'life-journey', order: 'desc', max: 10, label: (v) => fmt(v), title: 'Best final worth' });
+
+// ---------------------------------------------------------------- sound (tiny, synthesised, optional)
+let soundOn = true;
+try { soundOn = localStorage.getItem(SOUND_KEY) !== 'off'; } catch (e) { /* ignore */ }
+let actx = null;
+function tone(freq, dur, type, vol, delay) {
+  if (!soundOn) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = actx.currentTime + (delay || 0);
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || 'square'; o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(vol || 0.04, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+  } catch (e) { /* no audio: fine */ }
+}
+const sfx = {
+  tick: () => tone(1500, 0.025, 'square', 0.025),
+  land: () => { tone(660, 0.09, 'triangle', 0.06); tone(990, 0.12, 'triangle', 0.05, 0.08); },
+  pay: () => { tone(1046, 0.08, 'triangle', 0.06); tone(1568, 0.16, 'triangle', 0.06, 0.08); },
+  bad: () => tone(220, 0.18, 'sawtooth', 0.03),
+  fanfare: () => [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.22, 'triangle', 0.06, i * 0.11)),
+  step: () => tone(420, 0.03, 'sine', 0.03),
+};
+
+// ---------------------------------------------------------------- pictures
+// Top-down car with seats: driver, partner, and up to four children, like pegs in a toy car.
+const PEG_KIDS = ['#ffd34d', '#7fd1ff', '#ff9ec4', '#9be37b'];
+function carSVG(c, spouse, kids) {
+  const pegs = [`<circle cx="5" cy="-5" r="3.9" fill="#fdf3e3" stroke="#3a2f2a" stroke-width="1.2"/>`];
+  if (spouse) pegs.push(`<circle cx="5" cy="5" r="3.9" fill="#ffcfae" stroke="#3a2f2a" stroke-width="1.2"/>`);
+  const seats = [[-5, -5], [-5, 5], [-13, -5], [-13, 5]];
+  for (let k = 0; k < kids; k++) pegs.push(`<circle cx="${seats[k][0]}" cy="${seats[k][1]}" r="3.1" fill="${PEG_KIDS[k]}" stroke="#3a2f2a" stroke-width="1.1"/>`);
+  return `<g>
+    <rect x="-15" y="-14" width="8" height="5" rx="1.5" fill="#333"/><rect x="7" y="-14" width="8" height="5" rx="1.5" fill="#333"/>
+    <rect x="-15" y="9" width="8" height="5" rx="1.5" fill="#333"/><rect x="7" y="9" width="8" height="5" rx="1.5" fill="#333"/>
+    <rect x="-20" y="-11.5" width="40" height="23" rx="8" fill="${COLORS[c]}" stroke="${DARK[c]}" stroke-width="1.6"/>
+    <path d="M12 -8.5 Q17 0 12 8.5" fill="none" stroke="#dff3ff" stroke-width="3" stroke-linecap="round"/>
+    <rect x="-18" y="-8.6" width="27" height="17.2" rx="4" fill="rgba(0,0,0,.14)"/>
+    ${pegs.join('')}
+  </g>`;
+}
+const chipCar = (c, spouse, kids) => `<svg class="car" viewBox="-22 -22 44 44"><g transform="rotate(-90)">${carSVG(c, spouse, kids)}</g></svg>`;
+function houseSVG(h, cls) {
+  const H = M.HOUSE[h];
+  return `<svg class="${cls || 'hs'}" viewBox="0 0 90 62"><ellipse cx="45" cy="57" rx="38" ry="4" fill="rgba(0,0,0,.12)"/>
+    <rect x="17" y="26" width="56" height="30" rx="2" fill="${H.wall}" stroke="rgba(0,0,0,.35)" stroke-width="1.2"/>
+    <path d="M10 28 L45 6 L80 28Z" fill="${H.roof}" stroke="rgba(0,0,0,.35)" stroke-width="1.2" stroke-linejoin="round"/>
+    <rect x="39" y="38" width="12" height="18" rx="1.5" fill="#7a4e2e"/><rect x="23" y="33" width="11" height="10" fill="#cfeaf7" stroke="rgba(0,0,0,.3)"/>
+    <rect x="56" y="33" width="11" height="10" fill="#cfeaf7" stroke="rgba(0,0,0,.3)"/><rect x="60" y="10" width="7" height="12" fill="${H.roof}" stroke="rgba(0,0,0,.35)"/></svg>`;
+}
+
+// Landmarks: flat, soft, each inside a 110 x 84 box centred on 0,0. Calm on purpose: they are scenery.
+const SH = (w) => `<ellipse cx="0" cy="34" rx="${w}" ry="6" fill="rgba(50,80,30,.16)"/>`;
+const tree = (x, y, r, c) => `<rect x="${x - 2}" y="${y}" width="4" height="${r * 0.9}" fill="#8a6440"/><circle cx="${x}" cy="${y}" r="${r}" fill="${c || '#6fb85a'}"/><circle cx="${x - r * 0.3}" cy="${y - r * 0.3}" r="${r * 0.45}" fill="rgba(255,255,255,.18)"/>`;
+const pine = (x, y, s) => `<rect x="${x - 2}" y="${y}" width="4" height="${8 * s}" fill="#7a5a3a"/><path d="M${x} ${y - 26 * s} L${x + 11 * s} ${y + 2} L${x - 11 * s} ${y + 2}Z" fill="#3f8a55"/><path d="M${x} ${y - 26 * s} L${x + 6 * s} ${y - 12 * s} L${x - 6 * s} ${y - 12 * s}Z" fill="#5aa86c"/>`;
+const ART = {
+  school: () => `${SH(50)}<rect x="-40" y="-8" width="80" height="40" rx="3" fill="#f6d7a7" stroke="#b8865a" stroke-width="2"/>
+    <path d="M-46 -8 L0 -32 L46 -8 Z" fill="#d9634c" stroke="#a5432f" stroke-width="2" stroke-linejoin="round"/>
+    <rect x="-8" y="12" width="16" height="20" fill="#8a5a3b"/>${[-30, -18, 18, 30].map((x) => `<rect x="${x - 5}" y="2" width="10" height="9" fill="#bfe3f5" stroke="#b8865a"/>`).join('')}
+    <circle cx="0" cy="-15" r="6" fill="#fff" stroke="#a5432f" stroke-width="1.5"/><path d="M0 -15v-4M0 -15h3" stroke="#a5432f" stroke-width="1.2"/>
+    <path d="M0 -32 V-46" stroke="#7a5a3a" stroke-width="2"/><path d="M0 -46 h14 l-4 4 l4 4 h-14z" fill="#f26b3a"/>`,
+  college: () => `${SH(52)}<rect x="-46" y="-2" width="92" height="34" fill="#f4efe6" stroke="#a89a85" stroke-width="2"/>
+    <path d="M-30 -14 a30 22 0 0 1 60 0" fill="#4fb3a9" stroke="#2f7f77" stroke-width="2"/><path d="M0 -36 v-8" stroke="#2f7f77" stroke-width="2"/>
+    <path d="M-52 -2 L0 -18 L52 -2Z" fill="#e9e1d2" stroke="#a89a85" stroke-width="2" stroke-linejoin="round"/>
+    ${[-36, -24, -12, 0, 12, 24, 36].map((x) => `<rect x="${x - 3}" y="2" width="6" height="26" fill="#fff" stroke="#c8bba6"/>`).join('')}
+    <rect x="-50" y="28" width="100" height="5" fill="#d8ccb8"/><path d="M-12 -24 l12 -5 l12 5 l-12 5z" fill="#2f2a36"/>`,
+  workshop: () => `${SH(50)}<rect x="-44" y="-6" width="88" height="38" fill="#c7d3dd" stroke="#7d8b97" stroke-width="2"/>
+    <path d="M-44 -6 L-44 -24 L-22 -6 L-22 -24 L0 -6 L0 -24 L22 -6 L22 -24 L44 -6Z" fill="#8fa3b3" stroke="#66798a" stroke-width="2" stroke-linejoin="round"/>
+    <rect x="28" y="-42" width="9" height="22" fill="#b0583e"/><circle cx="34" cy="-48" r="5" fill="#e8eef2"/><circle cx="40" cy="-54" r="4" fill="#eef3f6"/>
+    <rect x="-8" y="10" width="20" height="22" fill="#56606b"/>${[-34, -24].map((x) => `<rect x="${x}" y="4" width="8" height="8" fill="#ffe9a6"/>`).join('')}
+    <circle cx="26" cy="12" r="8" fill="#f4b400" stroke="#b98100" stroke-width="2" stroke-dasharray="4 2"/><circle cx="26" cy="12" r="3" fill="#b98100"/>`,
+  wedding: () => `${SH(54)}<path d="M-50 32 L-50 -2 L0 -30 L50 -2 L50 32Z" fill="#fff3d6" stroke="#d07a2c" stroke-width="2" stroke-linejoin="round"/>
+    ${[-50, -30, -10, 10, 30].map((x, i) => `<path d="M${x} ${-2 - (i < 3 ? (x + 50) * 0.56 : (50 - x) * 0.56) * 0} L${x + 10} -2 L${x + 10} 32 L${x} 32Z" fill="#f26b3a" opacity=".85"/>`).join('')}
+    <path d="M-50 -2 L0 -30 L50 -2" fill="none" stroke="#c0392b" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M-16 32 L-16 8 Q0 -6 16 8 L16 32Z" fill="#fffaf0" stroke="#d07a2c" stroke-width="1.5"/>
+    ${Array.from({ length: 11 }, (_, i) => { const x = -45 + i * 9, y = -1 + Math.sin(i / 10 * Math.PI) * 8; return `<circle cx="${x}" cy="${y}" r="3.2" fill="${i % 2 ? '#ffb300' : '#ff7a1a'}"/>`; }).join('')}
+    <circle cx="0" cy="-30" r="4" fill="#ffb300"/>`,
+  houses: () => `${SH(54)}${[[-30, 0, '#f2c879', '#b5523b', 1], [6, 6, '#b9d7ea', '#3d6f9e', 0.85], [34, -2, '#f5d0c5', '#6b8e23', 0.95]].map(([x, y, w, r, s]) =>
+    `<g transform="translate(${x} ${y}) scale(${s})"><rect x="-17" y="0" width="34" height="28" fill="${w}" stroke="rgba(0,0,0,.3)" stroke-width="1.5"/><path d="M-22 2 L0 -18 L22 2Z" fill="${r}" stroke="rgba(0,0,0,.3)" stroke-width="1.5" stroke-linejoin="round"/><rect x="-5" y="12" width="10" height="16" fill="#7a4e2e"/><rect x="-14" y="6" width="7" height="7" fill="#cfeaf7"/><rect x="7" y="6" width="7" height="7" fill="#cfeaf7"/></g>`).join('')}
+    ${tree(-52, 14, 9)}`,
+  park: () => `${SH(54)}${tree(-34, -6, 18, '#5fae4e')}<path d="M4 32 L14 -6 L24 32 M30 32 L40 -6 L50 32 M14 -6 H40" fill="none" stroke="#c0392b" stroke-width="3" stroke-linecap="round"/>
+    <path d="M22 -6 V18 M32 -6 V18" stroke="#555" stroke-width="1.2"/><rect x="19" y="17" width="16" height="3" rx="1" fill="#f4b400"/>
+    <path d="M-14 32 L-2 6 L6 6" fill="none" stroke="#3d8fe0" stroke-width="4" stroke-linecap="round"/><ellipse cx="-30" cy="28" rx="12" ry="4" fill="#f3e2b5"/>`,
+  mountains: () => `${SH(54)}<path d="M-54 32 L-18 -26 L14 32Z" fill="#8fa9c4"/><path d="M-30 -7 L-18 -26 L-6 -7 L-12 -11 L-18 -5 L-24 -11Z" fill="#fff"/>
+    <path d="M-6 32 L26 -14 L56 32Z" fill="#a7bdd2"/><path d="M15 2 L26 -14 L37 2 L31 -1 L26 4 L20 -1Z" fill="#fff"/>
+    <path d="M-48 -38 q30 -10 56 -4" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 4"/>
+    <g transform="translate(16 -42) rotate(-8)"><path d="M-10 0 h22 l5 -2 l-5 4 h-22z" fill="#fff" stroke="#7d8b97"/><path d="M2 0 l-6 -8 h4 l8 8z M2 2 l-6 7 h4 l8 -7z" fill="#e8505b"/></g>`,
+  rocket: () => `${SH(50)}<rect x="-46" y="4" width="50" height="28" fill="#e9dccb" stroke="#9c8a73" stroke-width="2"/><path d="M-50 6 L-21 -10 L8 6Z" fill="#9c8a73"/>
+    ${[10, 15, 20, 25].map((y) => `<path d="M-38 ${y} h30" stroke="#b9a68c" stroke-width="2"/>`).join('')}
+    <g transform="translate(28 -6) rotate(18)"><path d="M0 -34 C10 -22 10 -2 7 12 H-7 C-10 -2 -10 -22 0 -34Z" fill="#fff" stroke="#7d8b97" stroke-width="1.5"/>
+    <circle cx="0" cy="-12" r="4.5" fill="#7fd1ff" stroke="#3d6f9e" stroke-width="1.5"/><path d="M-7 4 L-14 16 L-6 12Z M7 4 L14 16 L6 12Z" fill="#e8505b"/>
+    <path d="M-5 13 Q0 30 5 13Z" fill="#ffb300"/><path d="M-2.5 13 Q0 22 2.5 13Z" fill="#fff3b0"/></g>`,
+  bank: () => `${SH(52)}<rect x="-44" y="0" width="88" height="32" fill="#eef1f4" stroke="#8a97a6" stroke-width="2"/>
+    <path d="M-50 0 L0 -26 L50 0Z" fill="#dfe5ec" stroke="#8a97a6" stroke-width="2" stroke-linejoin="round"/>
+    <text x="0" y="-6" text-anchor="middle" font-size="15" font-weight="700" fill="#2a9d8f" font-family="Segoe UI, sans-serif">₹</text>
+    ${[-32, -16, 16, 32].map((x) => `<rect x="${x - 3.5}" y="4" width="7" height="24" fill="#fff" stroke="#c3ccd6"/>`).join('')}<rect x="-8" y="12" width="16" height="20" fill="#56606b"/>
+    <rect x="-48" y="30" width="96" height="4" fill="#cfd6de"/>`,
+  night: () => `${SH(40)}<path d="M0 32 V-30" stroke="#8a6440" stroke-width="4"/>
+    <path d="M2 -28 h34 l8 7 l-8 7 h-34z" fill="#f26b3a"/><path d="M-2 -12 h-34 l-8 7 l8 7 h34z" fill="#2a9d8f"/><path d="M2 4 h30 l8 7 l-8 7 h-30z" fill="#5b6ee1"/>
+    <path d="M-34 -40 a10 10 0 1 0 10 12 a8 8 0 1 1 -10 -12z" fill="#ffd34d"/><circle cx="-14" cy="-44" r="1.6" fill="#fff8d0"/><circle cx="-46" cy="-24" r="1.4" fill="#fff8d0"/>`,
+  fair: () => `${SH(56)}${[[-36, '#e8505b'], [0, '#3d8fe0'], [36, '#2fae66']].map(([x, c]) =>
+    `<g transform="translate(${x} 0)"><rect x="-14" y="2" width="28" height="30" fill="#f6ead2" stroke="#b8a07a" stroke-width="1.5"/><path d="M-17 2 h34 l-4 -14 h-26z" fill="${c}"/>${[-11, -3, 5].map((s) => `<path d="M${s} -12 h4 l1 14 h-6z" fill="#fff" opacity=".7"/>`).join('')}<rect x="-10" y="16" width="20" height="5" fill="#f4b400"/></g>`).join('')}
+    <path d="M-56 -20 Q0 -4 56 -20" fill="none" stroke="#8a6440" stroke-width="1"/>${Array.from({ length: 9 }, (_, i) => { const x = -50 + i * 12.5, y = -20 + 16 * Math.sin((i + 0.5) / 9 * Math.PI) * 0.5; return `<path d="M${x - 4} ${y} h8 l-4 7z" fill="${COLORS[i % 6]}"/>`; }).join('')}`,
+  hills: () => `${SH(54)}<path d="M-56 32 Q-30 -22 0 4 Q24 -26 56 32Z" fill="#9fcf8a"/>${pine(-36, 8, 1)}${pine(-22, 14, 0.8)}${pine(36, 10, 0.9)}
+    <rect x="-6" y="8" width="26" height="20" fill="#f4e1c1" stroke="#a5432f" stroke-width="1.5"/><path d="M-10 10 L7 -4 L24 10Z" fill="#b5523b"/><rect x="4" y="16" width="7" height="12" fill="#7a4e2e"/>
+    <circle cx="18" cy="-10" r="3" fill="#fff" opacity=".8"/><circle cx="22" cy="-17" r="4" fill="#fff" opacity=".6"/>`,
+  sea: () => `${SH(56)}<path d="M-56 32 V8 Q-42 2 -28 8 T0 8 T28 8 T56 8 V32Z" fill="#5fb8e0"/><path d="M-50 18 q7 -4 14 0 M-18 22 q7 -4 14 0 M18 17 q7 -4 14 0" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="34" cy="-24" r="10" fill="#ffd34d"/><path d="M-32 10 Q-30 -10 -36 -26" fill="none" stroke="#8a6440" stroke-width="4" stroke-linecap="round"/>
+    ${[[-56, -30], [-46, -40], [-28, -40], [-18, -28]].map(([x, y]) => `<path d="M-36 -26 Q${(x - 36) / 2} ${y - 6} ${x} ${y}" fill="none" stroke="#3f8a55" stroke-width="5" stroke-linecap="round"/>`).join('')}
+    <g transform="translate(12 6)"><path d="M-10 0 h20 l-4 6 h-12z" fill="#e8505b"/><path d="M0 -1 V-22 L12 -3Z" fill="#fff" stroke="#9ab" stroke-width="1"/></g>`,
+  city: () => `${SH(54)}${[[-46, 16, 46, '#9fb4c9'], [-30, 22, 66, '#7f9bb8'], [-8, 18, 54, '#b3c4d6'], [12, 24, 76, '#6f8fae'], [36, 18, 50, '#a3b7cb']].map(([x, w, h, c]) =>
+    `<rect x="${x}" y="${34 - h}" width="${w}" height="${h}" fill="${c}" stroke="rgba(0,0,0,.18)"/>${Array.from({ length: Math.floor(h / 12) }, (_, r) => `<rect x="${x + 4}" y="${34 - h + 6 + r * 12}" width="${w - 8}" height="4" fill="#fff6c8" opacity=".75"/>`).join('')}`).join('')}
+    <path d="M22 -42 v-8" stroke="#6f8fae" stroke-width="2"/><circle cx="22" cy="-51" r="2" fill="#e8505b"/>`,
+  town: () => `${SH(54)}${tree(-36, -2, 20, '#4f9e45')}<rect x="-4" y="-30" width="18" height="62" fill="#f0d9b0" stroke="#a5824f" stroke-width="2"/><path d="M-8 -30 L5 -46 L18 -30Z" fill="#c0392b"/>
+    <circle cx="5" cy="-16" r="6" fill="#fff" stroke="#a5824f" stroke-width="1.5"/><path d="M5 -16 v-4 M5 -16 h3" stroke="#3a2f2a" stroke-width="1.2"/>
+    <rect x="22" y="8" width="30" height="24" fill="#f7e08a" stroke="rgba(0,0,0,.3)" stroke-width="1.5"/><path d="M18 10 L37 -6 L56 10Z" fill="#6b8e23"/><rect x="33" y="18" width="8" height="14" fill="#7a4e2e"/>
+    ${[-50, -40, -30, -20, -10].map((x, i) => `<path d="M${x} 30 h8 l-4 -7z" fill="${COLORS[i % 6]}"/>`).join('')}`,
+  trees: () => `${tree(-24, 4, 14, '#79bf62')}${tree(4, -6, 18, '#6aae55')}${tree(30, 8, 12, '#86c76d')}`,
+  pond: () => `<ellipse cx="0" cy="8" rx="40" ry="18" fill="#8fd0ea" stroke="#6bb5d3" stroke-width="2"/><ellipse cx="-10" cy="4" rx="12" ry="4" fill="rgba(255,255,255,.4)"/>
+    <path d="M30 10 v-18 M34 12 v-14 M26 12 v-12" stroke="#4f8a3c" stroke-width="2"/><ellipse cx="14" cy="14" rx="6" ry="3" fill="#5fae4e"/>`,
+  field: () => `<rect x="-44" y="-16" width="88" height="44" rx="6" fill="#d9e8a4"/>${[-8, 2, 12, 22].map((y) => `<path d="M-38 ${y} H38" stroke="#b7cf73" stroke-width="3" stroke-dasharray="6 4"/>`).join('')}${tree(-46, -6, 8)}`,
+  flowers: () => `${Array.from({ length: 9 }, (_, i) => { const x = -36 + (i % 5) * 18 + (i > 4 ? 9 : 0), y = i > 4 ? 14 : -4; return `<circle cx="${x}" cy="${y}" r="4.5" fill="${['#ff9ec4', '#ffd34d', '#fff', '#ffb38a'][i % 4]}"/><circle cx="${x}" cy="${y}" r="1.6" fill="#f2a127"/>`; }).join('')}${tree(30, 0, 10)}`,
+};
+
+const SPACE_STYLE = {
+  start: ['#f4b400', '🚩'], payday: ['#2fae66', '₹'], event: ['#f39c32', '!'], life: ['#4a90d9', '★'],
+  baby: ['#e86aa6', '🍼'], twins: ['#e86aa6', '👶'], trip: ['#8e6ad8', '✈️'], pet: ['#4a90d9', '🐕'],
+  burn: ['#5d6b78', '🔥'], festival: ['#d6457a', '🎆'], investor: ['#12aebb', '💼'],
+  grad: ['#e0503c', '🎓'], job: ['#e0503c', '🧰'], wedding: ['#e0503c', '💍'], home: ['#e0503c', '🏠'], pitch: ['#e0503c', '🎤'],
+  crossroads: ['#e0503c', '🔀'], fair: ['#e0503c', '🏷️'], retire: ['#f4b400', '🌅'],
+};
+const isStop = (t) => !!M.STOPS[t] || t === 'start';
+
+// ---------------------------------------------------------------- board view
+// Everything the game needs from a board, behind a small interface, so a 3D table can replace it later:
+//   build() / render(S) / step(S, p, to) -> Promise / follow(p) / payday(p, n) / bubble(p, text, kind)
+//   pulse(node) / nodeAt(clientX, clientY) / setMode('follow' | 'all') / resize() / screenOf(p)
+// The spinner is its own small component (makeSpinner) with spin(value) -> Promise.
+function makeBoardView(svg, overlay) {
+  const T = M.TRACK, W = M.WORLD;
+  const cars = [];
+  const cam = { x: W.W / 2, y: 300, s: 0.6, tx: W.W / 2, ty: 300, ts: 0.6 };
+  let mode = 'follow', manual = false, followP = 0, rect = { w: 300, h: 300 }, raf = 0;
+  let carsG = null, spacesG = null;
+  const ctrl = (a, b) => { const d = Math.hypot(b.x - a.x, b.y - a.y) * 0.38; return [{ x: a.x + a.tx * d, y: a.y + a.ty * d }, { x: b.x - b.tx * d, y: b.y - b.ty * d }]; };
+  const bez = (a, c1, c2, b, t) => { const u = 1 - t; return { x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x, y: u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y }; };
+
+  function labelPos(n, dist) {
+    // Outward from the road: lanes push away from the centre line; main-road spaces label above on the
+    // straights and outside the bend on the turns.
+    if (n.lane) return { x: n.x + n.ty * n.lane * dist, y: n.y - n.tx * n.lane * dist };
+    if (n.x > W.X1 + 1 || n.x < W.X0 - 1) {   // on a bend: outside it
+      const cx = n.x > W.X1 ? W.X1 : W.X0, cy = W.Y0 + 2 * W.R * n.row + W.R, dx = n.x - cx, dy = n.y - cy, l = Math.hypot(dx, dy) || 1;
+      return { x: n.x + dx / l * dist, y: n.y + dy / l * dist };
+    }
+    return { x: n.x, y: n.y - dist };
+  }
+  function pill(x, y, text, bold) {
+    const w = text.length * (bold ? 7.4 : 6.6) + 16;
+    x = Math.max(w / 2 + 4, Math.min(W.W - w / 2 - 4, x));
+    return `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)})" pointer-events="none"><rect x="${-w / 2}" y="-10" width="${w}" height="20" rx="10" fill="rgba(255,252,245,.94)" stroke="rgba(90,70,40,.25)"/><text class="space-lbl" text-anchor="middle" dominant-baseline="central" y="0.5"${bold ? ' font-weight="700"' : ''}>${esc(text)}</text></g>`;
+  }
+  function placeLandmarks() {
+    // Slots in the open bands between rows; each landmark takes the free slot nearest its anchor space.
+    const rows = Math.max(...T.map((n) => n.row)) + 1, slots = [];
+    for (let g = -1; g < rows; g++) {
+      const y = W.Y0 + W.R + g * 2 * W.R;
+      for (let i = 0; i < 6; i++) slots.push({ x: 212 + i * 115, y, used: false });
+    }
+    const firstOf = (type) => T.find((n) => n.type === type);
+    const midRoad = (road) => { const l = T.filter((n) => n.road === road); return l[Math.floor(l.length / 2)]; };
+    const want = [['school', T[M.START]], ['college', firstOf('grad')], ['workshop', firstOf('job')], ['wedding', firstOf('wedding')], ['houses', firstOf('home')],
+      ['park', midRoad('family')], ['mountains', midRoad('adventure')], ['rocket', firstOf('pitch')], ['bank', midRoad('steady')], ['city', midRoad('city')], ['town', midRoad('hometown')], ['night', firstOf('crossroads')],
+      ['fair', firstOf('fair')], ['hills', T[M.RETIRE]], ['sea', T[M.RETIRE]]];
+    const out = [];
+    for (const [art, n] of want) {
+      let best = null, bd = Infinity;
+      for (const sl of slots) { if (sl.used) continue; const d = Math.hypot(sl.x - n.x, (sl.y - n.y) * 1.3); if (d < bd) { bd = d; best = sl; } }
+      if (!best) continue;
+      best.used = true; out.push([art, best.x, best.y]);
+    }
+    const fill = ['trees', 'pond', 'flowers', 'field', 'trees', 'flowers'];
+    let k = 0;
+    for (const sl of slots) if (!sl.used && sl.y > 30 && sl.y < W.H - 30) out.push([fill[k++ % fill.length], sl.x + ((k * 37) % 30) - 15, sl.y]);
+    return out;
+  }
+  function build() {
+    const parts = [];
+    parts.push(`<defs><radialGradient id="mead" cx="50%" cy="35%" r="80%"><stop offset="0" stop-color="#d4ecbd"/><stop offset="1" stop-color="#bcdda2"/></radialGradient></defs>`);
+    parts.push(`<rect x="-400" y="-400" width="${W.W + 800}" height="${W.H + 800}" fill="#bcdda2"/><rect x="0" y="0" width="${W.W}" height="${W.H}" rx="30" fill="url(#mead)"/>`);
+    for (let i = 0; i < 14; i++) { const x = (i * 263) % W.W, y = (i * 389) % W.H; parts.push(`<ellipse cx="${x}" cy="${y}" rx="${60 + (i % 3) * 25}" ry="${30 + (i % 4) * 8}" fill="rgba(255,255,255,.12)"/>`); }
+    for (const [art, x, y] of placeLandmarks()) parts.push(`<g transform="translate(${x} ${y})" pointer-events="none">${ART[art]()}</g>`);
+    // Road: one path of cubic edges, drawn three times (kerb, tarmac, centre line).
+    let d = '';
+    for (const a of T) for (const bi of a.next) { const b = T[bi], [c1, c2] = ctrl(a, b); d += `M${a.x} ${a.y}C${c1.x.toFixed(1)} ${c1.y.toFixed(1)} ${c2.x.toFixed(1)} ${c2.y.toFixed(1)} ${b.x} ${b.y}`; }
+    parts.push(`<path d="${d}" fill="none" stroke="#c9b38a" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>`);
+    parts.push(`<path d="${d}" fill="none" stroke="#f3e7cc" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>`);
+    parts.push(`<path d="${d}" fill="none" stroke="#fffaf0" stroke-width="2.5" stroke-dasharray="7 9" opacity=".9"/>`);
+    // Spaces
+    const sp = [], lbl = [];
+    for (const n of T) {
+      const [col, g] = SPACE_STYLE[n.type] || ['#999', '?'];
+      const big = isStop(n.type), r = big ? 20 : 15.5;
+      const glyph = g.length <= 1 ? `<text class="glyph" font-size="${big ? 18 : 16}" y="1">${g}</text>` : `<text class="space-ico" font-size="${big ? 19 : 15}" y="1">${g}</text>`;
+      sp.push(`<g id="sp${n.id}" transform="translate(${n.x} ${n.y})"><g class="sq">${big ? `<circle r="${r + 4}" fill="#fff" stroke="${col}" stroke-width="2"/>` : ''}<circle r="${r}" fill="${col}" stroke="#fff" stroke-width="2.5"/>${glyph}</g></g>`);
+      if (big) { const p = labelPos(n, 40); lbl.push(pill(p.x, p.y, (M.SPACE_INFO[n.type] || [n.type])[0], true)); }
+    }
+    // Road names just after each fork, outside the lane.
+    for (const n of T) if (n.fork) for (const o of n.options) { const f = T[o.first]; if (isStop(f.type)) continue; /* a stop's own label already names that road */ const p = labelPos(f, 38); lbl.push(pill(p.x, p.y, o.icon + ' ' + o.name)); }
+    parts.push(`<g id="spaces">${sp.join('')}</g><g id="labels">${lbl.join('')}</g><g id="cars"></g>`);
+    svg.innerHTML = parts.join('');
+    carsG = svg.querySelector('#cars'); spacesG = svg.querySelector('#spaces');
+  }
+  // Where car i sits when it is parked on node `id` together with others.
+  function parkSpot(S, i) {
+    const P = S.players[i], n = T[P.node];
+    const here = S.players.map((Q, j) => j).filter((j) => S.players[j].node === P.node);
+    const k = here.indexOf(i), m = here.length;
+    if (m === 1) return { x: n.x, y: n.y, a: Math.atan2(n.ty, n.tx) };
+    const off = (k - (m - 1) / 2) * 19;
+    const along = (k % 2 ? -9 : 9);
+    return { x: n.x + n.ty * off + n.tx * along, y: n.y - n.tx * off + n.ty * along, a: Math.atan2(n.ty, n.tx) };
+  }
+  function setCar(i, x, y, a) { const c = cars[i]; c.x = x; c.y = y; c.a = a; c.g.setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${(a * 180 / Math.PI).toFixed(1)}) scale(.95)`); }
+  function pegs(i, spouse, kids) { const c = cars[i]; if (c.spouse === spouse && c.kids === kids) return; c.spouse = spouse; c.kids = kids; c.g.innerHTML = carSVG(i, spouse, kids); }
+  function render(S) {
+    if (cars.length !== S.players.length) {
+      carsG.innerHTML = ''; cars.length = 0;
+      S.players.forEach((P, i) => { const g = document.createElementNS('http://www.w3.org/2000/svg', 'g'); g.style.filter = 'drop-shadow(0 2px 1.5px rgba(0,0,0,.35))'; carsG.appendChild(g); cars.push({ g, x: 0, y: 0, a: 0, spouse: null, kids: -1 }); });
+    }
+    S.players.forEach((P, i) => { pegs(i, P.spouse, P.kids); const p = parkSpot(S, i); setCar(i, p.x, p.y, p.a); });
+    // the car whose turn it is drawn on top
+    const cur = cars[S.cur]; if (cur) carsG.appendChild(cur.g);
+  }
+  function anim(ms, fn) {
+    return new Promise((res) => {
+      const t0 = performance.now();
+      const f = (now) => { const t = Math.min(1, (now - t0) / Math.max(1, ms)); fn(t); if (t < 1) requestAnimationFrame(f); else res(); };
+      requestAnimationFrame(f);
+    });
+  }
+  async function step(S, p, to, ms) {
+    const c = cars[p], b = T[to];
+    carsG.appendChild(c.g);
+    const from = { x: c.x, y: c.y, tx: Math.cos(c.a), ty: Math.sin(c.a) };
+    const [c1, c2] = ctrl(from, b);
+    manual = false; followP = p;
+    let px = c.x, py = c.y;
+    await anim(ms, (t) => {
+      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const q = bez(from, c1, c2, b, e);
+      const a = Math.hypot(q.x - px, q.y - py) > 0.3 ? Math.atan2(q.y - py, q.x - px) : c.a;
+      px = q.x; py = q.y;
+      setCar(p, q.x, q.y, a);
+      aimAt(q.x, q.y);
+    });
+  }
+  // ---- camera
+  const followScale = () => Math.max(rect.w / (W.W + 20), Math.min(0.62, rect.h / 380));
+  const fitScale = () => Math.min(rect.w / (W.W + 20), rect.h / (W.H + 20));
+  function clampCam(x, y, s) {
+    const vw = rect.w / s, vh = rect.h / s;
+    const cx = vw >= W.W ? W.W / 2 : Math.max(vw / 2 - 10, Math.min(W.W - vw / 2 + 10, x));
+    const cy = vh >= W.H ? W.H / 2 : Math.max(vh / 2 - 10, Math.min(W.H - vh / 2 + 10, y));
+    return [cx, cy];
+  }
+  function aimAt(x, y) {
+    if (manual) return;
+    const s = mode === 'all' ? fitScale() : followScale();
+    [cam.tx, cam.ty] = clampCam(x, y + (mode === 'all' ? 0 : 0), s); cam.ts = s;
+    kick();
+  }
+  function follow(p, instant) { followP = p; manual = false; const c = cars[p]; if (!c) return; aimAt(c.x, c.y); if (instant) { cam.x = cam.tx; cam.y = cam.ty; cam.s = cam.ts; apply(); } }
+  function apply() {
+    const vw = rect.w / cam.s, vh = rect.h / cam.s;
+    svg.setAttribute('viewBox', `${(cam.x - vw / 2).toFixed(1)} ${(cam.y - vh / 2).toFixed(1)} ${vw.toFixed(1)} ${vh.toFixed(1)}`);
+  }
+  function kick() { if (!raf) raf = requestAnimationFrame(frame); }
+  function frame() {
+    raf = 0;
+    const k = 0.16;
+    cam.x += (cam.tx - cam.x) * k; cam.y += (cam.ty - cam.y) * k; cam.s += (cam.ts - cam.s) * k;
+    apply();
+    if (Math.abs(cam.tx - cam.x) > 0.3 || Math.abs(cam.ty - cam.y) > 0.3 || Math.abs(cam.ts - cam.s) > 0.001) kick();
+  }
+  function resize() {
+    const r = svg.getBoundingClientRect(); rect = { w: Math.max(50, r.width), h: Math.max(50, r.height), left: r.left, top: r.top };
+    if (manual) { cam.ts = mode === 'all' ? fitScale() : followScale(); [cam.tx, cam.ty] = clampCam(cam.tx, cam.ty, cam.ts); cam.x = cam.tx; cam.y = cam.ty; cam.s = cam.ts; apply(); return; }
+    if (cars[followP]) follow(followP, true); else { cam.s = cam.ts = mode === 'all' ? fitScale() : followScale(); apply(); }
+  }
+  function setMode(m) { mode = m; manual = false; follow(followP); }
+  function screenOf(p) {
+    const c = cars[p], vw = rect.w / cam.s, vh = rect.h / cam.s;
+    const x = (c.x - (cam.x - vw / 2)) * cam.s, y = (c.y - (cam.y - vh / 2)) * cam.s;
+    return { x: Math.max(40, Math.min(rect.w - 40, x)), y: Math.max(40, Math.min(rect.h - 10, y - 14)) };
+  }
+  function bubble(p, text, kind) {
+    const s = screenOf(p), el = document.createElement('div');
+    el.className = 'bubble ' + (kind || ''); el.textContent = text;
+    el.style.left = s.x + 'px'; el.style.top = s.y + 'px';
+    el.style.animationDuration = Math.max(0.7, 1.3 * SPEED) + 's';
+    overlay.appendChild(el); setTimeout(() => el.remove(), 1400 * SPEED + 400);
+  }
+  function payday(p, n) {
+    bubble(p, '+' + fmt(n) + ' Pay Day', 'pay');
+    const s = screenOf(p);
+    for (let i = 0; i < 9; i++) {
+      const el = document.createElement('div'); el.className = 'coin';
+      const a = -Math.PI / 2 + (i - 4) * 0.32;
+      el.style.left = (s.x - 8) + 'px'; el.style.top = (s.y - 8) + 'px';
+      el.style.setProperty('--dx', Math.cos(a) * (50 + (i % 3) * 14) + 'px'); el.style.setProperty('--dy', Math.sin(a) * (54 + (i % 2) * 18) + 'px');
+      el.style.animationDelay = (i * 0.03) + 's';
+      overlay.appendChild(el); setTimeout(() => el.remove(), 1300);
+    }
+  }
+  function pulse(id) { const g = svg.querySelector('#sp' + id + ' .sq'); if (!g) return; g.classList.remove('pulse'); void g.getBBox(); g.classList.add('pulse'); }
+  function nodeAt(cx, cy) {
+    const vw = rect.w / cam.s, vh = rect.h / cam.s, r = svg.getBoundingClientRect();
+    const wx = cam.x - vw / 2 + (cx - r.left) / cam.s, wy = cam.y - vh / 2 + (cy - r.top) / cam.s;
+    let best = -1, bd = 28;
+    for (const n of T) { const d = Math.hypot(n.x - wx, n.y - wy); if (d < bd) { bd = d; best = n.id; } }
+    return best;
+  }
+  // Drag to look around; the camera returns to the car on its next move or on the view button.
+  let drag = null;
+  svg.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, moved: false, id: e.pointerId }; });
+  svg.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 7) return;
+    if (!drag.moved) { drag.moved = true; try { svg.setPointerCapture(e.pointerId); } catch (er) { /* ignore */ } svg.classList.add('panning'); }
+    manual = true;
+    [cam.tx, cam.ty] = clampCam(drag.cx - dx / cam.s, drag.cy - dy / cam.s, cam.s); cam.x = cam.tx; cam.y = cam.ty; apply();
+  });
+  const up = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const was = drag; drag = null; svg.classList.remove('panning');
+    if (!was.moved && api.onTap) api.onTap(nodeAt(e.clientX, e.clientY));
+  };
+  svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', () => { drag = null; svg.classList.remove('panning'); });
+  const api = { build, render, step, follow, payday, bubble, pulse, nodeAt, setMode, resize, screenOf, pegs, get mode() { return mode; }, onTap: null };
+  return api;
+}
+
+// ---------------------------------------------------------------- spinner
+// A ten-number wheel with a flapper. The result is decided by the rules before the wheel moves; the
+// wheel then decelerates onto that number, clicking past every peg.
+function makeSpinner(svg) {
+  const WEDGE = ['#ff8a80', '#ffb74d', '#ffe082', '#c5e1a5', '#80cbc4', '#81d4fa', '#9fa8da', '#ce93d8', '#f48fb1', '#bcaaa4'];
+  const R = 100;
+  let html = `<circle r="${R + 6}" fill="#fffaf2" stroke="#e6d6bd" stroke-width="3"/><g id="wheel">`;
+  for (let i = 0; i < 10; i++) {
+    const a0 = (i * 36 - 90) * Math.PI / 180, a1 = ((i + 1) * 36 - 90) * Math.PI / 180, am = ((i + 0.5) * 36 - 90);
+    html += `<path d="M0 0 L${(R * Math.cos(a0)).toFixed(2)} ${(R * Math.sin(a0)).toFixed(2)} A${R} ${R} 0 0 1 ${(R * Math.cos(a1)).toFixed(2)} ${(R * Math.sin(a1)).toFixed(2)}Z" fill="${WEDGE[i]}" stroke="#fff" stroke-width="2"/>`;
+    html += `<text transform="rotate(${am + 90}) translate(0 -70)" text-anchor="middle" dominant-baseline="central" font-family="Fredoka, Segoe UI, sans-serif" font-weight="700" font-size="26" fill="#3a2f2a">${i + 1}</text>`;
+    if (i === 5 || i === 8) html += `<path transform="rotate(${am + 90}) translate(0 -70)" d="M-6 15 h12" stroke="#3a2f2a" stroke-width="2.5" stroke-linecap="round"/>`;
+    html += `<circle cx="${(R * 0.97 * Math.cos(a0)).toFixed(2)}" cy="${(R * 0.97 * Math.sin(a0)).toFixed(2)}" r="3" fill="#fff" stroke="#bba"/>`;
+  }
+  html += `</g><circle r="22" fill="#fffaf2" stroke="#e6d6bd" stroke-width="3"/><text id="spinMid" text-anchor="middle" dominant-baseline="central" font-family="Fredoka, Segoe UI, sans-serif" font-weight="700" font-size="22" fill="#e2552a">SPIN</text>
+    <g id="flap" transform="translate(0 -${R + 4})"><path d="M-11 -12 L11 -12 L0 18Z" fill="#e2552a" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></g>`;
+  svg.innerHTML = html;
+  const wheel = svg.querySelector('#wheel'), flap = svg.querySelector('#flap'), mid = svg.querySelector('#spinMid');
+  let rot = 0, spinning = false;
+  const draw = (fl) => { wheel.setAttribute('transform', `rotate(${rot.toFixed(2)})`); flap.setAttribute('transform', `translate(0 -${R + 4}) rotate(${(fl || 0).toFixed(1)} 0 -6)`); };
+  draw(0);
+  function spin(v, ms) {
+    spinning = true; mid.textContent = '';
+    const i = v - 1, jitter = (Math.random() - 0.5) * 22;
+    const base = -(i + 0.5) * 36 + jitter;
+    let delta = ((base - rot) % 360 + 360) % 360;
+    const total = delta + 360 * (ms > 1500 ? 4 : 2);
+    const r0 = rot;
+    let lastPeg = Math.floor(r0 / 36), fl = 0, flv = 0;
+    return new Promise((res) => {
+      const t0 = performance.now();
+      let prev = t0;
+      const f = (now) => {
+        const t = Math.min(1, (now - t0) / ms), dt = Math.min(50, now - prev) / 1000; prev = now;
+        const e = 1 - Math.pow(1 - t, 3);
+        rot = r0 + total * e;
+        const peg = Math.floor(rot / 36);
+        if (peg !== lastPeg) { lastPeg = peg; fl = -28; flv = 0; sfx.tick(); }
+        flv += (-fl * 320 - flv * 14) * dt; fl += flv * dt;
+        draw(fl);
+        if (t < 1) requestAnimationFrame(f);
+        else { rot = ((rot % 360) + 360) % 360; draw(0); mid.textContent = v; spinning = false; res(); }
+      };
+      requestAnimationFrame(f);
+    });
+  }
+  function idle(text) { if (!spinning) mid.textContent = text; }
+  return { spin, idle, get spinning() { return spinning; } };
+}
+
+// ---------------------------------------------------------------- confetti
+const fxc = $('fx'), fxx = fxc.getContext('2d');
+let parts = [], fxRaf = 0;
+function confetti(n, petals) {
+  const w = fxc.width = innerWidth, h = fxc.height = innerHeight;
+  for (let i = 0; i < n; i++) parts.push({ x: Math.random() * w, y: -20 - Math.random() * h * 0.4, vx: (Math.random() - 0.5) * 2, vy: 1.5 + Math.random() * 2.5, r: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.3,
+    c: petals ? ['#ff7a1a', '#ffb300', '#ffd34d', '#e8505b'][i % 4] : COLORS[i % 6], s: 5 + Math.random() * 5, petal: petals });
+  if (!fxRaf) fxRaf = requestAnimationFrame(fxFrame);
+}
+function fxFrame() {
+  fxRaf = 0;
+  const h = fxc.height;
+  fxx.clearRect(0, 0, fxc.width, h);
+  parts = parts.filter((p) => p.y < h + 20);
+  for (const p of parts) {
+    p.x += p.vx + Math.sin(p.y / 40) * 0.6; p.y += p.vy; p.r += p.vr;
+    fxx.save(); fxx.translate(p.x, p.y); fxx.rotate(p.r); fxx.fillStyle = p.c;
+    if (p.petal) { fxx.beginPath(); fxx.ellipse(0, 0, p.s * 0.7, p.s * 0.45, 0, 0, 6.28); fxx.fill(); } else fxx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2);
+    fxx.restore();
+  }
+  if (parts.length) fxRaf = requestAnimationFrame(fxFrame);
+}
+
+// ---------------------------------------------------------------- state and options
+let S = null, busy = false, timer = 0, gen = 0, SPEED = 1, AUTO = false;
+let shown = [];   // cash and loans as the chips show them; lags the state while events play
+let actor = 0;    // whose turn the screen is showing; lags S.cur while a finished turn is still animating
+function loadOpts() {
+  let name = 'Player 1';
+  try { const n = localStorage.getItem('dgames.player'); if (n && n.trim()) name = n.trim().slice(0, 14); } catch (e) { /* ignore */ }
+  const o = { n: 3, seats: CPU_NAMES.map((nm, i) => ({ name: i ? nm : name, kind: i ? (i % 2 ? 'cautious' : 'risky') : 'human' })), quick: false, fast: false };
+  try {
+    const s = JSON.parse(localStorage.getItem(OPTS_KEY) || 'null');
+    if (s && typeof s === 'object') {
+      if (s.n >= 2 && s.n <= 6) o.n = s.n | 0;
+      if (Array.isArray(s.seats)) s.seats.slice(0, 6).forEach((x, i) => {
+        if (x && typeof x.name === 'string' && x.name.trim()) o.seats[i].name = x.name.trim().slice(0, 14);
+        if (x && KIND_LABEL[x.kind]) o.seats[i].kind = x.kind;
+      });
+      if (typeof s.quick === 'boolean') o.quick = s.quick;
+      if (typeof s.fast === 'boolean') o.fast = s.fast;
+    }
+  } catch (e) { /* defaults */ }
+  return o;
+}
+let opts = loadOpts();
+const saveOpts = () => { try { localStorage.setItem(OPTS_KEY, JSON.stringify(opts)); } catch (e) { /* ignore */ } };
+SPEED = opts.fast ? 0.55 : 1;
+function saveGame() {
+  try { if (!S || S.phase === 'over') localStorage.removeItem(SAVE_KEY); else localStorage.setItem(SAVE_KEY, M.serialize(S)); } catch (e) { /* storage blocked */ }
+}
+let badSave = false;
+function readSave() {
+  let text = null;
+  try { text = localStorage.getItem(SAVE_KEY); } catch (e) { return null; }
+  if (!text) return null;
+  const s = M.deserialize(text);
+  if (!s) { badSave = true; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
+  return s;
+}
+
+// ---------------------------------------------------------------- layout
+const app = $('app');
+const view = makeBoardView($('board'), $('overlay'));
+const spinner = makeSpinner($('spinner'));
+view.build();
+function layout() {
+  const w = innerWidth, h = innerHeight, land = w > h * 1.08;
+  app.className = land ? 'landscape' : 'portrait';
+  const n = S ? S.players.length : 3;
+  let spin, cols;
+  if (land) {
+    const side = Math.round(Math.min(380, Math.max(250, w * 0.31)));
+    app.style.setProperty('--side', side + 'px');
+    cols = 2;
+    const rows = Math.ceil(n / cols), playersH = rows * 44 + (rows - 1) * 6;
+    spin = Math.max(84, Math.min(170, h - 46 - playersH - 32, side * 0.46));
+  } else {
+    cols = n <= 3 ? n : 3;
+    spin = Math.max(88, Math.min(136, Math.round(h * 0.155), w * 0.36));
+  }
+  app.style.setProperty('--pcols', cols);
+  app.style.setProperty('--spin', Math.round(spin) + 'px');
+  document.body.classList.toggle('wide', land);
+  requestAnimationFrame(() => { view.resize(); const lb = $('logbox'); lb.classList.toggle('tiny', lb.clientHeight < 54); });
+}
+addEventListener('resize', layout);
+
+// ---------------------------------------------------------------- hud
+function chipHTML(i) {
+  const P = S.players[i], sh = shown[i] || { cash: P.cash, loans: P.loans };
+  const bits = [];
+  if (P.career) bits.push(M.CAREER[P.career].icon);
+  if (P.tiles.length) bits.push('★' + P.tiles.length);
+  if (P.houses.length) bits.push('🏠' + P.houses.length);
+  if (sh.loans) bits.push(`<b>🏦${sh.loans}</b>`);
+  if (P.retired) bits.push('retired');
+  return `${chipCar(i, P.spouse, P.kids)}<span class="tx"><span class="nm">${esc(P.name)}${P.kind !== 'human' ? ' 🤖' : ''}</span><span class="cash">${fmt(sh.cash)}</span><span class="bits">${bits.join(' ')}</span></span>`;
+}
+function renderPlayers() {
+  const box = $('players');
+  if (box.children.length !== S.players.length) {
+    box.innerHTML = S.players.map((P, i) => `<button class="pl" type="button" data-i="${i}"></button>`).join('');
+  }
+  S.players.forEach((P, i) => {
+    const el = box.children[i];
+    el.innerHTML = chipHTML(i);
+    el.classList.toggle('cur', i === (busy ? actor : S.phase === 'choose' && S.choice ? S.choice.p : S.cur) && S.phase !== 'over');
+    el.classList.toggle('done', P.retired);
+    el.setAttribute('aria-label', `${P.name}: ${fmt(shown[i] ? shown[i].cash : P.cash)}`);
+  });
+}
+function floatChip(i, d) {
+  const el = $('players').children[i]; if (!el || !d) return;
+  const f = document.createElement('span'); f.className = 'float ' + (d > 0 ? 'up' : 'down'); f.textContent = (d > 0 ? '+' : '−') + fmt(Math.abs(d)).replace('−', '');
+  el.appendChild(f); setTimeout(() => f.remove(), 1200);
+}
+function syncShown() { shown = S.players.map((P) => ({ cash: P.cash, loans: P.loans })); }
+function setMsg(t) { $('msg').textContent = t; }
+function addLog(t) { const lb = $('logbox'); const d = document.createElement('div'); d.textContent = t; lb.appendChild(d); while (lb.children.length > 60) lb.firstChild.remove(); lb.scrollTop = lb.scrollHeight; }
+let bannerT = 0;
+function banner(html, ms) { const b = $('banner'); b.innerHTML = html; b.classList.remove('off'); clearTimeout(bannerT); bannerT = setTimeout(() => b.classList.add('off'), ms || 1600); }
+function updateControls() {
+  if (!S) return;
+  const pi = busy ? actor : S.phase === 'choose' && S.choice ? S.choice.p : S.cur, P = S.players[pi];
+  const human = P.kind === 'human' && !AUTO;
+  const canSpin = !busy && S.phase === 'spin' && human;
+  $('btnSpin').disabled = !canSpin;
+  $('btnBank').disabled = !canSpin;
+  $('spinner').classList.toggle('off', !canSpin);
+  $('who').innerHTML = S.phase === 'over' ? 'Journey complete' : `<span class="dot" style="background:${COLORS[pi]}"></span><span>${esc(P.name)}${P.kind !== 'human' ? ' (' + P.kind + ')' : ''}</span>`;
+  if (canSpin) { setMsg(`Your turn${S.players.filter((Q) => Q.kind === 'human').length > 1 ? ', ' + P.name : ''}. Tap the spinner or press Spin.`); spinner.idle('SPIN'); }
+  renderPlayers();
+}
+
+// ---------------------------------------------------------------- playing events
+const SPIN_WHY = { move: '', event: 'Spin for the card…', investor: 'Investor call: 6 or more!', pitch: 'Pitch Day!', sale: 'Spinning for the sale price…', coast: 'By the sea: 6 or more!' };
+const ms = (x) => Math.max(SPEED < 0.05 ? 0 : 40, x * SPEED);
+async function handle(e) {
+  const P = e.p != null ? S.players[e.p] : null;
+  switch (e.t) {
+    case 'log': addLog(e.msg); setMsg(e.msg); return;
+    case 'spin': {
+      if (SPIN_WHY[e.why]) banner(SPIN_WHY[e.why], 1800 * SPEED);
+      await spinner.spin(e.v, ms(e.why === 'move' ? 2300 : 1600));
+      await wait(ms(260));
+      return;
+    }
+    case 'step': sfx.step(); await view.step(S, e.p, e.to, ms(230)); return;
+    case 'land': view.pulse(e.node); await wait(ms(120)); return;
+    case 'payday': sfx.pay(); shown[e.p].cash += e.n; view.payday(e.p, e.n); renderPlayers(); floatChip(e.p, e.n); await wait(ms(560)); return;
+    case 'cash': shown[e.p].cash += e.d; renderPlayers(); floatChip(e.p, e.d); if (e.d < 0 && e.why !== 'gift') sfx.bad(); await wait(ms(e.why === 'gift' ? 160 : 320)); return;
+    case 'loan': shown[e.p].cash += e.n * M.LOAN; shown[e.p].loans += e.n; renderPlayers(); view.bubble(e.p, '🏦 Bank loan +' + fmt(e.n * M.LOAN), 'info'); await wait(ms(600)); return;
+    case 'repay': shown[e.p].cash -= M.LOAN; shown[e.p].loans--; renderPlayers(); return;
+    case 'settle': shown[e.p].loans = 0; shown[e.p].cash -= e.owe; renderPlayers(); banner(`🏦 ${esc(P.name)} settles ${e.loans} loan${e.loans > 1 ? 's' : ''}: −${fmt(e.owe)}`, 1500 * SPEED); floatChip(e.p, -e.owe); await wait(ms(900)); return;
+    case 'tile': view.bubble(e.p, '★ Memory', 'info'); renderPlayers(); await wait(ms(520)); return;
+    case 'raise': view.bubble(e.p, '📈 Salary +' + fmt(e.n)); await wait(ms(600)); return;
+    case 'kid': sfx.land(); view.pegs(e.p, P.spouse, P.kids); view.bubble(e.p, e.n > 1 ? '👶👶 Twins!' : '👶 A baby!', 'info'); confetti(24, true); renderPlayers(); await wait(ms(900)); return;
+    case 'card': await eventCard(e); return;
+    case 'career': { const c = M.CAREER[e.id]; sfx.land(); banner(`${c.icon} ${esc(P.name)} is now a <b>${esc(c.name)}</b> · ${fmt(c.salary)} a pay day`, 2000 * SPEED); renderPlayers(); await wait(ms(1100)); return; }
+    case 'road': { const o = M.TRACK[e.node].options.find((x) => x.key === e.key); banner(`${o.icon} ${esc(P.name)}: ${esc(o.name)}`, 1400 * SPEED); await wait(ms(650)); return; }
+    case 'house': await houseCard(e); renderPlayers(); return;
+    case 'sale': sfx.pay(); banner(`🪧 ${esc(P.name)} sells the ${esc(M.HOUSE[e.house].name)} for <b>${fmt(e.price)}</b>`, 1800 * SPEED); renderPlayers(); await wait(ms(1000)); return;
+    case 'wedding':
+      if (e.kind === 'single') { banner(`🎒 ${esc(P.name)} takes the solo trip of a lifetime`, 1600 * SPEED); await wait(ms(900)); return; }
+      sfx.fanfare(); view.pegs(e.p, true, P.kids); view.bubble(e.p, '💍', 'info'); confetti(e.kind === 'big' ? 160 : 70, true);
+      banner(`💍 ${esc(P.name)} is married!${e.kind === 'big' ? ' The whole town dances.' : ''}`, 2200 * SPEED); await wait(ms(1600)); return;
+    case 'pitch':
+      if (e.res === 'big') { sfx.fanfare(); confetti(120, false); banner(`🚀 ${esc(P.name)}'s startup takes off! +${fmt(400)}`, 2000 * SPEED); }
+      else banner(e.res === 'deal' ? `🤝 A small deal for ${esc(P.name)}: +${fmt(100)}` : `😅 The investors pass. −${fmt(60)}`, 1800 * SPEED);
+      await wait(ms(1000)); return;
+    case 'retire': sfx.fanfare(); banner(`🌅 ${esc(P.name)} retires ${['first', 'second', 'third', 'fourth', 'fifth', 'sixth'][e.place]}${e.dest === 'coast' ? ' to the sea' : ' to the hills'}! Bonus +${fmt(e.bonus)}`, 2200 * SPEED); confetti(50, false); shown[e.p].cash += 0; await wait(ms(1200)); return;
+    case 'turn': actor = e.p; view.render(S); view.follow(e.p); updateControls(); await wait(ms(200)); return;
+    default: return;
+  }
+}
+function fxText(e, P) {
+  const parts = [];
+  for (const f of e.fx) {
+    if (f.k === 'gain') parts.push('+' + fmt(f.n));
+    else if (f.k === 'pay') parts.push('−' + fmt(f.n));
+    else if (f.k === 'raise') parts.push('Salary +' + fmt(f.n) + ' a pay day');
+    else if (f.k === 'tile') parts.push('★ Take a memory');
+    else if (f.k === 'kidGain') parts.push(`+${fmt(f.n)} per child (${P.kids}): +${fmt(f.n * P.kids)}`);
+    else if (f.k === 'kidPay') parts.push(`${fmt(f.n)} per child (${P.kids}): −${fmt(f.n * P.kids)}`);
+    else if (f.k === 'housePay') parts.push(`${fmt(f.n)} per house (${P.houses.length}): −${fmt(f.n * P.houses.length)}`);
+    else if (f.k === 'collect') parts.push(`+${fmt(f.n)} from each player`);
+    else if (f.k === 'spin') parts.push(`Spin ${f.at}+: +${fmt(f.win)} · otherwise −${fmt(f.lose)}`);
+  }
+  return parts.join(' · ');
+}
+// Modal card that waits for a tap from a human, or reads itself for a moment for a computer.
+function showCardEl(html, cls, humanWait, autoMs) {
+  return new Promise((res) => {
+    const box = $('card');
+    box.innerHTML = `<div class="ecard ${cls || ''}">${html}${humanWait ? '<div class="who">Tap to continue</div>' : ''}</div>`;
+    box.hidden = false;
+    let done = false;
+    const close = () => { if (done) return; done = true; box.hidden = true; box.onclick = null; removeEventListener('keydown', key); res(); };
+    const key = (ev) => { if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Escape') { ev.preventDefault(); close(); } };
+    box.onclick = close; addEventListener('keydown', key);
+    if (!humanWait || AUTO) setTimeout(close, autoMs);
+  });
+}
+async function eventCard(e) {
+  const E = M.EVENT[e.id], P = S.players[e.p];
+  sfx.land();
+  await showCardEl(`<div class="kind">Life event · ${esc(P.name)}</div><div class="ei">${E.icon}</div><h3>${esc(E.title)}</h3><p>${esc(E.text)}</p><div class="fx${E.fx.every((f) => /pay|Pay/.test(f.k)) ? ' cost' : ''}">${esc(fxText(E, P))}</div>`,
+    '', P.kind === 'human', ms(2000));
+}
+async function houseCard(e) {
+  const H = M.HOUSE[e.id], P = S.players[e.p];
+  sfx.fanfare(); confetti(40, false);
+  await showCardEl(`<div class="kind">New home · ${esc(P.name)}</div>${houseSVG(e.id)}<h3>${esc(H.name)}</h3><p>Bought for <b>${fmt(H.price)}</b>. Sells later for ${fmt(H.low)} (spin 1–5) or ${fmt(H.high)} (spin 6–10).</p><div class="stamp">SOLD!</div>`,
+    'house', false, ms(1900));
+}
+
+async function act(fn) {
+  if (busy || !S) return;
+  actor = S.phase === 'choose' && S.choice ? S.choice.p : S.cur;
+  busy = true; clearTimeout(timer); updateControls(); setMsg('');
+  const g = gen;
+  fn();
+  const evs = S.ev.splice(0);
+  for (const e of evs) {
+    if (g !== gen) return;
+    try { await handle(e); } catch (err) { console.warn('event', e.t, err); }   // a display glitch must never freeze the game
+  }
+  if (g !== gen) return;
+  busy = false;
+  syncShown(); view.render(S); renderPlayers(); saveGame();
+  pump();
+}
+function pump() {
+  clearTimeout(timer);
+  if (!S || busy) return;
+  if (S.phase === 'over') { updateControls(); showFinal(); return; }
+  const pi = S.phase === 'choose' && S.choice ? S.choice.p : S.cur, P = S.players[pi];
+  updateControls();
+  if (P.kind !== 'human' || AUTO) {
+    if (S.phase === 'choose') setMsg(`${P.name} is thinking…`);
+    timer = setTimeout(() => act(() => M.aiAct(S, true)), ms(S.phase === 'choose' ? 700 : 520));
+    return;
+  }
+  view.follow(S.cur);
+  if (S.phase === 'choose') showChoice();
+}
+
+// ---------------------------------------------------------------- sheets
+function openSheet(title, body, closable, foot) {
+  $('shTitle').textContent = title; $('shBody').innerHTML = body;
+  $('shClose').hidden = !closable;
+  $('shFoot').hidden = !foot; $('shFoot').innerHTML = foot || '';
+  $('veil').hidden = false;
+  $('veil').dataset.closable = closable ? '1' : '';
+}
+function closeSheet() { $('veil').hidden = true; }
+$('shClose').onclick = closeSheet;
+$('veil').addEventListener('click', (e) => { if (e.target === $('veil') && $('veil').dataset.closable) closeSheet(); });
+const CHOICE_TITLE = { path: 'Which road?', career: 'Pick your career', wedding: 'Wedding Season', house: 'Find a Home', crossroads: 'Midlife Crossroads', fair: 'Property Fair', retire: 'Where will you retire?' };
+function showChoice() {
+  const C = S.choice, P = S.players[C.p];
+  let title = CHOICE_TITLE[C.kind] || 'Choose';
+  if (C.kind === 'house' && C.why === 'fair') title = 'Property Fair';
+  const cards = C.opts.map((o) => {
+    let inner;
+    if (o.house) {
+      const H = M.HOUSE[o.house];
+      const short = C.kind === 'house' && P.cash < H.price ? `<span class="warn">Needs ${Math.ceil((H.price - P.cash) / M.LOAN)} bank loan${Math.ceil((H.price - P.cash) / M.LOAN) > 1 ? 's' : ''}</span>` : '';
+      inner = `${houseSVG(o.house)}<span class="on">${esc(C.kind === 'fair' ? o.name : H.name)}</span><span class="ob">${C.kind === 'fair' ? esc(o.blurb) : `Costs <b>${fmt(H.price)}</b><br>sells for ${fmt(H.low)}–${fmt(H.high)}`}</span>${short}`;
+    } else if (o.salary) inner = `<span class="oi">${o.icon}</span><span class="on">${esc(o.name)}</span><span class="os">${fmt(o.salary)}</span><span class="ob">every pay day${M.CAREER[o.id.slice(2)].degree ? ' · degree job' : ''}</span>`;
+    else inner = `<span class="oi">${o.icon || '•'}</span><span class="on">${esc(o.name)}</span><span class="ob">${esc(o.blurb || '')}</span>`;
+    return `<button class="opt" type="button" data-id="${esc(o.id)}">${inner}</button>`;
+  }).join('');
+  const sub = `<div class="muted">${esc(P.name)} · ${fmt(P.cash)} in hand${P.loans ? ' · ' + P.loans + ' loan' + (P.loans > 1 ? 's' : '') : ''}${P.career ? ' · ' + esc(M.CAREER[P.career].name) + ' ' + fmt(M.salaryOf(P)) : ''}</div>`;
+  openSheet(title, sub + `<div class="opts${C.opts.length > 3 ? ' compact' : ''}">${cards}</div>`, false);
+  $('shBody').querySelectorAll('.opt').forEach((b) => b.addEventListener('click', () => { closeSheet(); act(() => M.choose(S, b.dataset.id)); }));
+  const first = $('shBody').querySelector('.opt'); if (first) first.focus({ preventScroll: true });
+}
+function showBank() {
+  if (!S || S.phase !== 'spin') return;
+  const P = S.players[S.cur];
+  const body = `<div class="muted">Loans are ₹50K each. Repay any time before you spin for ₹50K; any still open at retirement cost <b>₹60K</b> each.</div>
+    <div class="row" style="font-size:16px"><b>${esc(P.name)}</b>: ${fmt(P.cash)} in hand · ${P.loans} loan${P.loans === 1 ? '' : 's'}</div>
+    <div class="opts"><button class="opt" type="button" id="bkTake"><span class="oi">🏦</span><span class="on">Take a loan</span><span class="ob">+${fmt(M.LOAN)}</span></button>
+    <button class="opt" type="button" id="bkRepay" ${P.loans && P.cash >= M.LOAN ? '' : 'disabled'}><span class="oi">✅</span><span class="on">Repay a loan</span><span class="ob">−${fmt(M.LOAN)}</span></button></div>`;
+  openSheet('The Bank', body, true);
+  $('bkTake').onclick = () => { M.takeLoan(S); S.ev.length = 0; syncShown(); renderPlayers(); saveGame(); showBank(); };
+  $('bkRepay').onclick = () => { if (M.repayLoan(S)) { S.ev.length = 0; syncShown(); renderPlayers(); saveGame(); } showBank(); };
+}
+const RULES = `<div class="rules">
+  <h3>The idea</h3><p>Drive your car from school to retirement. Whoever retires with the most — cash plus memories — wins. Fast is not the same as rich: the first to retire gets a bonus, but the road is full of pay days.</p>
+  <h3>Spin and move</h3><p>Spin 1 to 10 and move that many spaces (Quick games move double). <b>Red stop spaces</b> stop you even with steps left. <b>Pay Day</b> pays your salary every time you pass or land on it.</p>
+  <h3>Choose your roads</h3><p>College or work; the family road or the adventure road; city lights or your hometown; the startup gamble or the steady road. The roads rejoin, so nobody is left behind.</p>
+  <h3>Spaces</h3><p><b style="color:#f39c32">!</b> Life Event card · <b style="color:#4a90d9">★</b> Memory (value hidden until the end) · <b style="color:#2fae66">₹</b> Pay Day · 🍼 baby (gifts from everyone) · ✈️ big trip · 🎆 festival night.</p>
+  <h3>Money</h3><p>Short of cash? The bank lends ₹50K at a time, automatically when needed. Repay any time before a spin for ₹50K; loans still open at retirement cost ₹60K each.</p>
+  <h3>Houses</h3><p>Buy at Find a Home and the Property Fair. At retirement every house is sold: spin 1–5 for the low price, 6–10 for the high one.</p>
+  <h3>Retirement</h3><p>Bonus by order (₹100K first, then ₹60K, ₹40K…), a pension in the hills or a gamble by the sea, houses sold, loans settled, memories revealed. Highest total wins.</p>
+  <h3>Tips</h3><p>Tap any space on the map to see what it does. Drag the map to look around; the frame button switches between following the cars and the whole map.</p></div>`;
+function showMenu() {
+  const body = `<div class="opts">
+    <button class="opt" type="button" id="mnRules"><span class="oi">📖</span><span class="on">How to play</span></button>
+    <button class="opt" type="button" id="mnSound"><span class="oi">${soundOn ? '🔊' : '🔇'}</span><span class="on">Sound ${soundOn ? 'on' : 'off'}</span></button>
+    <button class="opt" type="button" id="mnSpeed"><span class="oi">${SPEED < 1 ? '⏩' : '▶️'}</span><span class="on">${SPEED < 1 ? 'Fast' : 'Normal'} speed</span></button>
+    <button class="opt" type="button" id="mnQuit"><span class="oi">🏁</span><span class="on">Setup screen</span><span class="ob">This game stays saved</span></button></div>`;
+  openSheet('Menu', body, true);
+  $('mnRules').onclick = () => openSheet('How to play', RULES, true);
+  $('mnSound').onclick = () => { soundOn = !soundOn; try { localStorage.setItem(SOUND_KEY, soundOn ? 'on' : 'off'); } catch (e) { /* ignore */ } showMenu(); };
+  $('mnSpeed').onclick = () => { opts.fast = SPEED >= 1; SPEED = opts.fast ? 0.55 : 1; saveOpts(); showMenu(); };
+  $('mnQuit').onclick = () => { closeSheet(); saveGame(); gen++; busy = false; clearTimeout(timer); showSetup(); };
+}
+
+// ---------------------------------------------------------------- setup and final
+function renderSeats() {
+  $('seats').innerHTML = opts.seats.slice(0, opts.n).map((s, i) => `<div class="seat">${chipCar(i, false, 0)}
+    <input type="text" maxlength="14" value="${esc(s.name)}" data-i="${i}" aria-label="Name of player ${i + 1}">
+    <select data-i="${i}" aria-label="Who plays seat ${i + 1}">${Object.entries(KIND_LABEL).map(([k, l]) => `<option value="${k}"${s.kind === k ? ' selected' : ''}>${l}</option>`).join('')}</select>
+    ${opts.n > 2 ? `<button class="iconbtn" type="button" data-rm="${i}" aria-label="Remove player ${i + 1}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>` : ''}</div>`).join('');
+  $('seats').querySelectorAll('input').forEach((el) => el.addEventListener('input', () => { opts.seats[+el.dataset.i].name = el.value.slice(0, 14); saveOpts(); }));
+  $('seats').querySelectorAll('select').forEach((el) => el.addEventListener('change', () => { opts.seats[+el.dataset.i].kind = el.value; saveOpts(); }));
+  $('seats').querySelectorAll('[data-rm]').forEach((el) => el.addEventListener('click', () => { const i = +el.dataset.rm; const [s] = opts.seats.splice(i, 1); opts.seats.push(s); opts.n--; saveOpts(); renderSeats(); }));
+  $('btnAdd').disabled = opts.n >= 6;
+  $('segLen').querySelectorAll('button').forEach((b) => b.classList.toggle('on', !!+b.dataset.q === opts.quick));
+  $('segSpeed').querySelectorAll('button').forEach((b) => b.classList.toggle('on', !!+b.dataset.f === opts.fast));
+}
+$('btnAdd').onclick = () => { if (opts.n < 6) { opts.n++; saveOpts(); renderSeats(); } };
+$('segLen').querySelectorAll('button').forEach((b) => (b.onclick = () => { opts.quick = !!+b.dataset.q; saveOpts(); renderSeats(); }));
+$('segSpeed').querySelectorAll('button').forEach((b) => (b.onclick = () => { opts.fast = !!+b.dataset.f; SPEED = opts.fast ? 0.55 : 1; saveOpts(); renderSeats(); }));
+function showSetup() {
+  $('final').hidden = true; $('setup').hidden = false;
+  const saved = readSave();
+  $('btnResume').hidden = !saved;
+  $('btnResume').onclick = () => { const s = readSave(); if (s) startGame(s); };
+  $('saveNote').hidden = !badSave;
+  $('saveNote').textContent = 'The saved game could not be read (it may be from an older version), so it was cleared. Start a fresh journey below.';
+  renderSeats();
+  hs.render($('scores'));
+}
+function newFromOpts() {
+  const seats = opts.seats.slice(0, opts.n).map((s, i) => ({ name: (s.name || '').trim() || (s.kind === 'human' ? 'Player ' + (i + 1) : CPU_NAMES[i]), kind: s.kind }));
+  return M.newGame({ seed: (Date.now() ^ (Math.random() * 1e9)) >>> 0, players: seats, quick: opts.quick });
+}
+$('btnStart').onclick = () => startGame(newFromOpts());
+$('btnRules').onclick = () => openSheet('How to play', RULES, true);
+$('btnAgain').onclick = () => startGame(newFromOpts());
+$('btnSetup').onclick = () => showSetup();
+function startGame(s) {
+  gen++; busy = false; clearTimeout(timer);
+  S = s; S.ev = [];
+  $('setup').hidden = true; $('final').hidden = true; closeSheet(); $('card').hidden = true;
+  $('logbox').innerHTML = ''; S.log.slice(-12).forEach(addLog);
+  syncShown(); layout(); view.render(S);
+  $('players').innerHTML = '';
+  renderPlayers();
+  requestAnimationFrame(() => { view.resize(); view.follow(S.cur, true); });
+  saveGame();
+  pump();
+}
+function showFinal() {
+  if (!$('final').hidden) return;
+  saveGame();
+  const R = M.ranking(S);
+  const medals = ['🥇', '🥈', '🥉', '4', '5', '6'];
+  $('finalSub').textContent = `${S.players[R[0].i].name} wins! Everyone's memories are turned over.`;
+  $('podium').innerHTML = R.map((r, k) => {
+    const P = S.players[r.i], tv = P.tiles.reduce((a, id) => a + M.tileValue(id), 0);
+    const tiles = P.tiles.map((id, j) => `<span class="tl" style="animation-delay:${0.4 + k * 0.15 + j * 0.06}s" title="${esc(id === M.SPARE_TILE ? 'A good day' : M.TILES[id].name)}">${fmt(M.tileValue(id))}</span>`).join('');
+    const life = [P.career ? M.CAREER[P.career].icon + ' ' + M.CAREER[P.career].name : '', P.spouse ? 'married' : '', P.kids ? P.kids + ' kid' + (P.kids > 1 ? 's' : '') : '', P.dest === 'coast' ? 'retired by the sea' : 'retired to the hills'].filter(Boolean).join(' · ');
+    return `<div class="prow${k === 0 ? ' win' : ''}" style="animation-delay:${k * 0.15}s"><span class="medal">${medals[k]}</span>${chipCar(r.i, P.spouse, P.kids)}
+      <div class="pn"><b>${esc(P.name)}</b><small>Cash ${fmt(P.cash)} + ${P.tiles.length} memories ${fmt(tv)}</small><small>${esc(life)}</small><div class="tiles">${tiles}</div></div><span class="w">${fmt(r.worth)}</span></div>`;
+  }).join('');
+  $('final').hidden = false;
+  sfx.fanfare(); confetti(180, false); setTimeout(() => confetti(120, true), 900);
+  hs.render($('scores2'));
+  const humans = R.filter((r) => S.players[r.i].kind === 'human');
+  if (humans.length && !AUTO) {
+    const best = humans[0], P = S.players[best.i];
+    if (hs.rank(best.worth) >= 0) setTimeout(() => hs.prompt(best.worth, `${P.name}, ${S.quick ? 'quick' : 'full'} game, ${S.players.length} players`).then((e) => hs.render($('scores2'), e && e.time)), 1600);
+  }
+}
+
+// ---------------------------------------------------------------- inputs
+const humanSpin = () => { if (!busy && S && S.phase === 'spin' && S.players[S.cur].kind === 'human' && !AUTO) { $('tip').hidden = true; act(() => M.spin(S)); } };
+$('btnSpin').onclick = humanSpin;
+$('spinner').addEventListener('click', humanSpin);
+$('btnBank').onclick = showBank;
+$('btnMenu').onclick = showMenu;
+$('btnView').onclick = () => { view.setMode(view.mode === 'all' ? 'follow' : 'all'); $('btnView').title = view.mode === 'all' ? 'Follow the cars' : 'Whole map'; };
+addEventListener('keydown', (e) => {
+  if (!$('veil').hidden || !$('card').hidden || !$('setup').hidden || document.querySelector('.hs-overlay')) return;
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); humanSpin(); }
+});
+let tipT = 0;
+view.onTap = (id) => {
+  const tip = $('tip');
+  if (id < 0) { tip.hidden = true; return; }
+  const n = M.TRACK[id], [title, desc] = M.SPACE_INFO[n.type];
+  const here = S ? S.players.filter((P) => P.node === id).map((P) => P.name) : [];
+  tip.innerHTML = `<b>${(SPACE_STYLE[n.type] || ['', ''])[1]} ${esc(title)}</b>${esc(desc)}${n.road ? `<div class="muted">On the ${esc(M.TRACK.find((f) => f.options && f.options.some((o) => o.key === n.road)).options.find((o) => o.key === n.road).name)}.</div>` : ''}${here.length ? `<div class="muted">Here: ${esc(here.join(', '))}</div>` : ''}`;
+  tip.hidden = false; view.pulse(id);
+  clearTimeout(tipT); tipT = setTimeout(() => { tip.hidden = true; }, 4000);
+};
+$('tip').addEventListener('click', () => { $('tip').hidden = true; });
+
+// Test hook for the browser check: read the state, speed things up, let the computer play human seats.
+window.__lifeUI = {
+  get S() { return S; }, get busy() { return busy; },
+  speed(x) { SPEED = x; }, auto(on) { AUTO = !!on; pump(); },
+  start(o) { startGame(M.newGame(o)); }, view,
+};
+
+layout();
+showSetup();
+</script>
+</body>
+</html>

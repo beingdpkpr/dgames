@@ -137,6 +137,16 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "Life Journey",
+      "url": "life-journey/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

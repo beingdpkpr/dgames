@@ -60,6 +60,10 @@ const GAMES = [
     } },
   // City Tycoon opens on its setup screen (or a Resume button); Start goes to the board with the first roll waiting.
   { name: 'city-tycoon', file: 'city-tycoon/index.html', enter: async (p) => { await p.click('#go'); await p.waitForTimeout(900); } },
+  // Mahanagar opens on its setup screen (or a Resume button); Start goes to the board with the first roll waiting.
+  { name: 'mahanagar', file: 'mahanagar/index.html', enter: async (p) => { await p.click('#go'); await p.waitForTimeout(900); } },
+  // Life Journey opens on its setup screen; Start puts the first player at the Start fork with the road choice open.
+  { name: 'life-journey', file: 'life-journey/index.html', enter: async (p) => { await p.click('#btnStart'); await p.waitForTimeout(900); } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,
