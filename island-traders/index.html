@@ -1,0 +1,2070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="theme-color" content="#0e3a4c">
+<link rel="icon" href="../icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="dgames">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+  /* Installable, and playable with no network once a game has been opened. Registered from every page so
+     a deep link into one game works offline too, not only a visit that started at the launcher. Over
+     file:// there is no service worker and register() rejects; the catch keeps that silent. */
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('../sw.js').catch(() => {}));
+</script>
+<meta name="description" content="Island Traders: settle a hex island, trade timber, clay, wool, grain and ore, and race to ten points. Two to four players, human or computer.">
+<title>Island Traders</title>
+<style>
+  :root {
+    --sea: #0e3a4c; --sea2: #145b70; --panel: #10303d; --panel2: #173f4f; --line: rgba(255, 255, 255, .14);
+    --ink: #f4ecd8; --dim: #b9c7c9; --cream: #f6ecd2; --wood: #c99a5b; --wood2: #8a5a2b; --gold: #ffd54a; --bad: #e0675b; --good: #7fcf7a;
+    --p0: #c8423a; --p1: #2f6fbf; --p2: #e0901e; --p3: #8a55b8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--sea); color: var(--ink);
+    font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+  button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+  button:disabled { cursor: default; opacity: .42; }
+  [hidden] { display: none !important; }
+
+  /* ----- layout: phone portrait by default; side panel on the left when wide or sideways ----- */
+  #app { position: fixed; inset: 0; display: grid; grid-template-columns: 100%;
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto; grid-template-areas: "players" "board" "status" "hand" "actions";
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  #players { grid-area: players; display: flex; gap: 4px; padding: 6px 6px 4px 60px; min-height: 56px; }
+  #menuBtn { flex: 0 0 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel2); display: grid; place-items: center; }
+  #boardWrap { grid-area: board; position: relative; min-height: 0; overflow: hidden; }
+  #board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+  #statusBar { grid-area: status; display: flex; align-items: center; gap: 8px; padding: 2px 10px; min-height: 30px; }
+  #hand { grid-area: hand; display: flex; gap: 5px; padding: 4px 8px; }
+  #actions { grid-area: actions; display: flex; gap: 6px; padding: 4px 8px 8px; min-height: 60px; align-items: stretch; }
+  .side { display: contents; }
+  @media (orientation: landscape) and (max-height: 560px), (min-width: 900px) and (min-height: 560px) {
+    #app { grid-template-columns: minmax(290px, 36%) minmax(0, 1fr); grid-template-rows: 100%; grid-template-areas: "side board"; }
+    .side { grid-area: side; display: flex; flex-direction: column; min-height: 0; background: linear-gradient(#0f2f3b, #0c2732); border-right: 1px solid var(--line); }
+    #players { display: grid; grid-template-columns: 1fr 1fr 44px; grid-auto-rows: 44px; gap: 4px; padding-left: 60px; }
+    #menuBtn { grid-column: 3; grid-row: 1; }
+    #statusBar { flex-wrap: wrap; padding-top: 6px; }
+    #hand { flex-wrap: wrap; }
+    #actions { flex-wrap: wrap; margin-top: auto; }
+  }
+  @media (min-width: 900px) and (min-height: 560px) {
+    #app { grid-template-columns: 380px minmax(0, 1fr); }
+    #players { grid-template-columns: 1fr 44px; grid-auto-rows: 52px; padding: 6px 10px 6px 60px; }
+    #players .chip { grid-column: 1; }
+    #menuBtn { grid-column: 2; grid-row: 1; }
+    body { font-size: 16px; }
+  }
+
+  /* ----- player chips ----- */
+  .chip { flex: 1 1 0; min-width: 0; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line);
+    padding: 3px 6px 3px 9px; position: relative; display: flex; flex-direction: column; justify-content: center; line-height: 1.15; overflow: hidden; }
+  .chip::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--c); }
+  .chip.cur { background: #24566a; border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
+  .chip .nm { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip .st { font-size: 11.5px; color: var(--dim); white-space: nowrap; display: flex; gap: 5px; align-items: center; }
+  @media (max-width: 370px) { .chip { padding-left: 7px; padding-right: 3px; } .chip .st { gap: 3px; font-size: 11px; } .chip .aw { display: none; } }
+  .chip .vp { font-weight: 800; color: var(--gold); font-size: 13px; }
+  .chip .mini { display: inline-flex; align-items: center; gap: 2px; }
+  .chip .cd { display: inline-block; width: 8px; height: 11px; border-radius: 2px; background: #efe3c4; border: 1px solid #8a7a5a; }
+  .chip .cd.v { background: #b9a0e8; border-color: #5d3f96; }
+  .chip .aw { font-size: 10px; padding: 0 3px; border-radius: 4px; background: rgba(255, 213, 74, .2); color: var(--gold); }
+  .chip.think .nm::after { content: " …"; }
+
+  /* ----- status line, turn steps ----- */
+  #steps { display: flex; gap: 2px; font-size: 11.5px; flex: 0 0 auto; }
+  #steps span { padding: 2px 6px; border-radius: 6px; color: var(--dim); background: rgba(255, 255, 255, .05); }
+  #steps span.on { color: #1d1606; background: var(--gold); font-weight: 700; }
+  #steps span.done { color: var(--ink); }
+  #status { font-size: 13.5px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ----- your hand ----- */
+  .rc { flex: 1 1 0; min-width: 0; height: 52px; border-radius: 9px; border: 1px solid rgba(0, 0, 0, .35);
+    background: linear-gradient(#fbf3df, #e9dcb9); color: #2b2216; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; padding: 0; }
+  .rc svg { width: 24px; height: 24px; }
+  .rc b { font-size: 16px; line-height: 1; }
+  .rc small { position: absolute; top: 2px; right: 4px; font-size: 9.5px; color: #6c5a3e; }
+  .rc.zero { opacity: .55; }
+  .rc .ready { position: absolute; top: 4px; right: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 2px #5d3f96; }
+  .rc.dev { background: linear-gradient(#e8d9ff, #c9b3ef); flex: 0 0 48px; }
+  .hidden-hand { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 13px; height: 52px; border: 1px dashed var(--line); border-radius: 9px; }
+
+  /* ----- action buttons ----- */
+  .btn { min-height: 48px; min-width: 48px; border-radius: 12px; border: 1px solid rgba(0, 0, 0, .4); padding: 4px 10px;
+    background: linear-gradient(#fff4dc, #e3cfa5); color: #2b2216; font-weight: 700; flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 6px; line-height: 1.1; }
+  .btn.alt { background: linear-gradient(#2b6276, #1e4a5a); color: var(--ink); border-color: var(--line); }
+  .btn.go { background: linear-gradient(#ffe27a, #f0b92c); }
+  .btn.small { flex: 0 0 auto; }
+  .btn .cost { display: flex; gap: 1px; }
+  .btn .cost svg { width: 14px; height: 14px; }
+  .btn.col { flex-direction: column; gap: 2px; font-size: 13px; }
+
+  /* ----- dice ----- */
+  #dice { position: absolute; right: 8px; top: 8px; display: flex; gap: 6px; pointer-events: none; }
+  .die { width: 38px; height: 38px; border-radius: 8px; background: linear-gradient(145deg, #fffaf0, #e2d6bd); border: 1px solid #8b7a5a;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, .35); display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 5px; }
+  .die i { width: 7px; height: 7px; border-radius: 50%; background: #2b2216; align-self: center; justify-self: center; visibility: hidden; }
+  .die i.on { visibility: visible; }
+  .die.red i { background: #b3261e; }
+  #dice.rolling .die { animation: tumble .16s linear infinite; }
+  @keyframes tumble { 0% { transform: rotate(0) translateY(0); } 50% { transform: rotate(180deg) translateY(-4px); } 100% { transform: rotate(360deg) translateY(0); } }
+  #dice .sum { align-self: center; font-weight: 800; color: var(--cream); text-shadow: 0 1px 3px #000; font-size: 18px; min-width: 22px; }
+  #dice.big { right: 50%; top: 40%; transform: translate(50%, -50%) scale(1.6); transition: transform .3s; }
+
+  #feed { position: absolute; left: 10px; right: 10px; bottom: 4px; font-size: 13px; line-height: 19px; color: var(--dim); pointer-events: none; }
+  #feed div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* ----- board bits ----- */
+  .hl-v { fill: rgba(255, 255, 255, .9); stroke: #1d1606; stroke-width: 4; animation: pulse 1.1s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  .hl-e { animation: pulseO 1.1s ease-in-out infinite; }
+  .hl-h { fill: rgba(255, 240, 160, .16); stroke: #fff3b0; stroke-width: 12; stroke-linejoin: round; }
+  .hl-ring { fill: none; stroke: #fffdf2; stroke-width: 7; stroke-dasharray: 14 9; animation: pulseO 1.1s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { transform: scale(.8); } 50% { transform: scale(1.12); } }
+  @keyframes pulseO { 0%, 100% { opacity: .7; } 50% { opacity: 1; } }
+  .ghost { opacity: .7; }
+  .drop { animation: drop .5s cubic-bezier(.3, 1.6, .5, 1) both; transform-box: fill-box; transform-origin: center bottom; }
+  @keyframes drop { 0% { transform: translateY(-70px) scale(1.3); opacity: 0; } 60% { opacity: 1; } 100% { transform: none; opacity: 1; } }
+  #robber { transition: transform .7s cubic-bezier(.5, 0, .3, 1.3); }
+  .tile-flash { animation: flash 1s ease-out; }
+  @keyframes flash { 0% { opacity: .75; } 100% { opacity: 0; } }
+
+  /* ----- flying cards ----- */
+  #fly { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
+  .flycard { position: absolute; width: 30px; height: 40px; margin: -20px 0 0 -15px; border-radius: 5px; background: linear-gradient(#fbf3df, #e9dcb9);
+    border: 1px solid #6c5a3e; box-shadow: 0 3px 8px rgba(0, 0, 0, .4); display: grid; place-items: center; }
+  .flycard svg { width: 22px; height: 22px; }
+  .flycard.back { background: linear-gradient(135deg, #2f6f86, #18414f); }
+
+  /* ----- sheets and veils ----- */
+  .veil { position: fixed; inset: 0; z-index: 40; background: rgba(4, 14, 20, .55); display: flex; align-items: flex-end; justify-content: center; }
+  .veil.center { align-items: center; }
+  #setupVeil { padding-top: 56px; }
+  @media (orientation: landscape) and (max-height: 560px) { #setupVeil { padding: 0 0 0 60px; } }
+  .sheet { width: min(560px, 100%); max-height: 92%; overflow: auto; background: linear-gradient(#173f4f, #10303d); border: 1px solid var(--line);
+    border-radius: 18px 18px 0 0; padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 30px rgba(0, 0, 0, .5); }
+  .veil.center .sheet { border-radius: 18px; max-height: 94%; }
+  .sheet h2 { margin: 2px 0 8px; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+  .sheet h2 .x { margin-left: auto; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: transparent; font-size: 20px; }
+  .sheet p { margin: 6px 0; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+  .row > label { flex: 0 0 64px; font-size: 13px; color: var(--dim); }
+  .row .rc { height: 50px; }
+  .rc .badge { position: absolute; top: -6px; left: -4px; min-width: 20px; height: 20px; border-radius: 10px; background: var(--gold); color: #1d1606; font-size: 12px; font-weight: 800; display: grid; place-items: center; padding: 0 4px; }
+  .rc .rate { position: absolute; bottom: 1px; right: 3px; font-size: 9.5px; color: #7a4c1c; font-weight: 700; }
+  .offerline { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 36px; padding: 4px 6px; border-radius: 10px; background: rgba(0, 0, 0, .2); font-size: 14px; }
+  .pill { display: inline-flex; align-items: center; justify-content: center; gap: 2px; padding: 2px 8px; border-radius: 12px; background: var(--cream); color: #2b2216; font-weight: 700; border: 0; min-height: 44px; min-width: 44px; }
+  span.pill { min-height: 32px; }
+  .pill svg { width: 16px; height: 16px; }
+  .resp { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-top: 1px solid var(--line); min-height: 52px; }
+  .resp .who { flex: 1; min-width: 0; }
+  .resp .who b { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
+  .resp .btn { flex: 0 0 auto; min-height: 44px; }
+  .ok { color: var(--good); } .no { color: var(--bad); } .muted { color: var(--dim); font-size: 13px; }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin: 6px 0; display: flex; gap: 10px; align-items: center; background: rgba(255, 255, 255, .04); }
+  .card .txt { flex: 1; } .card .txt b { display: block; } .card .txt span { font-size: 13px; color: var(--dim); }
+  .card .btn { flex: 0 0 auto; }
+  .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+  .seg button { min-height: 44px; min-width: 44px; padding: 4px 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255, 255, 255, .06); color: var(--ink); flex: 1 1 auto; }
+  .seg button.on { background: var(--gold); color: #1d1606; font-weight: 700; border-color: var(--gold); }
+  .seat { display: flex; gap: 8px; align-items: center; margin: 5px 0; }
+  .opts2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+  .opts2 .seg button { padding: 4px 6px; font-size: 14px; }
+  .opt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seat .dot { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 14px; }
+  .seat .seg { flex: 1; }
+  .seat .seg button { padding: 4px 6px; font-size: 13.5px; }
+  .logo { font-size: 26px; font-weight: 800; letter-spacing: .5px; margin: 4px 0 2px; color: var(--cream); }
+  .logo small { display: block; font-size: 13px; font-weight: 400; color: var(--dim); letter-spacing: 0; }
+  .opt { margin: 8px 0 3px; font-size: 13px; color: var(--dim); }
+  #cover { position: fixed; inset: 0; z-index: 45; background: radial-gradient(circle at 50% 40%, #1d5a6e, #0b2630); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 20px; text-align: center; }
+  #cover .big { font-size: 24px; font-weight: 800; }
+  #toast { position: fixed; left: 50%; bottom: 140px; transform: translateX(-50%); z-index: 60; background: rgba(8, 18, 30, .92); border: 1px solid var(--line); padding: 8px 14px; border-radius: 10px; font-size: 14px; max-width: 90%; text-align: center; pointer-events: none; }
+  .stand { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .stand .dot { width: 14px; height: 14px; border-radius: 50%; }
+  .stand .pts { margin-left: auto; font-weight: 800; color: var(--gold); font-size: 18px; }
+  .rules h3 { margin: 12px 0 4px; font-size: 15px; color: var(--gold); }
+  .rules p, .rules li { font-size: 14px; color: var(--ink); }
+  .rules ul { padding-left: 18px; margin: 4px 0; }
+  .menu .btn { margin: 6px 0; width: 100%; }
+  #log { font-size: 13px; max-height: 50vh; overflow: auto; }
+  /* sideways phones: sheets go wide and two-across so nothing needs scrolling */
+  @media (orientation: landscape) and (max-height: 560px) {
+    .sheet { width: min(860px, 100%); padding-top: 8px; }
+    .sheet h2 { margin: 0 0 4px; }
+    .setgrid, .tradegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; align-items: start; }
+    .tradegrid { grid-template-columns: 1.35fr 1fr; }
+    .tradegrid .row { margin: 4px 0; }
+    .stands { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+    .logo { font-size: 22px; margin: 0; }
+    .seat { margin: 3px 0; }
+    .setgrid { grid-template-columns: 1.25fr 1fr; gap: 0 12px; }
+    .seat .seg { flex-wrap: nowrap; gap: 3px; }
+    .seat .seg button { padding: 4px 2px; min-width: 44px; }
+    #setup { padding-left: 10px; padding-right: 10px; }
+  }
+  #log div { padding: 3px 0; border-top: 1px solid rgba(255, 255, 255, .06); }
+</style>
+</head>
+<body>
+<style>
+  /* dgames: the way back, identical in every game. Four games had no way out at all; the rest used a
+     ~16px inline link, and strike-force's sat underneath the touch stick where the pad ate the tap.
+     A dark disc with a light ring reads on a bright pastel scene and on a black one without being
+     re-themed per game. z-index 50 sits above every game UI here (rush-lane and strike-force both use
+     40, ludo game-over 20) and below the high-score prompt at 9999, which is modal and should stay on
+     top. It was 15, which grep reported as present and the eye reported as missing in two games. */
+  .dg-home { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+    z-index: 50; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(8, 18, 30, .72); border: 2px solid rgba(255, 255, 255, .62); color: #fff;
+    font-size: 21px; line-height: 1; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
+</style>
+<a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs id="icons"></defs></svg>
+<div id="app">
+  <div class="side">
+    <div id="players"></div>
+    <div id="statusBar"><div id="steps"></div><div id="status"></div></div>
+    <div id="hand"></div>
+    <div id="actions"></div>
+  </div>
+  <div id="boardWrap"><svg id="board" viewBox="-525 -490 1050 980" preserveAspectRatio="xMidYMid meet" aria-label="The island"></svg><div id="dice"></div><div id="feed" hidden></div></div>
+</div>
+<div id="fly"></div>
+<div class="veil center" id="setupVeil"><div class="sheet" id="setup"></div></div>
+<div class="veil" id="sheetVeil" hidden><div class="sheet" id="sheet"></div></div>
+<div id="cover" hidden></div>
+<div id="toast" hidden></div>
+<script>
+'use strict';
+// ============================================================================================
+// Island Traders: the rules, headless. Everything above the UI marker is pure: no DOM, no timers,
+// no unseeded randomness. Dice and shuffles draw from a seeded generator whose state lives in the game
+// state itself (S.rng), so a saved game resumes on the same dice and a test can replay a game.
+// ============================================================================================
+const VERSION = 1;
+const RES = ['timber', 'clay', 'wool', 'grain', 'ore'];
+const RES_NAME = ['Timber', 'Clay', 'Wool', 'Grain', 'Ore'];
+const TERRAIN = ['Forest', 'Clay Pits', 'Pasture', 'Fields', 'Mountains'];
+const DESERT_NAME = 'Dunes';
+const COST = { road: [1, 1, 0, 0, 0], village: [1, 1, 1, 1, 0], town: [0, 0, 0, 2, 3], card: [0, 0, 1, 1, 1] };
+const PIECES = { road: 15, village: 5, town: 4 };
+const PIPS = [0, 0, 1, 2, 3, 4, 5, 0, 5, 4, 3, 2, 1];
+const TOKENS = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12];
+const TERRAIN_BAG = [0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, -1];
+const BANK_EACH = 19;
+// Venture cards (the development deck): 25 cards, the classic mix under our own names.
+const CARDS = {
+  guard: { n: 14, name: 'Guard', text: 'Move the bandit to any other tile and take one random card from a player with a building there. Counts toward the Strongest Guard.' },
+  roads: { n: 2, name: 'Road Crew', text: 'Build two roads for free.' },
+  harvest: { n: 2, name: 'Good Harvest', text: 'Take any two resource cards from the bank.' },
+  market: { n: 2, name: 'Market Day', text: 'Name a resource. Every other player hands you all of theirs.' },
+  landmark: { n: 5, name: 'Landmark', text: 'Worth one point. Kept hidden until the end; counts as soon as you buy it.' },
+};
+const LANDMARKS = ['Lighthouse', 'Old Library', 'Clock Tower', 'Stone Bridge', 'Harbour Hall'];
+const CARD_ORDER = ['guard', 'roads', 'harvest', 'market', 'landmark'];
+
+// ---------------------------------------------------------------- random
+function mulberry(a) {
+  return function () {
+    a = (a + 0x6D2B79F5) | 0; let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// The game's own stream: the state carries it so saves and replays stay on the same dice.
+function rnd(S) {
+  S.rng = (S.rng + 0x6D2B79F5) | 0; let t = S.rng;
+  t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function shuffle(a, rand) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+
+// ---------------------------------------------------------------- geometry
+// 19 pointy-top hexes in axial coordinates, radius 2. Unit hex size 1: a hex centre is at
+// (sqrt3*(q + r/2), 1.5*r) and corner i at angle 60i - 90 degrees (corner 0 at the top).
+const SQ3 = Math.sqrt(3);
+const HEXES = [], VERTS = [], EDGES = [];
+(function buildGeometry() {
+  const vkey = new Map(), ekey = new Map();
+  for (let r = -2; r <= 2; r++) for (let q = -2; q <= 2; q++) {
+    const s = -q - r; if (Math.abs(s) > 2) continue;
+    HEXES.push({ q, r, x: SQ3 * (q + r / 2), y: 1.5 * r, v: [], e: [], nb: [] });
+  }
+  HEXES.forEach((H, h) => {
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI / 180 * (60 * i - 90);
+      const x = H.x + Math.cos(a), y = H.y + Math.sin(a);
+      const k = Math.round(x * 1000) + ',' + Math.round(y * 1000);
+      let id = vkey.get(k);
+      if (id === undefined) { id = VERTS.length; vkey.set(k, id); VERTS.push({ x, y, hexes: [], adj: [], edges: [], port: -1 }); }
+      H.v.push(id); VERTS[id].hexes.push(h);
+    }
+    for (let i = 0; i < 6; i++) {
+      const a = H.v[i], b = H.v[(i + 1) % 6];
+      const k = Math.min(a, b) + '-' + Math.max(a, b);
+      let id = ekey.get(k);
+      if (id === undefined) {
+        id = EDGES.length; ekey.set(k, id);
+        EDGES.push({ a: Math.min(a, b), b: Math.max(a, b), hexes: [], x: (VERTS[a].x + VERTS[b].x) / 2, y: (VERTS[a].y + VERTS[b].y) / 2 });
+        VERTS[a].adj.push(b); VERTS[b].adj.push(a); VERTS[a].edges.push(id); VERTS[b].edges.push(id);
+      }
+      H.e.push(id); EDGES[id].hexes.push(h);
+    }
+  });
+  HEXES.forEach((H, h) => { HEXES.forEach((G, g) => { if (g !== h && Math.abs(G.q - H.q) + Math.abs(G.r - H.r) + Math.abs(G.q + G.r - H.q - H.r) === 2) H.nb.push(g); }); });
+})();
+// The 30 coastal edges, clockwise from straight up. Harbours sit on 9 of them with gaps 3,3,4 (x3),
+// so no two harbours share a corner.
+const COAST = EDGES.map((E, i) => i).filter((i) => EDGES[i].hexes.length === 1)
+  .sort((i, j) => ang(EDGES[i]) - ang(EDGES[j]));
+function ang(E) { const a = Math.atan2(E.x, -E.y); return a < 0 ? a + 2 * Math.PI : a; }
+const PORT_GAPS = [3, 3, 4, 3, 3, 4, 3, 3, 4];
+const otherEnd = (e, v) => (EDGES[e].a === v ? EDGES[e].b : EDGES[e].a);
+const edgeBetween = (a, b) => VERTS[a].edges.find((e) => otherEnd(e, a) === b);
+
+// ---------------------------------------------------------------- board generation
+function portEdges(offset) { const out = []; let i = offset; for (const g of PORT_GAPS) { out.push(COAST[i % COAST.length]); i += g; } return out; }
+// No three tiles of one resource in a connected clump.
+function terrainOk(terr) {
+  for (let h = 0; h < 19; h++) {
+    if (terr[h] < 0) continue;
+    const seen = new Set([h]), stack = [h];
+    while (stack.length) { const x = stack.pop(); for (const g of HEXES[x].nb) if (!seen.has(g) && terr[g] === terr[h]) { seen.add(g); stack.push(g); } }
+    if (seen.size >= 3) return false;
+  }
+  return true;
+}
+// No 6 or 8 next to another 6 or 8, no equal numbers side by side, and each resource gets a fair
+// share of the dice (average pips per tile between 2.3 and 4.3; the overall average is 3.2).
+function tokensOk(terr, num) {
+  for (let h = 0; h < 19; h++) for (const g of HEXES[h].nb) {
+    if (!num[h] || !num[g]) continue;
+    if ((num[h] === 6 || num[h] === 8) && (num[g] === 6 || num[g] === 8)) return false;
+    if (num[h] === num[g]) return false;
+  }
+  for (let r = 0; r < 5; r++) {
+    let p = 0, c = 0; for (let h = 0; h < 19; h++) if (terr[h] === r) { p += PIPS[num[h]]; c++; }
+    if (p / c < 2.3 || p / c > 4.3) return false;
+  }
+  return true;
+}
+// The fixed beginner island: a balanced layout, the same every time.
+const BEGINNER = {
+  terr: [1, 0, 1, 3, 4, 2, 0, 4, 2, 4, -1, 0, 3, 1, 2, 2, 0, 3, 3],
+  num: [9, 3, 5, 3, 10, 4, 8, 6, 4, 12, 0, 2, 11, 5, 10, 8, 9, 6, 11],
+  portOffset: 0, portTypes: [-1, 2, 4, -1, 0, 1, -1, 3, -1],
+};
+function genBoard(seed, beginner) {
+  if (beginner) {
+    const B = BEGINNER;
+    return { terr: B.terr.slice(), num: B.num.slice(), ports: portEdges(B.portOffset).map((e, i) => ({ e, r: B.portTypes[i] })), robber: B.terr.indexOf(-1), tries: 0 };
+  }
+  const rand = mulberry((seed * 2654435761) >>> 0 || 7);
+  let tries = 0;
+  for (;;) {
+    tries++;
+    const terr = shuffle(TERRAIN_BAG.slice(), rand);
+    if (!terrainOk(terr)) continue;
+    for (let k = 0; k < 60; k++) {
+      const toks = shuffle(TOKENS.slice(), rand), num = [];
+      let j = 0; for (let h = 0; h < 19; h++) num.push(terr[h] < 0 ? 0 : toks[j++]);
+      if (!tokensOk(terr, num)) continue;
+      const types = shuffle([-1, -1, -1, -1, 0, 1, 2, 3, 4], rand);
+      const ports = portEdges(Math.floor(rand() * 30)).map((e, i) => ({ e, r: types[i] }));
+      return { terr, num, ports, robber: terr.indexOf(-1), tries };
+    }
+  }
+}
+
+// ---------------------------------------------------------------- new game
+const KINDS = ['human', 'easy', 'normal', 'hard'];
+function newGame(o) {
+  o = o || {};
+  const seed = (o.seed >>> 0) || 1;
+  const board = genBoard(seed, !!o.beginner);
+  delete board.tries;
+  const players = (o.players || [{ name: 'A', kind: 'human' }, { name: 'B', kind: 'normal' }, { name: 'C', kind: 'normal' }]).map((p, i) => ({
+    name: p.name || 'Player ' + (i + 1), kind: KINDS.includes(p.kind) ? p.kind : 'normal', color: i,
+    res: [0, 0, 0, 0, 0], cards: [], guards: 0, left: { road: PIECES.road, village: PIECES.village, town: PIECES.town },
+  }));
+  const n = players.length;
+  const S = {
+    v: VERSION, seed, rng: (seed * 747796405 + 2891336453) | 0, board, players,
+    vOwn: new Array(VERTS.length).fill(-1), vLvl: new Array(VERTS.length).fill(0), eOwn: new Array(EDGES.length).fill(-1),
+    bank: new Array(5).fill(BANK_EACH), deck: [],
+    cur: 0, phase: 'setup', setup: { i: 0, order: [], need: 'village', last: -1 },
+    turn: 0, rolled: false, cardPlayed: false, dice: null, discard: null, back: null, freeRoads: 0,
+    longest: -1, army: -1, roadLen: new Array(n).fill(0), winner: -1, target: o.target === 8 ? 8 : 10,
+    friendly: o.friendly === undefined ? n === 2 : !!o.friendly, tc: { bank: 0, offers: 0 }, log: [], rolls: new Array(13).fill(0),
+  };
+  for (let i = 0; i < n; i++) S.setup.order.push(i);
+  for (let i = n - 1; i >= 0; i--) S.setup.order.push(i);
+  CARD_ORDER.forEach((c) => { for (let i = 0; i < CARDS[c].n; i++) S.deck.push(c); });
+  shuffle(S.deck, () => rnd(S));
+  S.cur = S.setup.order[0];
+  return S;
+}
+
+// ---------------------------------------------------------------- queries
+const sum = (a) => a.reduce((x, y) => x + y, 0);
+const hasAll = (have, need) => need.every((n, r) => have[r] >= n);
+const handSize = (P) => sum(P.res);
+function vertexFree(S, v) { return S.vOwn[v] < 0 && VERTS[v].adj.every((u) => S.vOwn[u] < 0); }
+// Every corner that can take a village under the distance rule; outside setup it must also touch
+// one of the player's roads.
+function legalVillages(S, p) {
+  const out = [];
+  const setup = S.phase === 'setup';
+  for (let v = 0; v < VERTS.length; v++) {
+    if (!vertexFree(S, v)) continue;
+    if (!setup && !VERTS[v].edges.some((e) => S.eOwn[e] === p)) continue;
+    out.push(v);
+  }
+  return out;
+}
+function roadOk(S, p, e) {
+  if (S.eOwn[e] >= 0) return false;
+  for (const v of [EDGES[e].a, EDGES[e].b]) {
+    if (S.vOwn[v] === p) return true;
+    if (S.vOwn[v] >= 0) continue; // an opponent's building cuts the road here
+    if (VERTS[v].edges.some((f) => f !== e && S.eOwn[f] === p)) return true;
+  }
+  return false;
+}
+function legalRoads(S, p) {
+  if (S.phase === 'setup') return S.setup.need === 'road' ? VERTS[S.setup.last].edges.filter((e) => S.eOwn[e] < 0) : [];
+  if (S.players[p].left.road <= 0) return [];
+  const out = []; for (let e = 0; e < EDGES.length; e++) if (roadOk(S, p, e)) out.push(e);
+  return out;
+}
+function legalTowns(S, p) { const out = []; for (let v = 0; v < VERTS.length; v++) if (S.vOwn[v] === p && S.vLvl[v] === 1) out.push(v); return out; }
+// Longest single trail of a player's roads: no road used twice, and it may not run on through a
+// corner where another player has built (it may end there).
+function roadLength(S, p) {
+  let best = 0;
+  const used = new Uint8Array(EDGES.length);
+  const dfs = (v, len) => {
+    if (len > best) best = len;
+    if (len > 0 && S.vOwn[v] >= 0 && S.vOwn[v] !== p) return;
+    for (const e of VERTS[v].edges) if (!used[e] && S.eOwn[e] === p) { used[e] = 1; dfs(otherEnd(e, v), len + 1); used[e] = 0; }
+  };
+  const starts = new Set();
+  for (let e = 0; e < EDGES.length; e++) if (S.eOwn[e] === p) { starts.add(EDGES[e].a); starts.add(EDGES[e].b); }
+  for (const v of starts) dfs(v, 0);
+  return best;
+}
+function portsOf(S, p) {
+  const out = new Set();
+  for (const P of S.board.ports) { const E = EDGES[P.e]; if (S.vOwn[E.a] === p || S.vOwn[E.b] === p) out.add(P.r); }
+  return out;
+}
+function bankRate(S, p, r) { const ps = portsOf(S, p); return ps.has(r) ? 2 : ps.has(-1) ? 3 : 4; }
+function publicVP(S, p) {
+  let v = 0; for (let i = 0; i < VERTS.length; i++) if (S.vOwn[i] === p) v += S.vLvl[i];
+  if (S.longest === p) v += 2; if (S.army === p) v += 2;
+  return v;
+}
+function totalVP(S, p) { return publicVP(S, p) + S.players[p].cards.filter((c) => c.c === 'landmark').length; }
+function tilePips(S, h) { return S.board.terr[h] < 0 ? 0 : PIPS[S.board.num[h]]; }
+// Which players have a building on a tile, and can be robbed there.
+function victimsAt(S, h, p) {
+  const out = [];
+  for (const v of HEXES[h].v) { const o = S.vOwn[v]; if (o >= 0 && o !== p && !out.includes(o) && handSize(S.players[o]) > 0) out.push(o); }
+  return out.filter((o) => !S.friendly || publicVP(S, o) > 2).sort((a, b) => a - b);
+}
+// The bandit must move. With the friendly rule it may not land next to anyone on 2 points or fewer
+// (unless that leaves nowhere at all).
+function legalRobberTiles(S, p) {
+  const all = []; for (let h = 0; h < 19; h++) if (h !== S.board.robber) all.push(h);
+  if (!S.friendly) return all;
+  const ok = all.filter((h) => HEXES[h].v.every((v) => S.vOwn[v] < 0 || S.vOwn[v] === p || publicVP(S, S.vOwn[v]) > 2));
+  return ok.length ? ok : all;
+}
+function playableCards(S, p) {
+  const P = S.players[p];
+  if (S.cardPlayed || p !== S.cur) return [];
+  const out = [];
+  for (const c of P.cards) {
+    if (c.c === 'landmark' || c.t >= S.turn || out.includes(c.c)) continue;
+    if (S.phase === 'main' || (S.phase === 'roll' && c.c === 'guard')) out.push(c.c);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- awards
+function updateLongest(S, ev) {
+  const L = S.players.map((P, p) => roadLength(S, p));
+  S.roadLen = L;
+  const h = S.longest, max = Math.max(...L);
+  if (h >= 0 && L[h] >= 5 && L[h] === max) return;
+  let nh = -1;
+  if (max >= 5) { const tops = L.map((l, p) => (l === max ? p : -1)).filter((p) => p >= 0); if (tops.length === 1) nh = tops[0]; }
+  if (nh !== h) { S.longest = nh; if (ev) ev.push({ e: 'award', what: 'road', p: nh, from: h }); }
+}
+function updateArmy(S, p, ev) {
+  const g = S.players[p].guards;
+  if (g >= 3 && S.army !== p && (S.army < 0 || g > S.players[S.army].guards)) { const from = S.army; S.army = p; if (ev) ev.push({ e: 'award', what: 'army', p, from }); }
+}
+
+// ---------------------------------------------------------------- production
+// Each tile showing the number pays 1 per village and 2 per town on its corners, unless the bandit
+// sits on it. If the bank cannot pay everyone their full share of a resource, nobody gets that
+// resource, unless only one player is owed it, who then takes what is left.
+function produce(S, n, ev) {
+  const owed = S.players.map(() => [0, 0, 0, 0, 0]);
+  const parts = [];
+  for (let h = 0; h < 19; h++) {
+    if (S.board.num[h] !== n || h === S.board.robber) continue;
+    const r = S.board.terr[h];
+    for (const v of HEXES[h].v) if (S.vOwn[v] >= 0) { owed[S.vOwn[v]][r] += S.vLvl[v]; parts.push({ p: S.vOwn[v], r, n: S.vLvl[v], tile: h }); }
+  }
+  for (let r = 0; r < 5; r++) {
+    const total = sum(owed.map((o) => o[r]));
+    if (!total) continue;
+    const who = owed.map((o, p) => (o[r] > 0 ? p : -1)).filter((p) => p >= 0);
+    if (total <= S.bank[r]) {
+      who.forEach((p) => { S.players[p].res[r] += owed[p][r]; });
+      S.bank[r] -= total;
+      parts.filter((x) => x.r === r).forEach((x) => ev.push({ e: 'gain', p: x.p, r, n: x.n, tile: x.tile }));
+    } else if (who.length === 1) {
+      const p = who[0], got = S.bank[r];
+      S.players[p].res[r] += got; S.bank[r] = 0;
+      if (got) ev.push({ e: 'gain', p, r, n: got, tile: parts.find((x) => x.r === r).tile });
+      ev.push({ e: 'short', r });
+    } else ev.push({ e: 'short', r });
+  }
+}
+
+// ---------------------------------------------------------------- actions
+function pay(S, p, cost) { cost.forEach((n, r) => { S.players[p].res[r] -= n; S.bank[r] += n; }); }
+function log(S, s) { S.log.push(s); if (S.log.length > 80) S.log.shift(); }
+function checkWin(S, ev) {
+  if (S.phase === 'over') return;
+  if (totalVP(S, S.cur) >= S.target) { S.phase = 'over'; S.winner = S.cur; ev.push({ e: 'win', p: S.cur }); log(S, S.players[S.cur].name + ' wins with ' + totalVP(S, S.cur) + ' points'); }
+}
+const PHASES = ['setup', 'roll', 'main', 'discard', 'robber', 'roads', 'over'];
+// Apply one action. Returns { ok: true, ev: [...] } with events for the board to animate, or
+// { ok: false, why } and leaves the state untouched.
+function act(S, a) {
+  const ev = [];
+  const why = doAct(S, a, ev);
+  if (why !== true) return { ok: false, why };
+  return { ok: true, ev };
+}
+function doAct(S, a, ev) {
+  if (!a || typeof a.t !== 'string') return 'no action';
+  if (S.phase === 'over') return 'game over';
+  const p = S.cur, P = S.players[p], name = P.name;
+  switch (a.t) {
+    case 'village': {
+      if (S.phase === 'setup') {
+        if (S.setup.need !== 'village') return 'place a road';
+        if (!vertexFree(S, a.v)) return 'too close to another building';
+        S.vOwn[a.v] = p; S.vLvl[a.v] = 1; P.left.village--;
+        ev.push({ e: 'build', kind: 'village', at: a.v, p });
+        if (S.setup.i >= S.players.length) {
+          for (const h of VERTS[a.v].hexes) { const r = S.board.terr[h]; if (r >= 0 && S.bank[r] > 0) { P.res[r]++; S.bank[r]--; ev.push({ e: 'gain', p, r, n: 1, tile: h }); } }
+        }
+        S.setup.need = 'road'; S.setup.last = a.v;
+        log(S, name + ' settles');
+        updateLongest(S, ev);
+        return true;
+      }
+      if (S.phase !== 'main') return 'not now';
+      if (P.left.village <= 0) return 'no villages left';
+      if (!hasAll(P.res, COST.village)) return 'cannot afford';
+      if (!legalVillages(S, p).includes(a.v)) return 'not a legal spot';
+      pay(S, p, COST.village); S.vOwn[a.v] = p; S.vLvl[a.v] = 1; P.left.village--;
+      ev.push({ e: 'build', kind: 'village', at: a.v, p }); log(S, name + ' builds a village');
+      updateLongest(S, ev); checkWin(S, ev);
+      return true;
+    }
+    case 'road': {
+      if (S.phase === 'setup') {
+        if (S.setup.need !== 'road') return 'place a village';
+        if (!legalRoads(S, p).includes(a.e)) return 'road must touch the new village';
+        S.eOwn[a.e] = p; P.left.road--;
+        ev.push({ e: 'build', kind: 'road', at: a.e, p });
+        updateLongest(S, ev);
+        S.setup.i++; S.setup.need = 'village'; S.setup.last = -1;
+        if (S.setup.i >= S.setup.order.length) { S.phase = 'roll'; S.cur = 0; S.turn = 1; ev.push({ e: 'turn', p: 0 }); }
+        else S.cur = S.setup.order[S.setup.i];
+        return true;
+      }
+      const free = S.phase === 'roads';
+      if (!free && S.phase !== 'main') return 'not now';
+      if (!roadOk(S, p, a.e) || P.left.road <= 0) return 'not a legal road';
+      if (!free && !hasAll(P.res, COST.road)) return 'cannot afford';
+      if (!free) pay(S, p, COST.road);
+      S.eOwn[a.e] = p; P.left.road--;
+      ev.push({ e: 'build', kind: 'road', at: a.e, p });
+      if (free) { S.freeRoads--; if (S.freeRoads <= 0 || !legalRoads(S, p).length) { S.freeRoads = 0; S.phase = 'main'; } }
+      updateLongest(S, ev); checkWin(S, ev);
+      return true;
+    }
+    case 'town': {
+      if (S.phase !== 'main') return 'not now';
+      if (P.left.town <= 0) return 'no towns left';
+      if (!hasAll(P.res, COST.town)) return 'cannot afford';
+      if (S.vOwn[a.v] !== p || S.vLvl[a.v] !== 1) return 'build a town on your own village';
+      pay(S, p, COST.town); S.vLvl[a.v] = 2; P.left.town--; P.left.village++;
+      ev.push({ e: 'build', kind: 'town', at: a.v, p }); log(S, name + ' builds a town');
+      checkWin(S, ev);
+      return true;
+    }
+    case 'buy': {
+      if (S.phase !== 'main') return 'not now';
+      if (!S.deck.length) return 'no cards left';
+      if (!hasAll(P.res, COST.card)) return 'cannot afford';
+      pay(S, p, COST.card);
+      const c = S.deck.pop();
+      const card = { c, t: S.turn };
+      if (c === 'landmark') card.name = LANDMARKS[P.cards.filter((x) => x.c === 'landmark').length % LANDMARKS.length];
+      P.cards.push(card);
+      ev.push({ e: 'buy', p, c }); log(S, name + ' buys a venture card');
+      checkWin(S, ev);
+      return true;
+    }
+    case 'play': {
+      if (!playableCards(S, p).includes(a.c)) return 'cannot play that card now';
+      if (a.c === 'harvest') {
+        if (!(a.r >= 0 && a.r < 5 && a.r2 >= 0 && a.r2 < 5)) return 'pick two resources';
+        const need = [0, 0, 0, 0, 0]; need[a.r]++; need[a.r2]++;
+        if (!hasAll(S.bank, need)) return 'the bank is out of that';
+      }
+      if (a.c === 'market' && !(a.r >= 0 && a.r < 5)) return 'pick a resource';
+      P.cards.splice(P.cards.findIndex((x) => x.c === a.c && x.t < S.turn), 1);
+      S.cardPlayed = true;
+      ev.push({ e: 'play', p, c: a.c });
+      if (a.c === 'guard') {
+        P.guards++; updateArmy(S, p, ev);
+        S.back = S.phase; S.phase = 'robber';
+        log(S, name + ' plays a Guard');
+      } else if (a.c === 'roads') {
+        S.freeRoads = Math.min(2, P.left.road);
+        if (S.freeRoads > 0 && legalRoads(S, p).length) S.phase = 'roads'; else S.freeRoads = 0;
+        log(S, name + ' plays Road Crew');
+      } else if (a.c === 'harvest') {
+        for (const r of [a.r, a.r2]) { P.res[r]++; S.bank[r]--; ev.push({ e: 'gain', p, r, n: 1, tile: -1 }); }
+        log(S, name + ' plays Good Harvest');
+      } else if (a.c === 'market') {
+        let got = 0;
+        S.players.forEach((Q, q) => { if (q !== p && Q.res[a.r]) { ev.push({ e: 'take', from: q, to: p, r: a.r, n: Q.res[a.r] }); got += Q.res[a.r]; Q.res[a.r] = 0; } });
+        P.res[a.r] += got;
+        log(S, name + ' plays Market Day: ' + got + ' ' + RES_NAME[a.r]);
+      }
+      checkWin(S, ev);
+      return true;
+    }
+    case 'roll': {
+      if (S.phase !== 'roll') return 'not now';
+      const d = a.dice && a.dice.length === 2 ? a.dice.slice() : [1 + Math.floor(rnd(S) * 6), 1 + Math.floor(rnd(S) * 6)];
+      S.dice = d; S.rolled = true;
+      const n = d[0] + d[1];
+      S.rolls[n]++;
+      ev.push({ e: 'roll', p, d });
+      log(S, name + ' rolls ' + n);
+      if (n === 7) {
+        S.discard = S.players.map((Q) => (handSize(Q) > 7 ? Math.floor(handSize(Q) / 2) : 0));
+        S.back = 'main';
+        if (S.discard.some((x) => x > 0)) S.phase = 'discard'; else { S.discard = null; S.phase = 'robber'; }
+      } else {
+        produce(S, n, ev); S.phase = 'main';
+        const got = S.players.map(() => [0, 0, 0, 0, 0]);
+        ev.forEach((x) => { if (x.e === 'gain') got[x.p][x.r] += x.n; });
+        const parts = got.map((g, q) => (sum(g) ? S.players[q].name + ' +' + describe(g) : '')).filter(Boolean);
+        log(S, parts.length ? ' ' + parts.join(', ') : ' nobody is paid');
+      }
+      return true;
+    }
+    case 'discard': {
+      if (S.phase !== 'discard') return 'not now';
+      const q = a.p, need = S.discard[q];
+      if (!(need > 0) || !Array.isArray(a.cards) || a.cards.length !== 5) return 'no discard due';
+      if (sum(a.cards) !== need || a.cards.some((x) => x < 0 || !Number.isInteger(x)) || !hasAll(S.players[q].res, a.cards)) return 'discard exactly ' + need;
+      pay(S, q, a.cards); S.discard[q] = 0;
+      ev.push({ e: 'discard', p: q, n: need }); log(S, S.players[q].name + ' discards ' + need);
+      if (S.discard.every((x) => x === 0)) { S.discard = null; S.phase = 'robber'; }
+      return true;
+    }
+    case 'robber': {
+      if (S.phase !== 'robber') return 'not now';
+      if (!legalRobberTiles(S, p).includes(a.h)) return 'the bandit must move to another tile';
+      const vs = victimsAt(S, a.h, p);
+      if (vs.length && !vs.includes(a.victim)) return 'pick someone to rob';
+      const from = S.board.robber; S.board.robber = a.h;
+      ev.push({ e: 'robber', from, to: a.h, p });
+      if (vs.length) {
+        const Q = S.players[a.victim];
+        let k = Math.floor(rnd(S) * handSize(Q)), r = 0;
+        while (k >= Q.res[r]) { k -= Q.res[r]; r++; }
+        Q.res[r]--; P.res[r]++;
+        ev.push({ e: 'take', from: a.victim, to: p, r, n: 1 });
+        log(S, name + ' robs ' + Q.name);
+      } else log(S, name + ' moves the bandit');
+      S.phase = S.back || 'main'; S.back = null;
+      checkWin(S, ev);
+      return true;
+    }
+    case 'skip': {
+      if (S.phase !== 'roads') return 'not now';
+      S.freeRoads = 0; S.phase = 'main'; return true;
+    }
+    case 'bank': {
+      if (S.phase !== 'main') return 'not now';
+      const g = a.give, r = a.get, k = a.n || 1;
+      if (!(g >= 0 && g < 5 && r >= 0 && r < 5) || g === r || !(k >= 1)) return 'bad trade';
+      const rate = bankRate(S, p, g);
+      if (P.res[g] < rate * k || S.bank[r] < k) return 'cannot afford';
+      P.res[g] -= rate * k; S.bank[g] += rate * k; P.res[r] += k; S.bank[r] -= k;
+      S.tc.bank++;
+      ev.push({ e: 'bank', p, give: g, n: rate * k, get: r, k }); log(S, name + ' trades ' + rate * k + ' ' + RES_NAME[g] + ' with the bank for ' + k + ' ' + RES_NAME[r]);
+      return true;
+    }
+    case 'trade': {
+      if (S.phase !== 'main') return 'not now';
+      const q = a.with;
+      if (!(q >= 0 && q < S.players.length) || q === p) return 'bad partner';
+      if (!validOffer(a.give, a.get)) return 'bad trade';
+      if (!hasAll(P.res, a.give) || !hasAll(S.players[q].res, a.get)) return 'cannot afford';
+      for (let r = 0; r < 5; r++) { P.res[r] += a.get[r] - a.give[r]; S.players[q].res[r] += a.give[r] - a.get[r]; }
+      ev.push({ e: 'trade', p, q, give: a.give.slice(), get: a.get.slice() });
+      log(S, name + ' trades with ' + S.players[q].name + ': ' + describe(a.give) + ' for ' + describe(a.get));
+      return true;
+    }
+    case 'end': {
+      if (S.phase !== 'main') return 'not now';
+      S.cur = (p + 1) % S.players.length; S.turn++; S.phase = 'roll'; S.rolled = false; S.cardPlayed = false; S.dice = null; S.tc = { bank: 0, offers: 0 };
+      ev.push({ e: 'turn', p: S.cur });
+      return true;
+    }
+  }
+  return 'unknown action';
+}
+function validOffer(give, get) {
+  if (!Array.isArray(give) || !Array.isArray(get) || give.length !== 5 || get.length !== 5) return false;
+  if (give.some((x) => !Number.isInteger(x) || x < 0) || get.some((x) => !Number.isInteger(x) || x < 0)) return false;
+  if (!sum(give) || !sum(get)) return false;
+  return give.every((x, r) => !(x > 0 && get[r] > 0));
+}
+function describe(v) { return v.map((n, r) => (n ? n + ' ' + RES_NAME[r] : '')).filter(Boolean).join(' + ') || 'nothing'; }
+
+// ---------------------------------------------------------------- save / resume
+function serialize(S) { return JSON.stringify(S); }
+function deserialize(text) {
+  let S;
+  try { S = JSON.parse(text); } catch (e) { return null; }
+  try {
+    if (!S || S.v !== VERSION) return null;
+    const n = S.players && S.players.length;
+    if (!(n >= 2 && n <= 4)) return null;
+    if (!Array.isArray(S.vOwn) || S.vOwn.length !== VERTS.length || !Array.isArray(S.vLvl) || S.vLvl.length !== VERTS.length) return null;
+    if (!Array.isArray(S.eOwn) || S.eOwn.length !== EDGES.length) return null;
+    if (!S.board || !Array.isArray(S.board.terr) || S.board.terr.length !== 19 || !Array.isArray(S.board.num) || S.board.num.length !== 19) return null;
+    if (!Array.isArray(S.board.ports) || S.board.ports.length !== 9 || !(S.board.robber >= 0 && S.board.robber < 19)) return null;
+    if (!PHASES.includes(S.phase) || !(S.cur >= 0 && S.cur < n) || !Array.isArray(S.bank) || S.bank.length !== 5) return null;
+    for (const P of S.players) {
+      if (!Array.isArray(P.res) || P.res.length !== 5 || P.res.some((x) => !(x >= 0)) || !Array.isArray(P.cards) || !P.left || !KINDS.includes(P.kind)) return null;
+    }
+    if (S.phase === 'discard' && (!Array.isArray(S.discard) || S.discard.length !== n)) return null;
+    if (S.phase === 'setup' && (!S.setup || !Array.isArray(S.setup.order))) return null;
+    if (!S.tc) S.tc = { bank: 0, offers: 0 };
+    if (!Array.isArray(S.log)) S.log = [];
+    return S;
+  } catch (e) { return null; }
+}
+
+// ============================================================================================
+// Computer players. Every decision is computed from what a player at the table could see: their
+// own hand, the board, everyone's card counts and public points. Nobody peeks at another hand.
+// ============================================================================================
+const LEVEL = {
+  easy: { look: 1, trade: false, thr: -0.4, diversity: 0.4, ports: 0, offers: 0, bankTrades: 1, smartRobber: false, race: false },
+  normal: { look: 2, trade: true, thr: 0.1, diversity: 1, ports: 0.6, offers: 1, bankTrades: 3, smartRobber: true, race: false },
+  hard: { look: 3, trade: true, thr: 0.25, diversity: 1.2, ports: 1, offers: 2, bankTrades: 4, smartRobber: true, race: true },
+};
+const lvl = (S, p) => LEVEL[S.players[p].kind] || LEVEL.normal;
+// Ore and grain win the long game (towns); timber and clay win the opening (roads, villages).
+const RES_W = [1.0, 1.0, 0.85, 1.1, 1.1];
+function prodRates(S, p) {
+  const rates = [0, 0, 0, 0, 0];
+  for (let v = 0; v < VERTS.length; v++) if (S.vOwn[v] === p) for (const h of VERTS[v].hexes) {
+    const r = S.board.terr[h]; if (r >= 0 && h !== S.board.robber) rates[r] += PIPS[S.board.num[h]] * S.vLvl[v];
+  }
+  return rates;
+}
+function portAt(S, v) { for (const P of S.board.ports) { const E = EDGES[P.e]; if (E.a === v || E.b === v) return P.r; } return null; }
+// How much a corner is worth to a player: expected dice income weighted by resource, more for a
+// resource they do not yet produce, plus a harbour that matches what they produce.
+function spotScore(S, p, v, rates) {
+  const L = lvl(S, p);
+  rates = rates || prodRates(S, p);
+  let s = 0;
+  const here = [0, 0, 0, 0, 0];
+  for (const h of VERTS[v].hexes) {
+    const r = S.board.terr[h]; if (r < 0) continue;
+    let pip = PIPS[S.board.num[h]]; if (h === S.board.robber) pip *= 0.5;
+    here[r] += pip;
+    let w = RES_W[r];
+    if (rates[r] === 0 && here[r] === pip) w *= 1 + 0.35 * L.diversity;
+    s += pip * w;
+  }
+  const port = portAt(S, v);
+  if (port !== null && L.ports) {
+    if (port < 0) s += 1.2 * L.ports;
+    else s += Math.min(3, 0.25 * (rates[port] + here[port])) * L.ports;
+  }
+  return s;
+}
+// Corners the player's network reaches: their buildings and the ends of their roads not blocked by
+// someone else's building.
+function networkVerts(S, p) {
+  const out = new Set();
+  for (let v = 0; v < VERTS.length; v++) if (S.vOwn[v] === p) out.add(v);
+  for (let e = 0; e < EDGES.length; e++) if (S.eOwn[e] === p) for (const v of [EDGES[e].a, EDGES[e].b]) if (S.vOwn[v] < 0 || S.vOwn[v] === p) out.add(v);
+  return out;
+}
+// Breadth-first search out along free edges for village spots up to `look` roads away.
+function roadTargets(S, p, look) {
+  const start = networkVerts(S, p);
+  const dist = new Map(), first = new Map(), q = [];
+  for (const v of start) { dist.set(v, 0); q.push(v); }
+  const out = [];
+  while (q.length) {
+    const v = q.shift(), d = dist.get(v);
+    if (d > 0 && vertexFree(S, v)) out.push({ v, d, e: first.get(v) });
+    if (d >= look) continue;
+    if (d > 0 && S.vOwn[v] >= 0 && S.vOwn[v] !== p) continue;
+    for (const e of VERTS[v].edges) {
+      if (S.eOwn[e] >= 0) continue;
+      const u = otherEnd(e, v);
+      if (dist.has(u)) continue;
+      if (S.vOwn[u] >= 0 && S.vOwn[u] !== p) continue;
+      dist.set(u, d + 1); first.set(u, d === 0 ? e : first.get(v)); q.push(u);
+    }
+  }
+  return out;
+}
+function missing(have, cost) { return cost.map((c, r) => Math.max(0, c - have[r])); }
+// The thing to save up for next.
+function aiGoal(S, p) {
+  const P = S.players[p], L = lvl(S, p), rates = prodRates(S, p);
+  const cands = [];
+  const vpNow = totalVP(S, p);
+  const near = vpNow >= S.target - 2;
+  if (P.left.town > 0) for (const v of legalTowns(S, p)) {
+    let pips = 0; for (const h of VERTS[v].hexes) if (S.board.terr[h] >= 0 && h !== S.board.robber) pips += PIPS[S.board.num[h]];
+    cands.push({ kind: 'town', at: v, cost: COST.town, value: 9 + pips * 0.9 });
+  }
+  if (P.left.village > 0) {
+    for (const v of legalVillages(S, p)) cands.push({ kind: 'village', at: v, cost: COST.village, value: 9 + spotScore(S, p, v, rates) });
+    if (P.left.road > 0) {
+      for (const t of roadTargets(S, p, L.look)) {
+        if (t.d === 0) continue;
+        const roads = [0, 0, 0, 0, 0].map((x, r) => COST.road[r] * t.d);
+        const cost = roads.map((x, r) => x + COST.village[r]);
+        cands.push({ kind: 'road', at: t.e, cost, step: COST.road, value: (9 + spotScore(S, p, t.v, rates)) / (1 + 0.35 * t.d), aim: t.v });
+      }
+    }
+  }
+  // Racing for the Longest Road: worth two points.
+  if (L.race && P.left.road > 0 && S.longest !== p) {
+    const others = Math.max(0, ...S.roadLen.filter((x, q) => q !== p));
+    const mine = S.roadLen[p] || 0;
+    if (mine + 2 >= Math.max(5, others + 1)) {
+      for (const e of legalRoads(S, p)) {
+        S.eOwn[e] = p; const l = roadLength(S, p); S.eOwn[e] = -1;
+        if (l > mine) cands.push({ kind: 'road', at: e, cost: l >= Math.max(5, others + 1) ? COST.road : COST.road.map((x) => x * 2), step: COST.road, value: l >= Math.max(5, others + 1) ? 16 : 10 });
+      }
+    }
+  }
+  if (S.deck.length) {
+    let v = 7;
+    const g = P.guards + P.cards.filter((c) => c.c === 'guard').length;
+    if (L.race && S.army !== p) { const top = Math.max(2, ...S.players.map((Q, q) => (q === p ? 0 : Q.guards))); if (g + 1 >= top) v += 3; }
+    if (near) v += 2;
+    if (!cands.some((c) => c.kind !== 'road' || c.aim !== undefined)) v += 3;
+    cands.push({ kind: 'card', cost: COST.card, value: v });
+  }
+  if (!cands.length) return null;
+  let best = null, bs = -Infinity;
+  for (const c of cands) {
+    const miss = missing(P.res, c.cost);
+    let m = 0;
+    miss.forEach((k, r) => { if (k) m += k * (rates[r] > 0 ? 9 / (1 + rates[r]) : 3.5); });
+    const s = c.value / (1 + 0.12 * m);
+    if (s > bs) { bs = s; best = c; }
+  }
+  best.miss = missing(P.res, best.cost);
+  return best;
+}
+// What a resource is worth to a player right now, against their goal.
+function resValues(S, p, goal) {
+  const P = S.players[p], rates = prodRates(S, p);
+  goal = goal === undefined ? aiGoal(S, p) : goal;
+  return [0, 1, 2, 3, 4].map((r) => {
+    let v = 1;
+    if (goal && goal.miss[r] > 0) v = 1.7;
+    else if (goal && P.res[r] > goal.cost[r]) v = Math.max(0.35, 1 - 0.18 * (P.res[r] - goal.cost[r]));
+    if (rates[r] === 0) v += 0.2;
+    return v;
+  });
+}
+const valueOf = (vals, v) => sum(v.map((n, r) => n * vals[r]));
+// Never feed the leader: no deals with anyone two points from winning, or anyone 3 points clear of us.
+function wouldDealWith(S, p, q) {
+  const pv = publicVP(S, q);
+  if (pv >= S.target - 2) return false;
+  const top = Math.max(...S.players.map((Q, i) => publicVP(S, i)));
+  if (pv === top && pv >= totalVP(S, p) + 3) return false;
+  return true;
+}
+// Answer an offer from q: q gives `give` and wants `get`. Returns 'accept', 'reject' or a counter
+// { give, get } (in q's terms) that the responder would accept.
+function aiRespond(S, p, q, give, get) {
+  const P = S.players[p], L = lvl(S, p);
+  if (!validOffer(give, get) || !hasAll(P.res, get)) return 'reject';
+  if (!wouldDealWith(S, p, q)) return 'reject';
+  const vals = resValues(S, p);
+  const gain = valueOf(vals, give) - valueOf(vals, get);
+  let thr = L.thr;
+  if (P.kind === 'easy') thr += (rnd(S) - 0.5) * 0.6;
+  if (gain >= thr) return 'accept';
+  if (P.kind === 'easy') return 'reject';
+  // Counter: ask for one more of what was offered, if that would make it worth it.
+  const best = [0, 1, 2, 3, 4].filter((r) => give[r] > 0).sort((a, b) => vals[b] - vals[a])[0];
+  if (best !== undefined && gain + vals[best] >= thr && sum(give) < 4) {
+    const g2 = give.slice(); g2[best]++;
+    return { give: g2, get: get.slice() };
+  }
+  // Or give less: drop one of what they asked for.
+  if (sum(get) > 1) {
+    const worst = [0, 1, 2, 3, 4].filter((r) => get[r] > 0).sort((a, b) => vals[b] - vals[a])[0];
+    const g2 = get.slice(); g2[worst]--;
+    if (valueOf(vals, give) - valueOf(vals, g2) >= thr) return { give: give.slice(), get: g2 };
+  }
+  return 'reject';
+}
+// Would the proposer take a counter? Same yardstick as accepting an offer.
+function aiTakesCounter(S, q, from, give, get) {
+  if (!hasAll(S.players[q].res, give) || !wouldDealWith(S, q, from)) return false;
+  const vals = resValues(S, q);
+  return valueOf(vals, get) - valueOf(vals, give) >= lvl(S, q).thr - 0.1;
+}
+// A trade the computer would like to propose to the table, or null.
+function aiOffer(S, p) {
+  const P = S.players[p], L = lvl(S, p);
+  if (!L.trade || S.tc.offers >= L.offers) return null;
+  const goal = aiGoal(S, p);
+  if (!goal) return null;
+  const miss = goal.miss, m = sum(miss);
+  if (m === 0 || m > 2) return null;
+  const spare = P.res.map((n, r) => n - goal.cost[r]);
+  const giveR = [0, 1, 2, 3, 4].filter((r) => spare[r] > 0 && miss[r] === 0).sort((a, b) => spare[b] - spare[a])[0];
+  if (giveR === undefined) return null;
+  const getR = miss.indexOf(Math.max(...miss));
+  const give = [0, 0, 0, 0, 0], get = [0, 0, 0, 0, 0];
+  give[giveR] = spare[giveR] >= 3 && P.kind === 'hard' ? 1 : Math.min(spare[giveR], 1 + (spare[giveR] >= 3 ? 1 : 0));
+  get[getR] = 1;
+  return { give, get };
+}
+// Settle a proposal among the other players. `answers` maps player -> response, already gathered
+// (humans answer in the UI). Returns the trade action to apply, or null.
+function settleOffer(S, p, give, get, answers) {
+  const n = S.players.length;
+  for (let k = 1; k < n; k++) { const q = (p + k) % n; if (answers[q] === 'accept') return { t: 'trade', with: q, give: give.slice(), get: get.slice() }; }
+  for (let k = 1; k < n; k++) {
+    const q = (p + k) % n, c = answers[q];
+    if (c && typeof c === 'object' && aiTakesCounter(S, p, q, c.give, c.get) && hasAll(S.players[q].res, c.get)) return { t: 'trade', with: q, give: c.give.slice(), get: c.get.slice() };
+  }
+  return null;
+}
+function aiDiscard(S, p, n) {
+  const P = S.players[p], goal = aiGoal(S, p), out = [0, 0, 0, 0, 0], have = P.res.slice();
+  const keep = goal ? goal.cost : [0, 0, 0, 0, 0];
+  for (let i = 0; i < n; i++) {
+    let best = -1, bs = -Infinity;
+    for (let r = 0; r < 5; r++) if (have[r] > 0) { const s = have[r] - keep[r] * 1.5 - RES_W[r] * 0.1; if (s > bs) { bs = s; best = r; } }
+    have[best]--; out[best]++;
+  }
+  return out;
+}
+// Where to send the bandit: the best tile of the leading opponents, never one of our own.
+function aiRobber(S, p) {
+  const L = lvl(S, p), tiles = legalRobberTiles(S, p);
+  let best = null, bs = -Infinity;
+  for (const h of tiles) {
+    let s = 0, mine = false;
+    for (const v of HEXES[h].v) {
+      const o = S.vOwn[v]; if (o < 0) continue;
+      if (o === p) { mine = true; continue; }
+      s += tilePips(S, h) * S.vLvl[v] * (1 + 0.35 * publicVP(S, o)) + (handSize(S.players[o]) > 0 ? 1 : 0);
+    }
+    if (mine) s -= 30;
+    if (!L.smartRobber) s = (s > 0 ? 5 : 0) + rnd(S) * 10 - (mine ? 30 : 0);
+    if (s > bs) { bs = s; best = h; }
+  }
+  const vs = victimsAt(S, best, p);
+  let victim = -1;
+  if (vs.length) victim = vs.slice().sort((a, b) => publicVP(S, b) - publicVP(S, a) || handSize(S.players[b]) - handSize(S.players[a]))[0];
+  return { t: 'robber', h: best, victim };
+}
+function aiSetupVillage(S, p) {
+  const spots = legalVillages(S, p), rates = prodRates(S, p);
+  const scored = spots.map((v) => ({ v, s: spotScore(S, p, v, rates) })).sort((a, b) => b.s - a.s);
+  if (S.players[p].kind === 'easy') return scored[Math.floor(rnd(S) * Math.min(8, scored.length))].v;
+  return scored[0].v;
+}
+function aiSetupRoad(S, p) {
+  const v0 = S.setup.last, rates = prodRates(S, p);
+  let best = null, bs = -Infinity;
+  for (const e of legalRoads(S, p)) {
+    const u = otherEnd(e, v0);
+    let s = 0;
+    for (const e2 of VERTS[u].edges) { if (e2 === e) continue; const w = otherEnd(e2, u); if (vertexFree(S, w)) s = Math.max(s, spotScore(S, p, w, rates)); }
+    if (S.players[p].kind === 'easy') s = rnd(S);
+    if (s > bs) { bs = s; best = e; }
+  }
+  return best;
+}
+// The next thing the player who must act wants to do. During 'discard' that is the first player
+// still owing cards (who may not be the player whose turn it is).
+function aiStep(S) {
+  if (S.phase === 'discard') { const q = S.discard.findIndex((x) => x > 0); return { t: 'discard', p: q, cards: aiDiscard(S, q, S.discard[q]) }; }
+  const p = S.cur, P = S.players[p], L = lvl(S, p);
+  if (S.phase === 'setup') return S.setup.need === 'village' ? { t: 'village', v: aiSetupVillage(S, p) } : { t: 'road', e: aiSetupRoad(S, p) };
+  if (S.phase === 'robber') return aiRobber(S, p);
+  if (S.phase === 'roads') {
+    const goal = aiGoal(S, p);
+    const roads = legalRoads(S, p);
+    if (!roads.length) return { t: 'skip' };
+    if (goal && goal.kind === 'road' && roads.includes(goal.at)) return { t: 'road', e: goal.at };
+    const ts = roadTargets(S, p, 3).sort((a, b) => b.v - a.v);
+    const pick = ts.find((t) => t.e !== undefined && roads.includes(t.e));
+    return { t: 'road', e: pick ? pick.e : roads[0] };
+  }
+  const playable = playableCards(S, p);
+  if (S.phase === 'roll') {
+    if (playable.includes('guard')) {
+      const blocked = HEXES[S.board.robber].v.some((v) => S.vOwn[v] === p) && tilePips(S, S.board.robber) >= 3;
+      const armyGain = P.guards + 1 >= 3 && S.army !== p && (S.army < 0 || P.guards + 1 > S.players[S.army].guards);
+      if ((blocked && P.kind !== 'easy') || (armyGain && P.kind === 'hard') || (blocked && rnd(S) < 0.5)) return { t: 'play', c: 'guard' };
+    }
+    return { t: 'roll' };
+  }
+  // main phase
+  let goal = aiGoal(S, p);
+  if (playable.length) {
+    if (playable.includes('harvest')) {
+      const miss = goal ? goal.miss.slice() : [0, 0, 0, 0, 0];
+      const picks = [];
+      for (let i = 0; i < 2; i++) {
+        let r = miss.findIndex((x) => x > 0);
+        if (r < 0) r = [3, 4, 0, 1, 2].find((x) => S.bank[x] > 0);
+        if (r >= 0 && S.bank[r] - picks.filter((x) => x === r).length > 0) { picks.push(r); if (miss[r] > 0) miss[r]--; }
+      }
+      if (picks.length === 2) return { t: 'play', c: 'harvest', r: picks[0], r2: picks[1] };
+    }
+    if (playable.includes('market') && goal && sum(goal.miss) > 0) {
+      const est = [0, 1, 2, 3, 4].map((r) => S.players.reduce((s, Q, q) => s + (q === p ? 0 : prodRates(S, q)[r]), 0) * (goal.miss[r] > 0 ? 1.5 : 1));
+      return { t: 'play', c: 'market', r: est.indexOf(Math.max(...est)) };
+    }
+    if (playable.includes('roads') && P.left.road > 0 && legalRoads(S, p).length && goal && (goal.kind === 'road' || P.kind === 'hard')) return { t: 'play', c: 'roads' };
+    if (playable.includes('guard')) {
+      const armyGain = P.guards + 1 >= 3 && S.army !== p && (S.army < 0 || P.guards + 1 > S.players[S.army].guards);
+      const target = aiRobber(S, p);
+      if (armyGain || (P.kind !== 'easy' && victimsAt(S, target.h, p).length && rnd(S) < 0.6)) return { t: 'play', c: 'guard' };
+    }
+  }
+  if (goal) {
+    if (hasAll(P.res, goal.cost) || (goal.kind === 'road' && hasAll(P.res, goal.step))) {
+      if (goal.kind === 'town') return { t: 'town', v: goal.at };
+      if (goal.kind === 'village') return { t: 'village', v: goal.at };
+      if (goal.kind === 'road') return { t: 'road', e: goal.at };
+      if (goal.kind === 'card') return { t: 'buy' };
+    }
+    // Opportunistic: a town or village is always worth taking when affordable.
+    if (hasAll(P.res, COST.town) && legalTowns(S, p).length && P.left.town > 0) return { t: 'town', v: legalTowns(S, p)[0] };
+    if (hasAll(P.res, COST.village) && P.left.village > 0) {
+      const vs = legalVillages(S, p); if (vs.length) { const rates = prodRates(S, p); return { t: 'village', v: vs.sort((a, b) => spotScore(S, p, b, rates) - spotScore(S, p, a, rates))[0] }; }
+    }
+    // Bank or harbour: swap a surplus for something missing.
+    if (S.tc.bank < L.bankTrades && sum(goal.miss) > 0) {
+      const need = goal.miss.findIndex((x) => x > 0);
+      let bestG = -1, bestSpare = 0;
+      for (let r = 0; r < 5; r++) {
+        if (goal.miss[r] > 0) continue;
+        const rate = L.ports ? bankRate(S, p, r) : 4;
+        const spare = P.res[r] - goal.cost[r] - rate;
+        if (spare >= 0 && S.bank[need] > 0 && spare + rate > bestSpare) { bestSpare = spare + rate; bestG = r; }
+      }
+      if (bestG >= 0 && (P.kind !== 'easy' || rnd(S) < 0.5)) return { t: 'bank', give: bestG, get: need };
+    }
+    const off = aiOffer(S, p);
+    if (off) return { t: 'offer', give: off.give, get: off.get };
+  }
+  // A big hand invites the bandit: spend it.
+  if (handSize(P) > 7 && hasAll(P.res, COST.card) && S.deck.length) return { t: 'buy' };
+  if (handSize(P) > 7 && hasAll(P.res, COST.road) && P.left.road > 0) { const rs = legalRoads(S, p); if (rs.length) { const ts = roadTargets(S, p, 2); const pick = ts.find((t) => t.d === 1 && rs.includes(t.e)); return { t: 'road', e: pick ? pick.e : rs[0] }; } }
+  return { t: 'end' };
+}
+// Gather the AI answers to an offer from p (humans, if any, are left out: they answer in the UI).
+function aiAnswers(S, p, give, get) {
+  const answers = {};
+  S.players.forEach((Q, q) => { if (q !== p && Q.kind !== 'human') answers[q] = aiRespond(S, q, p, give, get); });
+  return answers;
+}
+// One whole computer game, for tests and reports. Returns the final state.
+function simulate(seed, kinds, o) {
+  o = o || {};
+  const S = newGame({ seed, players: kinds.map((k, i) => ({ name: 'P' + i, kind: k })), beginner: o.beginner, target: o.target, friendly: o.friendly });
+  const cap = o.cap || 600;
+  let steps = 0;
+  while (S.phase !== 'over' && S.turn <= cap) {
+    if (++steps > 200000) throw new Error('runaway');
+    const a = aiStep(S);
+    if (a.t === 'offer') {
+      S.tc.offers++;
+      const t = settleOffer(S, S.cur, a.give, a.get, aiAnswers(S, S.cur, a.give, a.get));
+      if (t) { const r = act(S, t); if (!r.ok) throw new Error('illegal trade: ' + r.why); S.trades = (S.trades || 0) + 1; }
+      continue;
+    }
+    const r = act(S, a);
+    if (!r.ok) throw new Error('illegal AI move ' + JSON.stringify(a) + ' in ' + S.phase + ': ' + r.why);
+    if (o.onAct) o.onAct(S, a, r);
+  }
+  if (S.phase !== 'over') S.endReason = 'cap';
+  return S;
+}
+
+const api = {
+  VERSION, RES, RES_NAME, TERRAIN, DESERT_NAME, COST, PIECES, PIPS, TOKENS, CARDS, CARD_ORDER, LANDMARKS, BANK_EACH,
+  HEXES, VERTS, EDGES, COAST, otherEnd, edgeBetween, mulberry, shuffle, genBoard, terrainOk, tokensOk, BEGINNER,
+  newGame, act, legalVillages, legalRoads, legalTowns, vertexFree, roadOk, roadLength, updateLongest, portsOf, bankRate,
+  publicVP, totalVP, victimsAt, legalRobberTiles, playableCards, handSize, hasAll, validOffer, describe, produce,
+  serialize, deserialize, prodRates, spotScore, aiGoal, aiRespond, aiTakesCounter, aiOffer, settleOffer, aiAnswers,
+  aiDiscard, aiRobber, aiStep, wouldDealWith, resValues, simulate, portAt, sum,
+};
+globalThis.__islandTraders = api;
+// ---------- UI ----------
+const M = globalThis.__islandTraders;
+const $ = (id) => document.getElementById(id);
+const SAVE_KEY = 'dgames.island-traders.save', OPTS_KEY = 'dgames.island-traders.opts';
+const COLORS = ['#c8423a', '#2f6fbf', '#e0901e', '#8a55b8'];
+const DARK = ['#6e1d17', '#173a6b', '#7a4a08', '#47296a'];
+const CPU_NAMES = ['Marina', 'Tobias', 'Ines', 'Kofi'];
+const TERR_FILL = ['#3e7b3c', '#bd6a42', '#93c25a', '#e3bd4e', '#8f979e'], DESERT_FILL = '#e9d6a0';
+const SVGNS = 'http://www.w3.org/2000/svg';
+const U = 100; // board units per hex size
+function el(tag, attrs, parent, html) {
+  const e = document.createElementNS(SVGNS, tag);
+  if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (html) e.innerHTML = html;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const icon = (r, cls) => `<svg viewBox="-12 -12 24 24"${cls ? ' class="' + cls + '"' : ''}><use href="#r${r}" x="-12" y="-12" width="24" height="24"/></svg>`;
+const costHtml = (c) => '<span class="cost">' + c.map((n, r) => new Array(n).fill(icon(r)).join('')).join('') + '</span>';
+
+// ------------------------------------------------------------ icons and tile art (all original)
+const ICONS = {
+  r0: '<rect x="-11" y="-1" width="19" height="8" rx="4" fill="#8b5a2b"/><circle cx="7" cy="3" r="4" fill="#e1b27a" stroke="#6b4320" stroke-width="1.2"/><rect x="-9" y="-9" width="19" height="8" rx="4" fill="#a06a35"/><circle cx="9" cy="-5" r="4" fill="#e9c08a" stroke="#6b4320" stroke-width="1.2"/><circle cx="9" cy="-5" r="1.5" fill="none" stroke="#9a6a3a" stroke-width=".8"/>',
+  r1: '<g stroke="#f3dcc8" stroke-width="1.2"><rect x="-11" y="2" width="11" height="7" fill="#b5502e"/><rect x="0" y="2" width="11" height="7" fill="#c4603a"/><rect x="-6" y="-5" width="11" height="7" fill="#c86a40"/><rect x="-1" y="-12" width="0" height="0"/><rect x="-6" y="-12" width="11" height="7" fill="#b35a33" opacity=".0"/></g>',
+  r2: '<g fill="#fbfaf4" stroke="#8d8a80" stroke-width="1"><circle cx="-5" cy="1" r="5"/><circle cx="1" cy="-3" r="5.5"/><circle cx="6" cy="2" r="5"/><circle cx="0" cy="4" r="5"/></g><ellipse cx="-9.5" cy="-1" rx="3" ry="3.6" fill="#2d2a26"/><path d="M-3 8v3M4 8v3" stroke="#2d2a26" stroke-width="1.6"/>',
+  r3: '<path d="M0 11V-9" stroke="#9a7420" stroke-width="1.6"/><g fill="#e6b93c" stroke="#9a7420" stroke-width=".8"><ellipse cx="-3" cy="-6" rx="2.2" ry="3.6" transform="rotate(-25 -3 -6)"/><ellipse cx="3" cy="-6" rx="2.2" ry="3.6" transform="rotate(25 3 -6)"/><ellipse cx="-3" cy="-0.5" rx="2.2" ry="3.6" transform="rotate(-25 -3 -.5)"/><ellipse cx="3" cy="-0.5" rx="2.2" ry="3.6" transform="rotate(25 3 -.5)"/><ellipse cx="-3" cy="5" rx="2.2" ry="3.6" transform="rotate(-25 -3 5)"/><ellipse cx="3" cy="5" rx="2.2" ry="3.6" transform="rotate(25 3 5)"/><ellipse cx="0" cy="-10" rx="2" ry="3.2"/></g>',
+  r4: '<path d="M-11 8l4-12 8-5 9 6 1 11z" fill="#7d858c" stroke="#3f454a" stroke-width="1.2"/><path d="M-7-4l8-5 2 8-6 3z" fill="#aab3ba"/><path d="M1 1l9 2-2-6z" fill="#5f676d"/><circle cx="3" cy="-3" r="1.4" fill="#cfe8ff"/>',
+};
+// Tile illustrations, drawn around the number token in the middle (radius 34 kept clear).
+function tree(x, y, s) { return `<g transform="translate(${x} ${y}) scale(${s})"><rect x="-3" y="10" width="6" height="9" fill="#5b3a1e"/><path d="M0-22L-15 2h30z" fill="#2c5e2e"/><path d="M0-12L-18 12h36z" fill="#24502a"/><path d="M0-22L-6-12h4z" fill="#4b8a45"/></g>`; }
+function sheep(x, y, s, f) { return `<g transform="translate(${x} ${y}) scale(${s * (f ? -1 : 1)} ${s})"><path d="M-8 7v7M7 7v7" stroke="#3a332c" stroke-width="3"/><ellipse cx="0" cy="0" rx="15" ry="10" fill="#fbfaf2" stroke="#b6b0a2" stroke-width="1.5"/><circle cx="-6" cy="-5" r="6" fill="#fbfaf2"/><circle cx="6" cy="-5" r="6" fill="#fbfaf2"/><ellipse cx="-16" cy="-3" rx="5" ry="6" fill="#2f2a25"/></g>`; }
+function peak(x, y, s, snow) { return `<g transform="translate(${x} ${y}) scale(${s})"><path d="M-34 20L-4-30 30 20z" fill="#6f777e"/><path d="M-4-30L30 20H6z" fill="#565d63"/>${snow ? '<path d="M-4-30l-11 18 6-3 5 5 4-6 6 4z" fill="#f4f7fa"/>' : ''}<path d="M-14 6l6-3 3 5" stroke="#c9d6e0" stroke-width="2" fill="none"/></g>`; }
+function bricks(x, y, s) { return `<g transform="translate(${x} ${y}) scale(${s})" stroke="#efd2bd" stroke-width="1.5"><rect x="-18" y="2" width="12" height="7" fill="#9e3f22"/><rect x="-6" y="2" width="12" height="7" fill="#ab4a2a"/><rect x="6" y="2" width="12" height="7" fill="#9e3f22"/><rect x="-12" y="-5" width="12" height="7" fill="#b55531"/><rect x="0" y="-5" width="12" height="7" fill="#a5462a"/><rect x="-6" y="-12" width="12" height="7" fill="#b9603a"/></g>`; }
+function wheat(x, y, s) { let g = ''; for (let i = -2; i <= 2; i++) g += `<path d="M${i * 7} 16 Q${i * 7 + 2} 0 ${i * 7 - 1}-14" stroke="#a37a1c" stroke-width="2" fill="none"/><ellipse cx="${i * 7 - 1}" cy="-14" rx="3" ry="7" fill="#f2cf5b" stroke="#a37a1c" stroke-width="1"/>`; return `<g transform="translate(${x} ${y}) scale(${s})">${g}</g>`; }
+function palm(x, y, s) { return `<g transform="translate(${x} ${y}) scale(${s})"><path d="M0 22 Q4 2 -2-16" stroke="#7a5a2e" stroke-width="5" fill="none"/><g fill="#3f8a3c"><path d="M-2-16 Q-20-24-28-10 Q-16-18-2-14z"/><path d="M-2-16 Q16-28 28-12 Q14-20-2-14z"/><path d="M-2-16 Q-6-34 6-36 Q0-26-1-15z"/></g></g>`; }
+const ART = [
+  // forest
+  tree(-42, -50, 1) + tree(0, -66, 1.1) + tree(42, -50, 1) + tree(-62, 4, .9) + tree(62, 4, .9) + tree(-40, 52, 1.05) + tree(38, 54, 1.05) + tree(0, 70, .8),
+  // clay pits
+  '<ellipse cx="-38" cy="-50" rx="26" ry="11" fill="#8f4528"/><ellipse cx="44" cy="44" rx="24" ry="10" fill="#8f4528"/><path d="M-70 10q14-6 26 0" stroke="#a65533" stroke-width="3" fill="none"/>' + bricks(36, -50, 1.2) + bricks(-40, 52, 1.2) + bricks(64, 2, .8),
+  // pasture
+  '<g stroke="#6f9e3c" stroke-width="2.5" fill="none"><path d="M-60-30l4-8 4 8M50 10l4-8 4 8M-20 70l4-8 4 8M10-78l3-7 3 7"/></g><path d="M-66 38h40M-66 30v16M-46 30v16M-26 30v16" stroke="#8a6a3f" stroke-width="3"/>' + sheep(-36, -50, 1.1) + sheep(36, -46, 1, true) + sheep(46, 52, 1.05, true) + sheep(-6, 66, .8),
+  // fields
+  '<g stroke="#c99a2e" stroke-width="2" fill="none" opacity=".7"><path d="M-80-30q40-14 80 0t80 0M-80 40q40-14 80 0t80 0M-60-62q30-10 60 0t60 0M-60 70q30-10 60 0t60 0"/></g>' + wheat(-40, -50, 1.1) + wheat(40, -50, 1.1) + wheat(-46, 50, 1) + wheat(46, 50, 1) + wheat(0, 74, .7),
+  // mountains
+  peak(-30, -48, 1.1, true) + peak(30, -54, 1.2, true) + peak(-52, 46, .8, false) + peak(46, 50, .9, false),
+  // dunes (the desert)
+  '<g fill="none" stroke="#cfae6a" stroke-width="4" stroke-linecap="round"><path d="M-70-20q30-22 60 0M10 30q30-22 60 0M-60 50q24-16 50 0"/></g><circle cx="-30" cy="-60" r="6" fill="#b9a27a"/><circle cx="54" cy="-14" r="4" fill="#b9a27a"/>' + palm(36, -44, 1.2) + palm(-42, 26, .9),
+];
+
+// ------------------------------------------------------------ the board view
+// The board is kept behind this small interface (render, highlight, animate, map a tap to a spot), so
+// a 3D view can stand in for it later without the game controller changing.
+const view = (function () {
+  let svg, gStatic, gPieces, gRobber, gHl, gGhost, gFx, drawnBoard = null;
+  let hl = { v: [], e: [], h: [] };
+  const hexPts = (s) => [0, 1, 2, 3, 4, 5].map((i) => { const a = Math.PI / 180 * (60 * i - 90); return (Math.cos(a) * s).toFixed(1) + ',' + (Math.sin(a) * s).toFixed(1); }).join(' ');
+  function mount(node) {
+    svg = node;
+    svg.innerHTML = '';
+    const defs = el('defs', null, svg);
+    defs.innerHTML = `
+      <radialGradient id="seaG" cx="50%" cy="48%" r="70%"><stop offset="0" stop-color="#2b8ea6"/><stop offset=".55" stop-color="#17647b"/><stop offset="1" stop-color="#0d3a4b"/></radialGradient>
+      <radialGradient id="shine" cx="40%" cy="30%" r="80%"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".18"/></radialGradient>
+      <linearGradient id="woodG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></linearGradient>
+      <radialGradient id="tokG" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#fffaf0"/><stop offset="1" stop-color="#e7d6ae"/></radialGradient>
+      <clipPath id="hexClip" clipPathUnits="userSpaceOnUse"><polygon points="${hexPts(U - 2)}"/></clipPath>
+      <filter id="sh" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="4" stdDeviation="3" flood-opacity=".45"/></filter>`;
+    gStatic = el('g', null, svg); gPieces = el('g', null, svg); gRobber = el('g', { id: 'robber' }, svg);
+    gHl = el('g', null, svg); gGhost = el('g', { class: 'ghost', 'pointer-events': 'none' }, svg); gFx = el('g', { 'pointer-events': 'none' }, svg);
+    drawnBoard = null;
+  }
+  function drawStatic(S) {
+    gStatic.innerHTML = '';
+    el('rect', { x: -560, y: -530, width: 1120, height: 1060, fill: 'url(#seaG)' }, gStatic);
+    const waves = el('g', { stroke: 'rgba(255,255,255,.13)', 'stroke-width': 3, fill: 'none', 'stroke-linecap': 'round' }, gStatic);
+    for (const [x, y] of [[-470, -420], [330, -440], [-500, 300], [380, 360], [-130, 470], [450, -60], [-520, -40], [120, -480]]) el('path', { d: `M${x} ${y}q15-10 30 0t30 0` }, waves);
+    // beach, then tiles
+    const beach = el('g', null, gStatic);
+    M.HEXES.forEach((H) => el('polygon', { points: hexPts(U * 1.16), transform: `translate(${H.x * U} ${H.y * U})`, fill: '#e8d39a', stroke: '#f2e4b8', 'stroke-width': 6 }, beach));
+    M.HEXES.forEach((H) => el('polygon', { points: hexPts(U * 1.07), transform: `translate(${H.x * U} ${H.y * U})`, fill: '#d9bf7e' }, beach));
+    M.HEXES.forEach((H, h) => {
+      const t = S.board.terr[h];
+      const g = el('g', { transform: `translate(${(H.x * U).toFixed(1)} ${(H.y * U).toFixed(1)})` }, gStatic);
+      el('polygon', { points: hexPts(U - 1), fill: t < 0 ? DESERT_FILL : TERR_FILL[t], stroke: '#5a4a2c', 'stroke-width': 3 }, g);
+      el('g', { 'clip-path': 'url(#hexClip)' }, g, ART[t < 0 ? 5 : t]);
+      el('polygon', { points: hexPts(U - 1), fill: 'url(#shine)' }, g);
+      el('rect', { x: -U, y: -U, width: 2 * U, height: 2 * U, fill: '#fff', opacity: 0, class: 'flashrect', id: 'flash' + h, 'clip-path': 'url(#hexClip)' }, g);
+      if (t >= 0) {
+        const n = S.board.num[h], hot = n === 6 || n === 8;
+        const tk = el('g', { filter: 'url(#sh)' }, g);
+        el('circle', { r: 31, fill: 'url(#tokG)', stroke: '#7a5b35', 'stroke-width': 3 }, tk);
+        el('text', { y: 6, 'text-anchor': 'middle', 'font-size': 30, 'font-weight': 800, fill: hot ? '#b3261e' : '#2b2216', 'font-family': 'Georgia, serif' }, tk).textContent = n;
+        const pips = M.PIPS[n];
+        for (let i = 0; i < pips; i++) el('circle', { cx: (i - (pips - 1) / 2) * 7, cy: 19, r: 2.6, fill: hot ? '#b3261e' : '#2b2216' }, tk);
+      }
+    });
+    // harbours
+    S.board.ports.forEach((P) => {
+      const E = M.EDGES[P.e], H = M.HEXES[E.hexes[0]];
+      let nx = E.x - H.x, ny = E.y - H.y; const l = Math.hypot(nx, ny); nx /= l; ny /= l;
+      const mx = (E.x + nx * 0.56) * U, my = (E.y + ny * 0.56) * U;
+      const g = el('g', null, gStatic);
+      for (const v of [E.a, E.b]) {
+        const V = M.VERTS[v];
+        el('line', { x1: V.x * U, y1: V.y * U, x2: V.x * U + (mx - V.x * U) * 0.62, y2: V.y * U + (my - V.y * U) * 0.62, stroke: '#7a5530', 'stroke-width': 9, 'stroke-linecap': 'round' }, g);
+        el('line', { x1: V.x * U, y1: V.y * U, x2: V.x * U + (mx - V.x * U) * 0.62, y2: V.y * U + (my - V.y * U) * 0.62, stroke: '#b9884f', 'stroke-width': 4, 'stroke-linecap': 'round', 'stroke-dasharray': '6 5' }, g);
+      }
+      const b = el('g', { transform: `translate(${mx.toFixed(1)} ${my.toFixed(1)})`, filter: 'url(#sh)' }, g);
+      el('circle', { r: 30, fill: '#f6ecd2', stroke: '#2a5566', 'stroke-width': 3 }, b);
+      if (P.r >= 0) {
+        el('use', { href: '#r' + P.r, x: -14, y: -24, width: 28, height: 28 }, b);
+        el('text', { y: 20, 'text-anchor': 'middle', 'font-size': 15, 'font-weight': 800, fill: '#2b2216' }, b).textContent = '2:1';
+      } else {
+        el('text', { y: 3, 'text-anchor': 'middle', 'font-size': 20, 'font-weight': 800, fill: '#2b2216' }, b).textContent = '3:1';
+        el('text', { y: 19, 'text-anchor': 'middle', 'font-size': 10, fill: '#5a4a2c' }, b).textContent = 'any';
+      }
+    });
+    drawnBoard = S.board;
+  }
+  function roadShape(e, p, parent, cls) {
+    const E = M.EDGES[e], A = M.VERTS[E.a], B = M.VERTS[E.b];
+    const ang = Math.atan2(B.y - A.y, B.x - A.x) * 180 / Math.PI;
+    const g = el('g', { transform: `translate(${(E.x * U).toFixed(1)} ${(E.y * U).toFixed(1)}) rotate(${ang.toFixed(1)})` }, parent);
+    const inner = el('g', cls ? { class: cls } : null, g);
+    el('rect', { x: -33, y: -10, width: 66, height: 20, rx: 6, fill: COLORS[p], stroke: DARK[p], 'stroke-width': 2.5, filter: 'url(#sh)' }, inner);
+    el('rect', { x: -33, y: -10, width: 66, height: 20, rx: 6, fill: 'url(#woodG)' }, inner);
+    el('path', { d: 'M-26-2h20M2 3h22', stroke: 'rgba(0,0,0,.18)', 'stroke-width': 1.5 }, inner);
+    return g;
+  }
+  function houseShape(v, p, lvl, parent, cls) {
+    const V = M.VERTS[v];
+    const g = el('g', { transform: `translate(${(V.x * U).toFixed(1)} ${(V.y * U).toFixed(1)})` }, parent);
+    const inner = el('g', cls ? { class: cls } : null, g);
+    const d = lvl === 2 ? 'M-26 18V-6l12-12 12 12v-14h22v38z' : 'M-17 15V-4L0-19 17-4v19z';
+    inner.setAttribute('transform', 'scale(1.3)');
+    el('path', { d, fill: COLORS[p], stroke: DARK[p], 'stroke-width': 3, 'stroke-linejoin': 'round', filter: 'url(#sh)' }, inner);
+    el('path', { d, fill: 'url(#woodG)' }, inner);
+    if (lvl === 2) el('path', { d: 'M-18 18v-9h7v9M6 -6h5v6h-5zM14 -6h5v6h-5z', fill: 'rgba(0,0,0,.28)' }, inner);
+    else el('path', { d: 'M-5 15V5h10v10', fill: 'rgba(0,0,0,.28)' }, inner);
+    return g;
+  }
+  function robberShape(parent) {
+    const g = el('g', { filter: 'url(#sh)' }, parent);
+    el('path', { d: 'M-17 26c0-20 5-34 17-34s17 14 17 34z', fill: '#2f3337', stroke: '#111', 'stroke-width': 2.5 }, g);
+    el('circle', { cy: -18, r: 12, fill: '#3a3f44', stroke: '#111', 'stroke-width': 2.5 }, g);
+    el('path', { d: 'M-8-20h16', stroke: '#e9e2cf', 'stroke-width': 3, 'stroke-linecap': 'round' }, g);
+    el('path', { d: 'M-12 10q12 6 24 0', stroke: 'rgba(255,255,255,.2)', 'stroke-width': 2, fill: 'none' }, g);
+    return g;
+  }
+  const robberAt = (h) => { const H = M.HEXES[h]; return `translate(${(H.x * U - 50).toFixed(1)}px, ${(H.y * U + 8).toFixed(1)}px)`; };
+  function render(S, fresh) {
+    if (drawnBoard !== S.board) drawStatic(S);
+    fresh = fresh || new Set();
+    gPieces.innerHTML = '';
+    S.eOwn.forEach((p, e) => { if (p >= 0) roadShape(e, p, gPieces, fresh.has('e' + e) ? 'drop' : null); });
+    S.vOwn.forEach((p, v) => { if (p >= 0) houseShape(v, p, S.vLvl[v], gPieces, fresh.has('v' + v) ? 'drop' : null); });
+    if (!gRobber.firstChild) robberShape(gRobber);
+    gRobber.style.transform = robberAt(S.board.robber);
+    // dim the robbed tile
+    svg.querySelectorAll('.robbed').forEach((n) => n.remove());
+    const H = M.HEXES[S.board.robber];
+    el('polygon', { class: 'robbed', points: hexPts(U - 3), transform: `translate(${H.x * U} ${H.y * U})`, fill: 'rgba(10,20,25,.32)', 'pointer-events': 'none' }, gStatic);
+  }
+  function highlight(h) {
+    hl = { v: h.v || [], e: h.e || [], h: h.h || [] };
+    gHl.innerHTML = '';
+    hl.h.forEach((t) => {
+      const H = M.HEXES[t], g = el('g', { transform: `translate(${H.x * U} ${H.y * U})` }, gHl);
+      el('polygon', { class: 'hl-h', points: hexPts(U - 9) }, g);
+      el('circle', { class: 'hl-ring', r: 44 }, g);
+    });
+    hl.e.forEach((e) => {
+      const E = M.EDGES[e], A = M.VERTS[E.a], B = M.VERTS[E.b];
+      const c = { x1: (A.x + (B.x - A.x) * 0.22) * U, y1: (A.y + (B.y - A.y) * 0.22) * U, x2: (A.x + (B.x - A.x) * 0.78) * U, y2: (A.y + (B.y - A.y) * 0.78) * U };
+      const g = el('g', { class: 'hl-e' }, gHl);
+      el('line', Object.assign({ stroke: '#1d1606', 'stroke-width': 24, 'stroke-linecap': 'round' }, c), g);
+      el('line', Object.assign({ stroke: '#fffdf2', 'stroke-width': 15, 'stroke-linecap': 'round' }, c), g);
+    });
+    hl.v.forEach((v) => { const V = M.VERTS[v]; el('circle', { class: 'hl-v', cx: V.x * U, cy: V.y * U, r: 15 }, gHl); });
+  }
+  function preview(kind, at, p) {
+    gGhost.innerHTML = '';
+    if (kind === 'road') roadShape(at, p, gGhost);
+    else if (kind === 'village' || kind === 'town') houseShape(at, p, kind === 'town' ? 2 : 1, gGhost);
+    else if (kind === 'robber') { const H = M.HEXES[at]; const g = el('g', { transform: `translate(${H.x * U - 50} ${H.y * U + 8})` }, gGhost); robberShape(g); }
+  }
+  // A tap anywhere maps to the nearest highlighted spot, within a generous radius: corners and edges
+  // are a few millimetres apart on a phone.
+  function hit(cx, cy) {
+    const pt = svg.createSVGPoint(); pt.x = cx; pt.y = cy;
+    const m = svg.getScreenCTM(); if (!m) return null;
+    const q = pt.matrixTransform(m.inverse());
+    const x = q.x / U, y = q.y / U;
+    let best = null, bd = Infinity;
+    const consider = (kind, id, px, py, rad) => { const d = Math.hypot(px - x, py - y); if (d < rad && d < bd) { bd = d; best = { kind, id }; } };
+    hl.v.forEach((v) => consider('v', v, M.VERTS[v].x, M.VERTS[v].y, 0.8));
+    hl.e.forEach((e) => consider('e', e, M.EDGES[e].x, M.EDGES[e].y, 0.75));
+    hl.h.forEach((h) => consider('h', h, M.HEXES[h].x, M.HEXES[h].y, 1.0));
+    return best;
+  }
+  // Screen position of a board point (for flying cards).
+  function screenOf(x, y) {
+    const m = svg.getScreenCTM(); const pt = svg.createSVGPoint(); pt.x = x * U; pt.y = y * U;
+    const r = pt.matrixTransform(m); return { x: r.x, y: r.y };
+  }
+  const tileScreen = (h) => screenOf(M.HEXES[h].x, M.HEXES[h].y);
+  function flashTile(h) { const r = svg.querySelector('#flash' + h); if (!r) return; r.classList.remove('tile-flash'); void r.getBBox(); r.classList.add('tile-flash'); }
+  function clear() { highlight({}); gGhost.innerHTML = ''; }
+  return { mount, render, highlight, preview, hit, tileScreen, screenOf, flashTile, clear };
+})();
+
+// ------------------------------------------------------------ state, options, saving
+let S = null;
+const defaults = { seats: ['human', 'normal', 'normal', 'normal'], beginner: false, target: 10, fast: false, friendly: false };
+let opts = Object.assign({}, defaults);
+try { const o = JSON.parse(localStorage.getItem(OPTS_KEY) || 'null'); if (o && Array.isArray(o.seats) && o.seats.length === 4) opts = Object.assign({}, defaults, o); } catch (e) { /* ignore */ }
+const saveOpts = () => { try { localStorage.setItem(OPTS_KEY, JSON.stringify(opts)); } catch (e) { /* ignore */ } };
+function save() {
+  try {
+    if (!S || S.phase === 'over') localStorage.removeItem(SAVE_KEY);
+    else localStorage.setItem(SAVE_KEY, M.serialize(S));
+  } catch (e) { /* storage full or blocked: play on */ }
+}
+let badSave = false;
+function loadSave() {
+  let text = null;
+  try { text = localStorage.getItem(SAVE_KEY); } catch (e) { return null; }
+  if (!text) return null;
+  const s = M.deserialize(text);
+  if (!s) { badSave = true; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
+  return s;
+}
+
+// ------------------------------------------------------------ UI state
+const ui = { mode: null, sel: null, viewer: -1, busy: false, timer: 0, offer: null, fresh: new Set(), shown: -1, dispatching: false };
+const humans = () => S.players.map((P, i) => (P.kind === 'human' ? i : -1)).filter((i) => i >= 0);
+const isHuman = (p) => p >= 0 && S.players[p].kind === 'human';
+const delay = (ms) => new Promise((r) => setTimeout(r, opts.fast ? ms * 0.4 : ms));
+const actor = () => (S.phase === 'discard' ? S.discard.findIndex((x) => x > 0) : S.cur);
+function toast(msg, ms) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, ms || 1800);
+}
+
+// ------------------------------------------------------------ rendering the panels
+function renderPlayers() {
+  const box = $('players');
+  box.innerHTML = '';
+  S.players.forEach((P, p) => {
+    const d = document.createElement('div');
+    d.className = 'chip' + (p === S.cur && S.phase !== 'over' ? ' cur' : '') + (ui.busy && p === S.cur && P.kind !== 'human' ? ' think' : '');
+    d.id = 'chip' + p; d.style.setProperty('--c', COLORS[p]);
+    const vp = S.phase === 'over' ? M.totalVP(S, p) : M.publicVP(S, p) + (p === ui.viewer ? P.cards.filter((c) => c.c === 'landmark').length : 0);
+    const aw = (S.longest === p ? '<span class="aw" title="Longest Road">Road</span>' : '') + (S.army === p ? '<span class="aw" title="Strongest Guard">Guard</span>' : '');
+    d.innerHTML = `<div class="nm">${P.name}</div><div class="st"><span class="vp">${vp}</span><span class="mini" title="Cards in hand"><i class="cd"></i>${M.handSize(P)}</span><span class="mini" title="Venture cards"><i class="cd v"></i>${P.cards.length}</span>${aw}</div>`;
+    d.title = `${P.name}: ${vp} points, ${M.handSize(P)} cards, ${P.cards.length} venture cards, ${P.guards} guards played, road ${S.roadLen[p] || 0}`;
+    box.appendChild(d);
+  });
+  const mb = document.createElement('button');
+  mb.id = 'menuBtn'; mb.setAttribute('aria-label', 'Menu'); mb.title = 'Menu';
+  mb.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+  mb.onclick = openMenu;
+  box.appendChild(mb);
+}
+function renderSteps() {
+  const box = $('steps');
+  const ph = S.phase;
+  const step = ph === 'roll' ? 0 : ph === 'main' || ph === 'roads' ? (ui.mode && ui.mode.startsWith('build') ? 2 : 1) : ph === 'over' ? 3 : (ph === 'discard' || ph === 'robber') ? (S.rolled ? 1 : 0) : -1;
+  if (ph === 'setup') { box.innerHTML = '<span class="on">Setup</span>'; return; }
+  box.innerHTML = ['Roll', 'Trade', 'Build', 'End'].map((s, i) => `<span class="${i === step ? 'on' : i < step ? 'done' : ''}">${s}</span>`).join('');
+}
+// The log is written in the third person; the one human called "You" reads it in the second.
+const pretty = (l) => l.replace(/^(\s*)You (\w+?)s\b/, '$1You $2').replace(/ You\b/g, ' you').replace(/^(\s*)You \+/, '$1You +');
+function setStatus(s) { $('status').textContent = s; $('status').title = s; }
+function renderHand() {
+  const box = $('hand');
+  const p = ui.viewer;
+  if (p < 0 || !S) { box.innerHTML = '<div class="hidden-hand">Hands are hidden</div>'; return; }
+  const P = S.players[p];
+  let h = '';
+  for (let r = 0; r < 5; r++) h += `<div class="rc${P.res[r] ? '' : ' zero'}" id="hc${r}" title="${M.RES_NAME[r]}">${icon(r)}<b>${P.res[r]}</b><small>${p === S.cur && S.phase === 'main' ? M.bankRate(S, p, r) + ':1' : ''}</small></div>`;
+  const play = M.playableCards(S, p).length;
+  h += `<button class="rc dev" id="hcDev" title="Venture cards">${'<svg viewBox="-12 -12 24 24"><rect x="-8" y="-11" width="16" height="22" rx="3" fill="#6b4aa8"/><path d="M-4-4h8M-4 1h8M-4 6h5" stroke="#e8d9ff" stroke-width="1.6"/></svg>'}<b>${P.cards.length}</b>${play ? '<i class="ready" title="A card can be played"></i>' : ''}</button>`;
+  box.innerHTML = h;
+  $('hcDev').onclick = () => openCards(p);
+}
+function btn(label, fn, cls, dis, id) {
+  const b = document.createElement('button');
+  b.className = 'btn' + (cls ? ' ' + cls : ''); b.innerHTML = label; b.disabled = !!dis; b.onclick = fn; if (id) b.id = id;
+  return b;
+}
+function renderActions() {
+  const box = $('actions');
+  box.innerHTML = '';
+  const add = (...a) => box.appendChild(btn(...a));
+  if (!S || S.phase === 'over') { if (S) add('See results', showVictory, 'go'); return; }
+  const a = actor();
+  if (!isHuman(a) || ui.busy || ui.viewer !== a) { setTimeout(() => {}, 0); return; }
+  const p = S.cur, P = S.players[p];
+  if (ui.sel) {
+    add('Cancel', () => { ui.sel = null; view.preview(null); refresh(); }, 'alt');
+    add(ui.sel.label, confirmSel, 'go', false, 'btnConfirm');
+    return;
+  }
+  switch (S.phase) {
+    case 'setup': break;
+    case 'roll':
+      if (M.playableCards(S, p).includes('guard')) add('Play Guard', () => playCard('guard'), 'alt');
+      add('Roll dice', () => humanAct({ t: 'roll' }), 'go', false, 'btnRoll');
+      break;
+    case 'roads': add('Done', () => humanAct({ t: 'skip' }), 'alt'); break;
+    case 'main':
+      if (ui.mode === 'build') {
+        const can = (k) => M.hasAll(P.res, M.COST[k]);
+        add('Road ' + costHtml(M.COST.road), () => pickBuild('road'), 'col', !can('road') || !M.legalRoads(S, p).length, 'bRoad');
+        add('Village ' + costHtml(M.COST.village), () => pickBuild('village'), 'col', !can('village') || P.left.village <= 0 || !M.legalVillages(S, p).length, 'bVillage');
+        add('Town ' + costHtml(M.COST.town), () => pickBuild('town'), 'col', !can('town') || P.left.town <= 0 || !M.legalTowns(S, p).length, 'bTown');
+        add('Card ' + costHtml(M.COST.card), () => humanAct({ t: 'buy' }), 'col', !can('card') || !S.deck.length, 'bCard');
+        add('Back', () => { ui.mode = null; view.clear(); refresh(); }, 'alt small');
+      } else {
+        add('Trade', openTrade, 'alt', false, 'btnTrade');
+        add('Build', () => { ui.mode = 'build'; refresh(); }, 'alt', false, 'btnBuild');
+        add('End turn', () => humanAct({ t: 'end' }), 'go', false, 'btnEnd');
+      }
+      break;
+  }
+}
+function statusText() {
+  if (S.phase === 'over') return S.players[S.winner].name + ' wins!';
+  const a = actor(), P = S.players[a], you = isHuman(a) && ui.viewer === a;
+  const nm = you ? 'You' : P.name;
+  switch (S.phase) {
+    case 'setup': {
+      const second = S.setup.i >= S.players.length;
+      if (S.setup.need === 'village') return you ? `Place your ${second ? 'second' : 'first'} village on a glowing corner` + (second ? ' (it pays its tiles now)' : '') : `${P.name} is choosing a spot…`;
+      return you ? 'Now a road next to it' : `${P.name} places a road…`;
+    }
+    case 'roll': return you ? 'Your turn: roll the dice' : `${P.name} is rolling…`;
+    case 'main': return you ? (ui.mode === 'build' ? 'Build: pick what to build' : (S.dice ? `Rolled ${S.dice[0] + S.dice[1]}: ` : '') + 'trade, build, end') : `${P.name} is trading and building…`;
+    case 'discard': return you ? `Too many cards: discard ${S.discard[a]}` : `${P.name} discards…`;
+    case 'robber': return you ? 'Move the bandit: tap a tile' : `${P.name} moves the bandit…`;
+    case 'roads': return you ? `Road Crew: place ${S.freeRoads} free road${S.freeRoads > 1 ? 's' : ''}` : `${nm} builds roads…`;
+  }
+  return '';
+}
+// Highlights for the human whose move it is.
+function legalHighlights() {
+  const a = actor();
+  if (!isHuman(a) || ui.viewer !== a || ui.busy) return {};
+  const p = S.cur;
+  if (S.phase === 'setup') return S.setup.need === 'village' ? { v: M.legalVillages(S, p) } : { e: M.legalRoads(S, p) };
+  if (S.phase === 'robber') return { h: M.legalRobberTiles(S, p) };
+  if (S.phase === 'roads') return { e: M.legalRoads(S, p) };
+  if (S.phase === 'main' && ui.mode === 'build-road') return { e: M.legalRoads(S, p) };
+  if (S.phase === 'main' && ui.mode === 'build-village') return { v: M.legalVillages(S, p) };
+  if (S.phase === 'main' && ui.mode === 'build-town') return { v: M.legalTowns(S, p) };
+  return {};
+}
+function refresh() {
+  if (!S) return;
+  // whose hand is on show
+  const hs = humans();
+  if (hs.length === 1) ui.viewer = hs[0];
+  view.render(S, ui.fresh); ui.fresh = new Set();
+  renderPlayers(); renderSteps(); setStatus(statusText()); renderHand(); renderActions();
+  if (!ui.sel) view.highlight(legalHighlights());
+  renderDice(S.dice);
+  renderFeed();
+}
+// Recent events under the island, in the spare height a tall phone leaves around a wide board.
+function renderFeed() {
+  const wrap = $('boardWrap'), f = $('feed');
+  const spare = (wrap.clientHeight - wrap.clientWidth * 980 / 1050) / 2;
+  const lines = Math.min(6, Math.floor((spare - 8) / 19));
+  if (lines < 2 || !S) { f.hidden = true; return; }
+  f.hidden = false;
+  f.innerHTML = S.log.slice(-lines).map((l, i, a) => `<div style="opacity:${0.45 + 0.55 * (i + 1) / a.length}">${pretty(l)}</div>`).join('');
+}
+
+// ------------------------------------------------------------ dice
+const PIPMAP = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+function dieHtml(n, red) { let s = `<div class="die${red ? ' red' : ''}">`; for (let i = 0; i < 9; i++) s += `<i class="${PIPMAP[n] && PIPMAP[n].includes(i) ? 'on' : ''}"></i>`; return s + '</div>'; }
+function renderDice(d) {
+  const box = $('dice');
+  if (box.classList.contains('rolling')) return;
+  box.innerHTML = d ? dieHtml(d[0]) + dieHtml(d[1], true) + `<span class="sum">${d[0] + d[1]}</span>` : '';
+}
+async function rollAnim(d) {
+  const box = $('dice');
+  box.classList.add('rolling', 'big');
+  const t0 = Date.now();
+  while (Date.now() - t0 < (opts.fast ? 300 : 650)) {
+    box.innerHTML = dieHtml(1 + Math.floor(Math.random() * 6)) + dieHtml(1 + Math.floor(Math.random() * 6), true);
+    await new Promise((r) => setTimeout(r, 70));
+  }
+  box.classList.remove('rolling');
+  box.innerHTML = dieHtml(d[0]) + dieHtml(d[1], true) + `<span class="sum">${d[0] + d[1]}</span>`;
+  await delay(450);
+  box.classList.remove('big');
+}
+
+// ------------------------------------------------------------ flying cards
+function targetFor(p, r) {
+  const n = p === ui.viewer && r >= 0 ? $('hc' + r) : $('chip' + p);
+  if (!n) return null;
+  const b = n.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+}
+function flyCard(from, to, r, hidden, wait) {
+  if (!from || !to) return Promise.resolve();
+  const d = document.createElement('div');
+  d.className = 'flycard' + (hidden ? ' back' : '');
+  d.innerHTML = hidden ? '' : icon(r);
+  d.style.left = from.x + 'px'; d.style.top = from.y + 'px';
+  $('fly').appendChild(d);
+  const dur = opts.fast ? 380 : 700;
+  const anim = d.animate([
+    { transform: 'translate(0,0) scale(.6)', opacity: 0 },
+    { transform: `translate(0,-24px) scale(1.1)`, opacity: 1, offset: 0.25 },
+    { transform: `translate(${to.x - from.x}px, ${to.y - from.y}px) scale(.7)`, opacity: 0.9 },
+  ], { duration: dur, delay: wait || 0, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both' });
+  return new Promise((res) => { anim.onfinish = () => { d.remove(); res(); }; anim.oncancel = () => { d.remove(); res(); }; });
+}
+async function animateEvents(ev, before) {
+  const flights = [];
+  let k = 0;
+  for (const e of ev) {
+    if (e.e === 'gain' && e.tile >= 0) {
+      view.flashTile(e.tile);
+      for (let i = 0; i < e.n; i++) flights.push(flyCard(view.tileScreen(e.tile), targetFor(e.p, e.r), e.r, e.p !== ui.viewer, (k++) * 90));
+    } else if (e.e === 'gain') {
+      flights.push(flyCard({ x: innerWidth / 2, y: innerHeight / 2 }, targetFor(e.p, e.r), e.r, e.p !== ui.viewer, (k++) * 90));
+    } else if (e.e === 'take') {
+      const show = e.to === ui.viewer || e.from === ui.viewer;
+      for (let i = 0; i < Math.min(e.n, 6); i++) flights.push(flyCard(targetFor(e.from, -1), targetFor(e.to, e.r), e.r, !show, (k++) * 90));
+    } else if (e.e === 'trade') {
+      const show = e.p === ui.viewer || e.q === ui.viewer;
+      e.give.forEach((n, r) => { for (let i = 0; i < n; i++) flights.push(flyCard(targetFor(e.p, -1), targetFor(e.q, r), r, !show && false, (k++) * 80)); });
+      e.get.forEach((n, r) => { for (let i = 0; i < n; i++) flights.push(flyCard(targetFor(e.q, -1), targetFor(e.p, r), r, !show && false, (k++) * 80)); });
+    } else if (e.e === 'discard') {
+      for (let i = 0; i < Math.min(e.n, 6); i++) flights.push(flyCard(targetFor(e.p, -1), { x: innerWidth / 2, y: -40 }, 0, true, (k++) * 60));
+    } else if (e.e === 'build') {
+      ui.fresh.add((e.kind === 'road' ? 'e' : 'v') + e.at);
+    } else if (e.e === 'award') {
+      toast(e.p >= 0 ? `${S.players[e.p].name} ${e.p === ui.viewer ? 'take' : 'takes'} ${e.what === 'road' ? 'the Longest Road' : 'the Strongest Guard'} (+2)` : 'Nobody holds the Longest Road now', 2400);
+    } else if (e.e === 'short') {
+      toast(`The bank is short of ${M.RES_NAME[e.r]}: nobody gets it`, 2200);
+    }
+  }
+  if (flights.length) await Promise.all(flights);
+}
+
+// ------------------------------------------------------------ doing things
+async function apply(a) {
+  const prevRobber = S.board.robber;
+  const r = M.act(S, a);
+  if (!r.ok) { toast(r.why); return r; }
+  ui.sel = null; view.preview(null);
+  if (a.t === 'end' || a.t === 'roll') ui.mode = null;
+  if (a.t === 'village' || a.t === 'road' || a.t === 'town') { if (S.phase !== 'roads') ui.mode = null; }
+  const rolled = r.ev.find((e) => e.e === 'roll');
+  ui.busy = true;
+  if (rolled) { refresh(); await rollAnim(rolled.d); }
+  if (r.ev.some((e) => e.e === 'robber')) { refresh(); await delay(700); }
+  refresh();
+  await animateEvents(r.ev);
+  ui.busy = false;
+  for (const e of r.ev) {
+    if (e.e === 'buy' && e.p === ui.viewer) toast('You drew: ' + M.CARDS[e.c].name);
+    if (e.e === 'take' && e.to === ui.viewer && S.players[e.from]) toast(`You took ${e.n} ${M.RES_NAME[e.r]} from ${S.players[e.from].name}`);
+    if (e.e === 'take' && e.from === ui.viewer && !(a.t === 'play')) toast(`${S.players[e.to].name} took 1 ${M.RES_NAME[e.r]} from you`);
+    if (e.e === 'play' && e.p !== ui.viewer) toast(`${S.players[e.p].name} plays ${M.CARDS[e.c].name}`);
+  }
+  void prevRobber;
+  save();
+  refresh();
+  return r;
+}
+async function humanAct(a) {
+  if (ui.busy) return;
+  const r = await apply(a);
+  if (r.ok) loop();
+}
+function pickBuild(kind) {
+  if (kind === 'road') ui.mode = 'build-road';
+  if (kind === 'village') ui.mode = 'build-village';
+  if (kind === 'town') ui.mode = 'build-town';
+  setStatus('Tap a glowing ' + (kind === 'road' ? 'edge' : 'corner') + ' to build');
+  view.highlight(legalHighlights());
+  renderActions();
+  const box = $('actions'); box.innerHTML = ''; box.appendChild(btn('Cancel', () => { ui.mode = 'build'; ui.sel = null; view.preview(null); refresh(); }, 'alt'));
+}
+// Taps on the board: select a highlighted spot, show a ghost piece, and confirm with a second tap or the button.
+function onBoardTap(ev) {
+  if (!S || ui.busy) return;
+  const a = actor();
+  if (!isHuman(a) || ui.viewer !== a) return;
+  const h = view.hit(ev.clientX, ev.clientY);
+  if (!h) return;
+  const p = S.cur;
+  let sel = null;
+  if (h.kind === 'v') {
+    if (S.phase === 'setup') sel = { kind: 'village', act: { t: 'village', v: h.id }, label: 'Place village' };
+    else if (ui.mode === 'build-village') sel = { kind: 'village', act: { t: 'village', v: h.id }, label: 'Build village' };
+    else if (ui.mode === 'build-town') sel = { kind: 'town', act: { t: 'town', v: h.id }, label: 'Build town' };
+    if (sel) sel.at = h.id;
+  } else if (h.kind === 'e') {
+    sel = { kind: 'road', act: { t: 'road', e: h.id }, at: h.id, label: S.phase === 'roads' ? 'Place free road' : S.phase === 'setup' ? 'Place road' : 'Build road' };
+  } else if (h.kind === 'h') {
+    sel = { kind: 'robber', at: h.id, label: 'Move bandit here', act: null };
+  }
+  if (!sel) return;
+  if (ui.sel && ui.sel.kind === sel.kind && ui.sel.at === sel.at) { confirmSel(); return; }
+  ui.sel = sel;
+  view.preview(sel.kind, sel.at, p);
+  view.highlight(legalHighlights());
+  setStatus('Tap again or press "' + sel.label + '"');
+  renderActions();
+}
+function confirmSel() {
+  const sel = ui.sel; if (!sel) return;
+  if (sel.kind === 'robber') {
+    const vs = M.victimsAt(S, sel.at, S.cur);
+    if (vs.length > 1) { chooseVictim(sel.at, vs); return; }
+    humanAct({ t: 'robber', h: sel.at, victim: vs.length ? vs[0] : -1 });
+    return;
+  }
+  humanAct(sel.act);
+}
+function chooseVictim(h, vs) {
+  openSheet('Take a card from…', (box) => {
+    vs.forEach((q) => {
+      const d = document.createElement('div'); d.className = 'resp';
+      d.innerHTML = `<div class="who"><b style="background:${COLORS[q]}"></b>${S.players[q].name} <span class="muted">${M.handSize(S.players[q])} cards</span></div>`;
+      d.appendChild(btn('Rob', () => { closeSheet(); humanAct({ t: 'robber', h, victim: q }); }, 'go small'));
+      box.appendChild(d);
+    });
+  }, true);
+}
+
+// ------------------------------------------------------------ sheets
+function openSheet(title, fill, noClose) {
+  const sh = $('sheet');
+  sh.innerHTML = `<h2>${title}${noClose ? '' : '<button class="x" id="sheetX" aria-label="Close">×</button>'}</h2>`;
+  const body = document.createElement('div'); sh.appendChild(body);
+  fill(body);
+  $('sheetVeil').hidden = false;
+  if (!noClose) $('sheetX').onclick = closeSheet;
+}
+function closeSheet() { $('sheetVeil').hidden = true; $('sheet').innerHTML = ''; ui.offer = null; }
+function openCards(p) {
+  const P = S.players[p];
+  const playable = M.playableCards(S, p);
+  openSheet('Venture cards', (box) => {
+    if (!P.cards.length) box.innerHTML = '<p class="muted">No cards yet. Buy one with Build → Card (wool, grain, ore). You may play one card per turn, not on the turn you bought it.</p>';
+    const seen = new Set();
+    P.cards.forEach((c) => {
+      const key = c.c + (c.t >= S.turn ? 'new' : '');
+      const n = P.cards.filter((x) => x.c === c.c && (x.t >= S.turn) === (c.t >= S.turn)).length;
+      if (seen.has(key)) return; seen.add(key);
+      const d = document.createElement('div'); d.className = 'card';
+      const nm = c.c === 'landmark' ? 'Landmark: ' + P.cards.filter((x) => x.c === 'landmark').map((x) => x.name).join(', ') : M.CARDS[c.c].name + (n > 1 ? ' ×' + n : '');
+      d.innerHTML = `<div class="txt"><b>${nm}</b><span>${M.CARDS[c.c].text}${c.t >= S.turn && c.c !== 'landmark' ? ' <i>(bought this turn)</i>' : ''}</span></div>`;
+      if (c.c !== 'landmark' && c.t < S.turn) d.appendChild(btn('Play', () => playCard(c.c), 'go small', !playable.includes(c.c) || ui.viewer !== S.cur));
+      box.appendChild(d);
+    });
+    const info = document.createElement('p'); info.className = 'muted';
+    info.textContent = `Guards played: ${P.guards}. Cards left in the deck: ${S.deck.length}.` + (S.cardPlayed && p === S.cur ? ' You have already played a card this turn.' : S.phase === 'roll' && p === S.cur ? ' Before you roll, only a Guard can be played.' : '');
+    box.appendChild(info);
+  });
+}
+function pickResources(title, n, done) {
+  const picks = [];
+  openSheet(title, (box) => {
+    const line = document.createElement('div'); line.className = 'offerline';
+    const row = document.createElement('div'); row.className = 'row';
+    const draw = () => {
+      line.innerHTML = picks.length ? picks.map((r) => `<span class="pill">${icon(r)} ${M.RES_NAME[r]}</span>`).join(' ') : '<span class="muted">Pick ' + n + '</span>';
+      ok.disabled = picks.length !== n;
+    };
+    for (let r = 0; r < 5; r++) {
+      const b = document.createElement('button'); b.className = 'rc'; b.innerHTML = icon(r) + `<b style="font-size:11px">${M.RES_NAME[r]}</b>`;
+      b.disabled = S.bank[r] - picks.filter((x) => x === r).length <= 0 && n > 1;
+      b.onclick = () => { if (picks.length >= n) picks.shift(); picks.push(r); draw(); };
+      row.appendChild(b);
+    }
+    const ok = btn('OK', () => { closeSheet(); done(picks.slice()); }, 'go');
+    box.appendChild(row); box.appendChild(line); const r2 = document.createElement('div'); r2.className = 'row'; r2.appendChild(ok); box.appendChild(r2);
+    draw();
+  });
+}
+function playCard(c) {
+  closeSheet();
+  if (c === 'harvest') { pickResources('Good Harvest: take two', 2, (ps) => humanAct({ t: 'play', c, r: ps[0], r2: ps[1] })); return; }
+  if (c === 'market') { pickResources('Market Day: name a resource', 1, (ps) => humanAct({ t: 'play', c, r: ps[0] })); return; }
+  humanAct({ t: 'play', c });
+}
+function openDiscard(p) {
+  const need = S.discard[p], P = S.players[p], pick = [0, 0, 0, 0, 0];
+  openSheet(`${P.name}: discard ${need}`, (box) => {
+    const info = document.createElement('p'); info.className = 'muted'; info.textContent = 'A 7 was rolled and you hold more than 7 cards. Tap cards to set aside half; tap a chip to put one back.';
+    const row = document.createElement('div'); row.className = 'row';
+    const line = document.createElement('div'); line.className = 'offerline';
+    const ok = btn('Discard', () => { closeSheet(); humanAct({ t: 'discard', p, cards: pick.slice() }); }, 'go', true, 'btnDiscard');
+    const draw = () => {
+      row.innerHTML = '';
+      for (let r = 0; r < 5; r++) {
+        const b = document.createElement('button'); b.className = 'rc'; b.id = 'dc' + r;
+        b.innerHTML = icon(r) + `<b>${P.res[r] - pick[r]}</b>` + (pick[r] ? `<span class="badge">${pick[r]}</span>` : '');
+        b.disabled = P.res[r] - pick[r] <= 0 || M.sum(pick) >= need;
+        b.onclick = () => { pick[r]++; draw(); };
+        row.appendChild(b);
+      }
+      line.innerHTML = '';
+      pick.forEach((n, r) => { if (n) { const c = document.createElement('button'); c.className = 'pill'; c.innerHTML = `${n} ${icon(r)}`; c.onclick = () => { pick[r]--; draw(); }; line.appendChild(c); } });
+      if (!M.sum(pick)) line.innerHTML = `<span class="muted">0 of ${need} chosen</span>`;
+      ok.disabled = M.sum(pick) !== need;
+    };
+    box.appendChild(info); box.appendChild(row); box.appendChild(line);
+    const r2 = document.createElement('div'); r2.className = 'row'; r2.appendChild(ok); box.appendChild(r2);
+    draw();
+  }, true);
+}
+
+// ------------------------------------------------------------ trading (the heart of it)
+function openTrade() {
+  const p = S.cur, P = S.players[p];
+  ui.offer = { give: [0, 0, 0, 0, 0], get: [0, 0, 0, 0, 0], answers: null };
+  const o = ui.offer;
+  openSheet('Trade', (box) => {
+    const rowG = document.createElement('div'); rowG.className = 'row';
+    const rowW = document.createElement('div'); rowW.className = 'row';
+    const line = document.createElement('div'); line.className = 'offerline'; line.id = 'offerLine';
+    const btns = document.createElement('div'); btns.className = 'row';
+    const resp = document.createElement('div'); resp.id = 'responses';
+    const ask = btn('Ask players', askPlayers, 'go', true, 'btnAsk');
+    const bank = btn('Bank', doBank, 'alt', true, 'btnBank');
+    const clr = btn('Clear', () => { o.give.fill(0); o.get.fill(0); o.answers = null; draw(); }, 'alt small');
+    btns.append(ask, bank, clr);
+    const draw = () => {
+      rowG.innerHTML = '<label>You give</label>'; rowW.innerHTML = '<label>You get</label>';
+      for (let r = 0; r < 5; r++) {
+        const g = document.createElement('button'); g.className = 'rc'; g.id = 'tg' + r;
+        g.innerHTML = icon(r) + `<b>${P.res[r] - o.give[r]}</b>` + (o.give[r] ? `<span class="badge">${o.give[r]}</span>` : '') + `<span class="rate">${M.bankRate(S, p, r)}:1</span>`;
+        g.disabled = P.res[r] - o.give[r] <= 0;
+        g.onclick = () => { o.give[r]++; o.get[r] = 0; o.answers = null; draw(); };
+        rowG.appendChild(g);
+        const w = document.createElement('button'); w.className = 'rc'; w.id = 'tw' + r;
+        w.innerHTML = icon(r) + `<b style="font-size:11px">${M.RES_NAME[r]}</b>` + (o.get[r] ? `<span class="badge">${o.get[r]}</span>` : '');
+        w.onclick = () => { o.get[r]++; o.give[r] = 0; o.answers = null; draw(); };
+        rowW.appendChild(w);
+      }
+      line.innerHTML = '';
+      const chip = (v, side) => v.forEach((n, r) => { if (n) { const c = document.createElement('button'); c.className = 'pill'; c.innerHTML = `${n}${icon(r)}`; c.title = 'Remove one'; c.onclick = () => { v[r]--; o.answers = null; draw(); }; line.appendChild(c); } });
+      if (!M.sum(o.give) && !M.sum(o.get)) line.innerHTML = '<span class="muted">Tap what you give, then what you want. Tap a chip to take one back.</span>';
+      else { chip(o.give); const ar = document.createElement('span'); ar.textContent = ' for '; line.appendChild(ar); chip(o.get); }
+      ask.disabled = !M.validOffer(o.give, o.get);
+      const bt = bankTerms(); bank.disabled = !bt; bank.innerHTML = bt ? `Bank ${bt.rate}:1` : 'Bank';
+      drawResponses(resp);
+    };
+    const left = document.createElement('div'); left.append(rowG, rowW, line, btns);
+    box.className = 'tradegrid'; box.append(left, resp);
+    o.redraw = draw;
+    draw();
+  });
+}
+// A bank trade needs one resource given, at the player's rate, for one resource wanted.
+function bankTerms() {
+  const o = ui.offer; if (!o) return null;
+  const p = S.cur;
+  const gs = o.give.map((n, r) => (n ? r : -1)).filter((r) => r >= 0), ws = o.get.map((n, r) => (n ? r : -1)).filter((r) => r >= 0);
+  if (gs.length !== 1 || ws.length !== 1) return null;
+  const rate = M.bankRate(S, p, gs[0]);
+  if (o.give[gs[0]] !== rate * o.get[ws[0]] || S.bank[ws[0]] < o.get[ws[0]]) return null;
+  return { give: gs[0], get: ws[0], n: o.get[ws[0]], rate };
+}
+async function doBank() {
+  const t = bankTerms(); if (!t) return;
+  const o = ui.offer;
+  const r = M.act(S, { t: 'bank', give: t.give, get: t.get, n: t.n });
+  if (!r.ok) { toast(r.why); return; }
+  save(); refresh();
+  toast(`Traded ${t.rate * t.n} ${M.RES_NAME[t.give]} for ${t.n} ${M.RES_NAME[t.get]}`);
+  o.give.fill(0); o.get.fill(0); o.answers = null; o.redraw();
+}
+function askPlayers() {
+  const o = ui.offer, p = S.cur;
+  o.answers = {};
+  S.players.forEach((Q, q) => {
+    if (q === p) return;
+    o.answers[q] = Q.kind === 'human' ? 'ask' : M.aiRespond(S, q, p, o.give, o.get);
+  });
+  o.redraw();
+}
+function drawResponses(box) {
+  const o = ui.offer; box.innerHTML = '';
+  if (!o || !o.answers) return;
+  const p = S.cur;
+  Object.keys(o.answers).map(Number).forEach((q) => {
+    const a = o.answers[q], Q = S.players[q];
+    const d = document.createElement('div'); d.className = 'resp'; d.id = 'resp' + q;
+    let txt = '';
+    if (a === 'accept') txt = '<span class="ok">Accepts</span>';
+    else if (a === 'reject') txt = '<span class="no">No thanks</span>';
+    else if (a === 'ask') txt = '<span class="muted">Hand the device over to ask</span>';
+    else if (a === 'declined') txt = '<span class="no">Declined</span>';
+    else txt = `Counter: gives ${M.describe(a.get)} for your ${M.describe(a.give)}`;
+    d.innerHTML = `<div class="who"><b style="background:${COLORS[q]}"></b>${Q.name}: ${txt}</div>`;
+    if (a === 'accept') d.appendChild(btn('Trade', () => doTrade(q, o.give, o.get), 'go small', false, 'take' + q));
+    else if (a === 'ask') d.appendChild(btn('Ask ' + Q.name, () => askHuman(q), 'alt small'));
+    else if (a && typeof a === 'object') d.appendChild(btn('Take it', () => doTrade(q, a.give, a.get), 'go small', !M.hasAll(S.players[p].res, a.give), 'take' + q));
+    box.appendChild(d);
+  });
+}
+async function doTrade(q, give, get) {
+  const r = M.act(S, { t: 'trade', with: q, give: give.slice(), get: get.slice() });
+  if (!r.ok) { toast(r.why); return; }
+  const o = ui.offer;
+  save(); refresh();
+  await animateEvents(r.ev);
+  refresh();
+  if (o) { o.give.fill(0); o.get.fill(0); o.answers = null; o.redraw(); }
+  toast('Traded with ' + S.players[q].name);
+}
+// Pass-and-play: another human answers an offer on the same device, seeing only the offer.
+function askHuman(q) {
+  const o = ui.offer, p = S.cur, Q = S.players[q];
+  const can = M.hasAll(Q.res, o.get);
+  showCover(`${Q.name}, ${S.players[p].name} offers you ${M.describe(o.give)} for your ${M.describe(o.get)}.` + (can ? '' : ' (You do not have those cards.)'), [
+    ['Accept', () => { o.answers[q] = can ? 'accept' : 'declined'; hideCover(); o.redraw(); }, !can],
+    ['Decline', () => { o.answers[q] = 'declined'; hideCover(); o.redraw(); }],
+  ]);
+}
+
+// ------------------------------------------------------------ cover (pass the device)
+function showCover(text, buttons) {
+  const c = $('cover'); c.innerHTML = '';
+  const t = document.createElement('div'); t.className = 'big'; t.textContent = text; c.appendChild(t);
+  const row = document.createElement('div'); row.className = 'row';
+  buttons.forEach(([label, fn, dis]) => row.appendChild(btn(label, fn, 'go', dis)));
+  c.appendChild(row); c.hidden = false;
+}
+function hideCover() { $('cover').hidden = true; }
+
+// ------------------------------------------------------------ the game loop
+// Drives computer players one action at a time, with a short pause between so you can follow them,
+// and hands the device over between humans in pass-and-play.
+async function loop() {
+  if (ui.dispatching) return;
+  ui.dispatching = true;
+  try {
+    while (S && S.phase !== 'over') {
+      const a = actor();
+      if (isHuman(a)) {
+        if (ui.viewer !== a) {
+          const prev = ui.viewer;
+          ui.viewer = -1; refresh();
+          if (humans().length > 1 || prev >= 0) {
+            await new Promise((res) => showCover(`Pass to ${S.players[a].name}`, [[`I'm ${S.players[a].name}`, () => { hideCover(); res(); }]]));
+          }
+          ui.viewer = a;
+        }
+        refresh();
+        if (S.phase === 'discard') openDiscard(a);
+        break;
+      }
+      ui.busy = true; refresh();
+      await delay(S.phase === 'setup' ? 450 : 600);
+      const step = M.aiStep(S);
+      if (step.t === 'offer') await computerProposes(step);
+      else {
+        ui.busy = false;
+        const r = await apply(step);
+        if (!r.ok) { console.error('AI move refused', step, r.why); M.act(S, { t: 'end' }); }
+      }
+      ui.busy = false;
+    }
+  } finally { ui.dispatching = false; ui.busy = false; }
+  if (S && S.phase === 'over') { refresh(); await delay(900); showVictory(); }
+}
+// A computer proposes a trade to the table. Other computers answer at once; a human answers in a dialog,
+// but only when they are asked before the first computer that accepted (seat order after the proposer).
+async function computerProposes(step) {
+  const p = S.cur;
+  S.tc.offers++;
+  const answers = M.aiAnswers(S, p, step.give, step.get);
+  const n = S.players.length;
+  for (let k = 1; k < n; k++) {
+    const q = (p + k) % n;
+    if (answers[q] === 'accept') break;
+    if (!isHuman(q)) continue;
+    if (!M.hasAll(S.players[q].res, step.get)) { answers[q] = 'reject'; continue; }
+    ui.busy = false;
+    answers[q] = await new Promise((res) => {
+      const ask = () => openSheet(`${S.players[p].name} offers a trade`, (box) => {
+        box.innerHTML = `<p style="font-size:17px">${S.players[p].name} gives you <b>${M.describe(step.give)}</b> for your <b>${M.describe(step.get)}</b>.</p><p class="muted">${M.publicVP(S, p)} points showing. You hold ${M.describe(S.players[q].res)}.</p>`;
+        const row = document.createElement('div'); row.className = 'row';
+        row.append(btn('No thanks', () => { closeSheet(); res('reject'); }, 'alt', false, 'aiNo'), btn('Accept', () => { closeSheet(); res('accept'); }, 'go', false, 'aiYes'));
+        box.appendChild(row);
+      }, true);
+      if (ui.viewer !== q && humans().length > 1) { ui.viewer = -1; refresh(); showCover(`${S.players[q].name}: a trade offer for you`, [[`I'm ${S.players[q].name}`, () => { hideCover(); ui.viewer = q; refresh(); ask(); }]]); }
+      else ask();
+    });
+    if (answers[q] === 'accept') break;
+  }
+  const t = M.settleOffer(S, p, step.give, step.get, answers);
+  if (t) { await apply(t); toast(`${S.players[p].name} traded with ${S.players[t.with].name}`); }
+  else { setStatus(`${S.players[p].name} asked for ${M.describe(step.get)}; no takers`); await delay(500); }
+}
+
+// ------------------------------------------------------------ menu, rules, victory, setup
+function openMenu() {
+  openSheet('Menu', (box) => {
+    box.className = 'menu';
+    box.append(
+      btn('Rules', openRules, 'alt'),
+      btn('Game log', openLog, 'alt'),
+      btn(opts.fast ? 'Speed: Fast (tap for Normal)' : 'Speed: Normal (tap for Fast)', () => { opts.fast = !opts.fast; saveOpts(); openMenu(); }, 'alt'),
+      btn('New game', () => { closeSheet(); showSetup(); }, 'go'),
+    );
+  });
+}
+function openLog() { openSheet('Game log', (box) => { box.id = 'log'; box.innerHTML = S.log.slice().reverse().map((l) => `<div>${pretty(l)}</div>`).join('') || '<p class="muted">Nothing yet.</p>'; }); }
+function openRules() {
+  openSheet('How to play', (box) => {
+    box.className = 'rules';
+    box.innerHTML = `
+      <p>Settle the island, trade for what you lack, and be first to <b>${S ? S.target : 10} points</b>.</p>
+      <h3>Setup</h3><p>Each player places a village and a road, then again in reverse order. Your second village pays one card from each tile around it. Villages need a free corner with no building on any neighbouring corner.</p>
+      <h3>Your turn: Roll, Trade, Build, End</h3>
+      <ul><li><b>Roll.</b> Every tile showing that number pays its resource: 1 card per village, 2 per town, to everyone with a building on it (not just you).</li>
+      <li><b>Trade.</b> Offer cards to everyone, or trade with the bank at 4:1; a harbour makes it 3:1 (any) or 2:1 (its resource).</li>
+      <li><b>Build.</b> Road: timber + clay. Village (1 point): timber, clay, wool, grain. Town (2 points, replaces a village, pays double): 2 grain + 3 ore. Venture card: wool, grain, ore.</li></ul>
+      <h3>A 7 and the bandit</h3><p>Nobody is paid. Everyone with more than 7 cards discards half (rounded down). The roller moves the bandit to another tile, which then pays nothing, and takes a random card from someone with a building there.</p>
+      <h3>Venture cards</h3><ul>${M.CARD_ORDER.map((c) => `<li><b>${M.CARDS[c].name}</b> (${M.CARDS[c].n}): ${M.CARDS[c].text}</li>`).join('')}</ul>
+      <p>One card per turn, never on the turn you bought it. A Guard may be played before you roll.</p>
+      <h3>Awards (2 points each)</h3><p><b>Longest Road</b>: the first unbroken road of 5 or more; someone must build a longer one to take it. Another player's village on your road breaks it. <b>Strongest Guard</b>: the first to play 3 Guards; someone must play more to take it.</p>
+      <h3>Computer players</h3><p>Easy builds where it likes and rarely trades. Normal plans its builds, uses harbours and trades. Hard also races for the awards, sends the bandit at the leader and bargains harder. None of them will trade with a player close to winning.</p>`;
+  });
+}
+const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+function showVictory() {
+  if (!S || S.phase !== 'over') return;
+  const order = S.players.map((P, p) => p).sort((a, b) => M.totalVP(S, b) - M.totalVP(S, a));
+  openSheet(`${S.players[S.winner].name} ${isHuman(S.winner) && humans().length === 1 ? 'win' : 'wins'}!`, (box) => {
+    box.id = 'victory';
+    box.innerHTML = `<p class="muted">${S.turn} turns. Points include the hidden landmarks, now shown.</p><div class="stands">` + order.map((p) => {
+      const P = S.players[p], lm = P.cards.filter((c) => c.c === 'landmark').length;
+      let vil = 0, town = 0; S.vOwn.forEach((o, v) => { if (o === p) { if (S.vLvl[v] === 2) town++; else vil++; } });
+      return `<div class="stand"><span class="dot" style="background:${COLORS[p]}"></span><div><b>${P.name}</b><div class="muted">${plural(vil, 'village')}, ${plural(town, 'town')}${S.longest === p ? ', Longest Road' : ''}${S.army === p ? ', Strongest Guard' : ''}${lm ? ', ' + lm + ' landmark' + (lm > 1 ? 's' : '') : ''}</div></div><span class="pts">${M.totalVP(S, p)}</span></div>`;
+    }).join('') + '</div>';
+    const row = document.createElement('div'); row.className = 'row';
+    row.append(btn('Look at the island', closeSheet, 'alt'), btn('New game', () => { closeSheet(); showSetup(); }, 'go', false, 'btnNew'));
+    box.appendChild(row);
+  });
+}
+function showSetup() {
+  clearTimeout(ui.timer);
+  const saved = loadSave();
+  const box = $('setup');
+  const seatKinds = [['human', 'You'], ['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard'], ['off', 'Off']];
+  const draw = () => {
+    const active = opts.seats.filter((k) => k !== 'off').length;
+    box.innerHTML = `<div class="logo">Island Traders<small>Settle, trade and build on a hex island. First to ${opts.target} points.</small></div>` +
+      (badSave ? '<p class="muted">The saved game could not be read, so it was set aside. Start a fresh one.</p>' : '') +
+      '<div class="setgrid"><div><div class="opt">Players (any seat human or computer; 2 to 4)</div>' +
+      opts.seats.map((k, i) => `<div class="seat"><span class="dot" style="background:${COLORS[i]}"></span><div class="seg" data-seat="${i}">${seatKinds.filter(([kk]) => i > 1 || kk !== 'off').map(([kk, l]) => `<button data-k="${kk}" class="${k === kk ? 'on' : ''}">${kk === 'human' && i > 0 ? 'Human' : l}</button>`).join('')}</div></div>`).join('') +
+      '</div><div><div class="opts2"><div>' + `<div class="opt">Island</div><div class="seg" id="sBoard"><button data-v="0" class="${opts.beginner ? '' : 'on'}">Random</button><button data-v="1" class="${opts.beginner ? 'on' : ''}">Beginner</button></div>` +
+      '</div><div>' + `<div class="opt">Points to win</div><div class="seg" id="sTarget"><button data-v="10" class="${opts.target === 10 ? 'on' : ''}">10</button><button data-v="8" class="${opts.target === 8 ? 'on' : ''}">8 (short)</button></div>` +
+      '</div><div>' + `<div class="opt">Computer speed</div><div class="seg" id="sFast"><button data-v="0" class="${opts.fast ? '' : 'on'}">Normal</button><button data-v="1" class="${opts.fast ? 'on' : ''}">Fast</button></div>` +
+      '</div><div>' + `<div class="opt">Friendly bandit${active === 2 ? ' (on for two)' : ''}</div><div class="seg" id="sFriendly"><button data-v="0" class="${opts.friendly || active === 2 ? '' : 'on'}">Off</button><button data-v="1" class="${opts.friendly || active === 2 ? 'on' : ''}">On</button></div>` +
+      '</div></div><p class="muted" style="margin:6px 0 0">Friendly bandit: nobody on 2 points or fewer can be robbed.</p><div class="row" style="margin-top:10px" id="sBtns"></div></div></div>';
+    box.querySelectorAll('.seat .seg').forEach((sg) => sg.querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.seats[+sg.dataset.seat] = b.dataset.k; saveOpts(); draw(); }; }));
+    $('sBoard').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.beginner = b.dataset.v === '1'; saveOpts(); draw(); }; });
+    $('sTarget').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.target = +b.dataset.v; saveOpts(); draw(); }; });
+    $('sFast').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.fast = b.dataset.v === '1'; saveOpts(); draw(); }; });
+    $('sFriendly').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.friendly = b.dataset.v === '1'; saveOpts(); draw(); }; });
+    const row = $('sBtns');
+    row.appendChild(btn('Rules', openRules, 'alt small'));
+    if (saved) row.appendChild(btn('Resume', () => { S = saved; startPlay(); }, 'alt', false, 'btnResume'));
+    row.appendChild(btn('Start', () => startNew(), 'go', false, 'btnStart'));
+  };
+  draw();
+  $('setupVeil').hidden = false;
+}
+function startNew(seed) {
+  const seats = opts.seats.map((k, i) => ({ k, i })).filter((s) => s.k !== 'off');
+  let hn = 0;
+  const nH = seats.filter((s) => s.k === 'human').length;
+  const players = seats.map((s, j) => ({ kind: s.k, name: s.k === 'human' ? (nH === 1 ? 'You' : 'Player ' + (++hn)) : CPU_NAMES[j] }));
+  S = M.newGame({ seed: seed || (Date.now() % 2147483647), players, beginner: opts.beginner, target: opts.target, friendly: opts.friendly || players.length === 2 });
+  badSave = false;
+  ui.viewer = -1; ui.mode = null; ui.sel = null;
+  view.mount($('board'));
+  save();
+  startPlay();
+}
+function startPlay() {
+  $('setupVeil').hidden = true; closeSheet(); hideCover();
+  view.mount($('board'));
+  ui.viewer = -1; ui.mode = null; ui.sel = null;
+  if (humans().length === 1) ui.viewer = humans()[0];
+  refresh();
+  loop();
+}
+
+// ------------------------------------------------------------ boot
+$('icons').innerHTML = Object.keys(ICONS).map((k) => `<symbol id="${k}" viewBox="-12 -12 24 24">${ICONS[k]}</symbol>`).join('');
+$('board').addEventListener('click', onBoardTap);
+$('sheetVeil').addEventListener('click', (e) => { if (e.target === $('sheetVeil') && $('sheetX')) closeSheet(); });
+addEventListener('resize', () => { if (S) refresh(); });
+view.mount($('board'));
+showSetup();
+// Test hooks for the browser checks.
+window.__islandUI = { get S() { return S; }, set S(v) { S = v; }, ui, opts, refresh, loop, apply, humanAct, startNew, view, save, showVictory };
+</script>
+</body>
+</html>

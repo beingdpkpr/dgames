@@ -72,6 +72,8 @@ const GAMES = [
   // World Conquest opens on its setup card (with Resume when a game is saved); Start deals the world and
   // lands on your Reinforce, or on the first computer's turn.
   { name: 'world-conquest', file: 'world-conquest/index.html', enter: async (p) => { await p.click('[data-s="start"]'); await p.waitForTimeout(900); } },
+  // Island Traders opens on its setup card (with Resume when a game is saved); Start goes to the island with your first village to place.
+  { name: 'island-traders', file: 'island-traders/index.html', enter: async (p) => { await p.click('#btnStart'); await p.waitForTimeout(900); } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,

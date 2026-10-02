@@ -177,6 +177,16 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "Island Traders",
+      "url": "island-traders/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
