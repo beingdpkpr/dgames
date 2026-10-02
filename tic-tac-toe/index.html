@@ -119,6 +119,26 @@
     #score b { font-size: 18px; }
     #score small { font-size: 12px; }
   }
+  /* ---- 3D table (body.v3d), drawn by ../lib/tabletop.js. The 2D grid stays the fallback when WebGL is
+     missing and the choice for anyone who prefers it; nothing in this block applies without .v3d. The
+     stage is the board's own square, so every layout above (portrait, a phone on its side, desktop) sizes
+     the 3D board exactly as it sizes the 2D one: the grid's cells stay in place, invisible, and the canvas
+     covers them. */
+  #c3d, #view3 { display: none; }
+  body.v3d #board { position: relative; }
+  body.v3d .cell { visibility: hidden; }
+  body.v3d #c3d { display: block; position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 14px; touch-action: none; outline: none;
+    cursor: pointer; z-index: 1; }
+  body.v3d #view3 { display: flex; position: absolute; top: 8px; right: 8px; gap: 6px; z-index: 2; }
+  #view3 button { min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 22px; border: 1px solid rgba(43, 47, 92, .25);
+    background: rgba(255, 255, 255, .82); color: #2B2F5C; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+  #view3 button:hover { background: #fff; }
+  /* In 2D, a 3D button at the right of the title. Taken out of the flow so the header is exactly as tall
+     as it was and the height-capped board above loses nothing. */
+  header { position: relative; }
+  #to3d { position: absolute; right: 0; top: 50%; transform: translateY(-50%); min-width: 44px; min-height: 44px; padding: 0 10px;
+    border-radius: 22px; border: 1px solid var(--line); background: transparent; color: #fff; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+  #to3d:hover { border-color: var(--gold); color: var(--gold); }
 </style>
 </head>
 <body>
@@ -140,6 +160,7 @@
   <div class="side-a">
   <header>
     <h1>TIC<span>TAC</span>TOE</h1>
+    <button id="to3d" type="button" title="3D board" aria-label="Show the 3D board" hidden>3D</button>
   </header>
 
   <div class="panel">
@@ -159,7 +180,7 @@
 
   <div id="status"></div>
   </div>
-  <div id="board"></div>
+  <div id="board"><canvas id="c3d" aria-label="The board in 3D: tap a square to play. Drag to tilt, pinch to zoom."></canvas><div id="view3"><button id="camBtn" type="button" aria-label="Look straight down at the board">Top</button><button id="dimBtn" type="button" title="Flat 2D board" aria-label="Switch to the flat 2D board">2D</button></div></div>
 
   <div class="side-b">
   <div class="panel" id="score">
@@ -177,6 +198,8 @@
   </div>
 </main>
 
+<script src="../lib/three.min.js"></script>
+<script src="../lib/tabletop.js"></script>
 <script>
 'use strict';
 // ---------- dgames high scores ----------
@@ -399,6 +422,7 @@ function newGame() {
   board = Array(9).fill(''); over = false;
   turn = humanStarts() ? human() : ai();
   for (const c of cells) { c.textContent = ''; c.className = 'cell'; c.disabled = false; }
+  if (V3) V3.cleared();
   render();
   if (turn === ai()) scheduleAi();
 }
@@ -407,9 +431,10 @@ function scheduleAi() { aiTimer = setTimeout(() => { aiTimer = null; const i = a
 function place(i) {
   board[i] = turn; const c = cells[i]; c.textContent = turn; c.classList.add(turn.toLowerCase(), 'pop'); c.disabled = true;
   for (const o of cells) o.classList.remove('last'); c.classList.add('last');
+  if (V3) V3.placed(i, turn);
   const L = winLine(board);
-  if (L) { over = true; for (const k of L) cells[k].classList.add('win'); finish(board[L[0]] === human() ? 'you' : 'ai'); }
-  else if (!empties(board).length) { over = true; finish('draw'); }
+  if (L) { over = true; for (const k of L) cells[k].classList.add('win'); if (V3) V3.won(L); finish(board[L[0]] === human() ? 'you' : 'ai'); }
+  else if (!empties(board).length) { over = true; if (V3) V3.drew(); finish('draw'); }
   else turn = other(turn);
   render();
 }
@@ -448,8 +473,301 @@ addEventListener('keydown', (e) => {
   if (e.key in KEYMAP) humanPlay(KEYMAP[e.key]);
   else if (e.key === 'n' || e.key === 'N') newGame();
 });
+// ---------- the 3D table ----------
+// The same game on a small grooved wooden board on Penfight's desk, drawn by the shared kit in
+// ../lib/tabletop.js. It only reads the game as the UI above keeps it (board, the winning line, the last
+// move) and answers a tap with humanPlay(), so the rules and the flow are the 2D page's. Nothing here
+// holds up play: a move is in the game the moment it is made and the board animates after it.
+// Sizes are centimetres: 6 cm squares, X and O pieces 1.5 cm tall.
+let V3 = null, view3d = null, lost3d = false;
+const VIEW_KEY = 'dgames.tic-tac-toe.view';
+const viewPref = (() => { try { const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; } })();
+const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(viewPref)); } catch (e) { /* ignore */ } };
+// A portrait phone opens top-down, the way every other 3D board here does.
+const portraitPhone = () => innerHeight > innerWidth && innerWidth < 700;
+const camDefault = () => viewPref.cam || (portraitPhone() ? 'top' : 'angled');
+const can3d = () => !!window.Tabletop && !lost3d && !(view3d && !view3d.ok) && !/[?&]no3d\b/.test(location.search);
+
+function makeView3d() {
+  if (!window.Tabletop) return { ok: false, reason: 'the tabletop kit did not load' };
+  let q = null;
+  try { q = new URLSearchParams(location.search).get('q'); } catch (e) { /* ignore */ }
+  const canvas = $('c3d');
+  const kit = Tabletop.create({ canvas, quality: q || 'auto', onTap: tap3d, onLost: () => { lost3d = true; setDim('2d', false); } });
+  if (!kit.ok) return { ok: false, reason: kit.reason };
+  // A scene that fails half way must not leave its WebGL context and frame loop running behind the 2D board.
+  try { return buildView3d(kit, canvas); } catch (e) { try { kit.dispose(); } catch (e2) { /* already gone */ } throw e; }
+}
+
+function buildView3d(kit, canvas) {
+  const THREE = kit.THREE, hi = kit.quality === 'high', M = Tabletop.math, lerp = M.lerp, E = Tabletop.ease;
+  const S = 6, FR = 1.2, B = 3 * S + 2 * FR, TOP = 1.8, PH = 1.5;
+  const cellXZ = (i) => [((i % 3) - 1) * S, (Math.floor(i / 3) - 1) * S];
+  const rnd = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  const tex = (c) => { const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t; };
+
+  // ---- the board: a walnut field with a grooved 3x3 grid, a darker frame and a thin brass inlay
+  function grain(g, x, y, w, h, ppc, r, rgb, n, alpha) {
+    g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
+    for (let i = 0; i < n; i++) {
+      const y0 = y + r() * h, amp = (0.04 + r() * 0.2) * ppc, f = (2 * Math.PI) / ((8 + r() * 24) * ppc), ph = r() * 6.28;
+      g.strokeStyle = 'rgba(' + rgb + ',' + (alpha * (0.4 + r())).toFixed(3) + ')';
+      g.lineWidth = (0.03 + r() * 0.07) * ppc;
+      g.beginPath();
+      for (let xx = x - 2; xx <= x + w + 4; xx += Math.max(3, 0.3 * ppc)) { const yy = y0 + Math.sin(xx * f + ph) * amp; if (xx === x - 2) g.moveTo(xx, yy); else g.lineTo(xx, yy); }
+      g.stroke();
+    }
+    g.restore();
+  }
+  function drawBoard(g, w, h, ppc) {
+    const r = rnd(909), x0 = FR * ppc, s = S * ppc, n = 3 * s;
+    g.fillStyle = '#5E3920'; g.fillRect(0, 0, w, h);
+    grain(g, 0, 0, w, h, ppc, r, '30,12,4', 70, 0.16);
+    g.fillStyle = '#86562F'; g.fillRect(x0, x0, n, n);
+    grain(g, x0, x0, n, n, ppc, r, '52,24,8', 60, 0.15);
+    g.strokeStyle = 'rgba(232,199,126,.8)'; g.lineWidth = 0.12 * ppc;
+    g.strokeRect(x0 - 0.4 * ppc, x0 - 0.4 * ppc, n + 0.8 * ppc, n + 0.8 * ppc);
+    // A groove: a dark channel with a lit far wall and a shadowed near one (the sun is up and to the left).
+    const gw = 0.46 * ppc, inset = 0.55 * ppc;
+    g.lineCap = 'round';
+    for (let k = 1; k < 3; k++) {
+      const p = x0 + k * s;
+      for (const vert of [true, false]) {
+        const line = (off, width, style) => {
+          g.strokeStyle = style; g.lineWidth = width; g.beginPath();
+          if (vert) { g.moveTo(p + off, x0 + inset); g.lineTo(p + off, x0 + n - inset); } else { g.moveTo(x0 + inset, p + off); g.lineTo(x0 + n - inset, p + off); }
+          g.stroke();
+        };
+        line(0, gw + 0.12 * ppc, 'rgba(255,226,180,.28)');
+        line(0, gw, '#2B160A');
+        line(-gw * 0.22, gw * 0.4, 'rgba(0,0,0,.35)');
+        line(gw * 0.36, gw * 0.18, 'rgba(255,214,160,.32)');
+      }
+    }
+  }
+  const board = kit.board({ w: B, d: B, h: TOP, radius: 1.1, bevel: 0.35, draw: drawBoard, side: Tabletop.mat.lacquer('#55321C', { roughness: 0.32, envMapIntensity: 0.7 }) });
+  board.material[0].roughness = 0.42; board.material[0].envMapIntensity = 0.5;
+  kit.add(board);
+  kit.setDesk({ w: 64, d: 52 });
+
+  // ---- the pieces: X is two crossed bars, O a torus, both lacquered in the 2D page's colours
+  const bar = (yaw, extra) => Tabletop.geo.slab(5.3, 1.38, PH + extra, 0.69, 0.34).rotateY(yaw);
+  const geo = {
+    X: Tabletop.geo.merge([bar(Math.PI / 4, 0), bar(-Math.PI / 4, 0.02)]),
+    O: new THREE.TorusGeometry(1.86, 0.74, hi ? 20 : 12, hi ? 56 : 32).rotateX(Math.PI / 2).translate(0, 0.74, 0),
+  };
+  const matP = { X: Tabletop.mat.lacquer('#4FC3F7', { roughness: 0.15 }), O: Tabletop.mat.lacquer('#FF8A65', { roughness: 0.15 }) };
+  // Each piece is an outer group (where it stands: the drop moves it) around the mesh (the win wave lifts it).
+  function makePiece(i, p) {
+    const mesh = new THREE.Mesh(geo[p], matP[p]);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    const outer = new THREE.Group(); outer.add(mesh);
+    const [x, z] = cellXZ(i); outer.position.set(x, TOP, z);
+    kit.scene.add(outer);
+    return { i, p, outer, mesh };
+  }
+  let pieces = Array(9).fill(null);
+  const gone = new Set();          // swept off, still sliding away
+
+  // ---- marks on the board: the last move (a soft gold square, the 2D outline) and the winning line's glow
+  function softTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); return tex(c); }
+  const flat = (w, d, m) => { const me = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), m); me.visible = false; me.renderOrder = 2; kit.scene.add(me); return me; };
+  const lastMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
+    map: softTex(128, 128, (g, w) => { g.strokeStyle = 'rgba(255,213,74,.85)'; g.lineWidth = 7; const r = 18, a = 8, b = w - 8;
+      g.beginPath(); g.moveTo(a + r, a); g.arcTo(b, a, b, b, r); g.arcTo(b, b, a, b, r); g.arcTo(a, b, a, a, r); g.arcTo(a, a, b, a, r); g.closePath(); g.stroke(); }) });
+  const lastMark = flat(S * 0.92, S * 0.92, lastMat);
+  // The glow is a soft capsule drawn once and stretched along the line; additive, so it lights the wood.
+  const glowMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: Tabletop.col('#9CFFB0'),
+    map: softTex(512, 64, (g, w, h) => {
+      const r = h / 2;
+      for (let k = 0; k < 14; k++) {
+        const t = k / 13, rr = r * (1 - t * 0.78);
+        g.fillStyle = 'rgba(255,255,255,' + (0.07 + t * 0.09).toFixed(3) + ')';
+        g.beginPath(); g.moveTo(r, r - rr); g.lineTo(w - r, r - rr); g.arc(w - r, r, rr, -Math.PI / 2, Math.PI / 2); g.lineTo(r, r + rr); g.arc(r, r, rr, Math.PI / 2, Math.PI * 1.5); g.fill();
+      }
+    }) });
+  const glow = flat(1, 2.4, glowMat);
+  const coreMat = Tabletop.mat.plastic('#66BB6A', { emissive: Tabletop.col('#5BE07A'), emissiveIntensity: 1.1, roughness: 0.3 });
+  const core = new THREE.Mesh(Tabletop.geo.slab(1, 0.5, 0.12, 0.24, 0.05), coreMat); core.visible = false; kit.scene.add(core);
+  let lineLen = 1;
+  function layLine(L) {
+    const [ax, az] = cellXZ(L[0]), [bx, bz] = cellXZ(L[2]);
+    const dx = bx - ax, dz = bz - az, d = Math.hypot(dx, dz), ang = Math.atan2(-dz, dx);
+    lineLen = d + S * 0.8;
+    for (const m of [glow, core]) { m.position.set((ax + bx) / 2, TOP + (m === glow ? 0.03 : 0.01), (az + bz) / 2); m.rotation.y = ang; }
+  }
+  function showLine(k) {
+    glow.visible = core.visible = k > 0;
+    glow.scale.x = Math.max(0.001, lineLen * (0.15 + 0.85 * k)); glowMat.opacity = k;
+    core.scale.x = Math.max(0.001, (lineLen - S * 0.5) * k);
+  }
+  function markLast(i) {
+    lastMark.visible = i >= 0;
+    if (i >= 0) { const [x, z] = cellXZ(i); lastMark.position.set(x, TOP + 0.015, z); }
+  }
+
+  // ---- picking: one invisible slab per square, flush with the board. Thin on purpose: a tall box would
+  // stand in front of the near half of the square behind it in the angled view. A tap on a piece still
+  // lands on its own square, since the ray through a 1.5 cm piece meets the board within its square.
+  const pickMat = new THREE.MeshBasicMaterial({ visible: false });
+  const pickGeo = new THREE.BoxGeometry(S, 0.3, S);
+  for (let i = 0; i < 9; i++) {
+    const m = new THREE.Mesh(pickGeo, pickMat), [x, z] = cellXZ(i);
+    m.position.set(x, TOP + 0.15, z); kit.scene.add(m); m.updateMatrixWorld(true);
+    kit.pick.add(m, i);
+  }
+  const cellAt = (x, y) => { const i = kit.pick.at(x, y); return i == null ? -1 : i; };
+  const v3 = new THREE.Vector3();
+  function screenOf(i) {
+    const [x, z] = cellXZ(i), r = canvas.getBoundingClientRect();
+    v3.set(x, TOP, z).project(kit.camera);
+    return { x: r.left + ((v3.x + 1) / 2) * r.width, y: r.top + ((1 - v3.y) / 2) * r.height };
+  }
+
+  // ---- animation. Every one is short, and none is waited on by the game.
+  // A placed piece drops in with a bounce and a little turn, the way a piece set down with a flourish lands.
+  function placed(i, p) {
+    if (pieces[i]) { kit.scene.remove(pieces[i].outer); }
+    const pc = pieces[i] = makePiece(i, p);
+    markLast(i);
+    const y0 = TOP + 4.5, spin = (i % 2 ? 1 : -1) * 0.7;
+    pc.outer.position.y = y0; pc.outer.rotation.y = spin;
+    kit.tween({ ms: 420, ease: 'linear', update: (k) => {
+      pc.outer.position.y = lerp(y0, TOP, E.outBounce(k));
+      pc.outer.rotation.y = spin * (1 - E.outCubic(Math.min(1, k * 1.6)));
+    } });
+  }
+  // The winning line lights up along its length, then its three pieces lift in a wave, twice.
+  function won(L) {
+    layLine(L);
+    const ps = L.map((i) => pieces[i]).filter(Boolean);
+    kit.tween({ ms: 1500, ease: 'linear', update: (k) => {
+      const t = k * 1500;
+      showLine(E.outCubic(M.clamp((t - 160) / 340, 0, 1)));
+      ps.forEach((pc, j) => {
+        const u1 = (t - 380 - j * 120) / 420, u2 = (t - 900 - j * 110) / 360;
+        let y = 0;
+        if (u1 > 0 && u1 < 1) y += Math.sin(Math.PI * u1) * 1.6;
+        if (u2 > 0 && u2 < 1) y += Math.sin(Math.PI * u2) * 0.7;
+        pc.mesh.position.y = y;
+        pc.mesh.rotation.y = u1 > 0 && u1 < 1 ? Math.sin(Math.PI * u1) * 0.25 : 0;
+      });
+    } });
+  }
+  // A draw: every piece gives a small shrug.
+  function drew() { pieces.forEach((pc, j) => { if (pc) setTimeout(() => { if (pieces[pc.i] === pc) kit.shake(pc.outer, { amp: 0.22, ms: 300 }); }, 380 + j * 25); }); }
+  // A new game sweeps the pieces off the board to the right, nearest the left edge last, the way a hand
+  // brushes them off; the new game is playable at once, the sweep only finishes the picture.
+  function cleared() {
+    kit.finishAll();
+    const list = pieces.filter(Boolean);
+    pieces = Array(9).fill(null);
+    markLast(-1); showLine(0);
+    if (!list.length) return;
+    for (const pc of list) gone.add(pc);
+    const from = list.map((pc) => pc.outer.position.x);
+    kit.tween({ ms: 520, ease: 'linear', update: (k) => {
+      const t = k * 520;
+      list.forEach((pc, j) => {
+        const u = M.clamp((t - (1 - (from[j] + S) / (2 * S)) * 140) / 360, 0, 1), e = E.inQuad(u);
+        pc.outer.position.x = from[j] + e * (B + 6);
+        pc.outer.rotation.y = -e * 0.6;
+        const sc = 1 - M.clamp((u - 0.55) / 0.45, 0, 1);
+        pc.outer.scale.setScalar(Math.max(0.001, sc));
+      });
+    }, done: () => { for (const pc of list) { kit.scene.remove(pc.outer); gone.delete(pc); } } });
+  }
+  // Start over from the game as it stands (a switch into 3D): no animation.
+  let warmed = false;
+  function reset() {
+    kit.finishAll();
+    for (const pc of pieces) if (pc) kit.scene.remove(pc.outer);
+    pieces = Array(9).fill(null);
+    for (let i = 0; i < 9; i++) if (board[i]) pieces[i] = makePiece(i, board[i]);
+    markLast(cells.findIndex((c) => c.classList.contains('last')));
+    const L = winLine(board);
+    if (L) { layLine(L); showLine(1); } else showLine(0);
+    kit.resize(); fit(true);
+    if (!warmed) warm();
+    kit.invalidate();
+  }
+  // three.js compiles a material's shader the first time it is drawn: compile the pieces and the marks up
+  // front so the first move and the first win do not hitch.
+  function warm() {
+    warmed = true;
+    const tmp = [makePiece(0, 'X'), makePiece(1, 'O')], was = [glow.visible, core.visible, lastMark.visible];
+    glow.visible = core.visible = lastMark.visible = true;
+    try { kit.renderer.compile(kit.scene, kit.camera); } catch (e) { /* only a warm-up */ }
+    [glow.visible, core.visible, lastMark.visible] = was;
+    for (const pc of tmp) kit.scene.remove(pc.outer);
+  }
+  // The camera frames the board with a strip of desk above it, so the view buttons in the stage's top
+  // corner sit on the desk rather than on the far squares.
+  function fit(instant) {
+    const top = kit.rig.view === 'top', strip = top ? 2.6 : 0.6;
+    kit.rig.fit({ w: B + 0.6, d: B + 0.6 + strip, cz: -strip / 2, h: PH + 0.6, margin: 0.97, instant });
+    if (instant) kit.rig.step(1 / 60);
+  }
+
+  return {
+    ok: true, kit, reset, placed, won, drew, cleared, cellAt, screenOf,
+    resize() { kit.resize(); fit(true); },
+    setCam(name, instant) { kit.rig.setView(name, { instant }); fit(!!instant); },
+    get cam() { return kit.rig.view; },
+    probe: { get pieces() { return pieces; }, gone, glow, core, lastMark, TOP, B },
+  };
+}
+
+// A tap on the 3D board: the same as a press on that square of the 2D grid.
+function tap3d(x, y) {
+  if (!V3) return;
+  const i = V3.cellAt(x, y);
+  if (i < 0) return;
+  // The kit reports a tap on pointer-up, and the browser still sends that press's click afterwards, to
+  // whatever is under the finger by then. The one click this tap still owes is dropped.
+  const kill = (e) => { e.stopPropagation(); e.preventDefault(); off(); };
+  const off = () => { removeEventListener('click', kill, true); clearTimeout(t); };
+  addEventListener('click', kill, true);
+  const t = setTimeout(off, 600);
+  humanPlay(i);
+}
+
+function setDim(dim, remember) {
+  if (dim === '3d' && !view3d && can3d()) {
+    // Anything that goes wrong building the scene leaves the 2D game playable rather than a blank board.
+    try { view3d = makeView3d(); } catch (e) { view3d = { ok: false, reason: String(e) }; try { console.warn('3D board failed, using 2D:', e); } catch (e2) { /* ignore */ } }
+  }
+  const on = dim === '3d' && !!view3d && view3d.ok && !lost3d;
+  document.body.classList.toggle('v3d', on);
+  V3 = on ? view3d : null;
+  if (remember) { viewPref.dim = on ? '3d' : '2d'; saveView(); }
+  $('to3d').hidden = on || !can3d();
+  if (on) { setCam(camDefault(), false, true); V3.reset(); }
+}
+function setCam(name, remember, instant) {
+  if (!V3) return;
+  V3.setCam(name, instant);
+  if (remember) { viewPref.cam = name; saveView(); }
+  $('camBtn').textContent = name === 'top' ? 'Angled' : 'Top';
+  $('camBtn').setAttribute('aria-label', name === 'top' ? 'Tilt the camera to an angled view' : 'Look straight down at the board');
+}
+$('camBtn').addEventListener('click', () => setCam(V3 && V3.cam === 'top' ? 'angled' : 'top', true));
+$('dimBtn').addEventListener('click', () => setDim('2d', true));
+$('to3d').addEventListener('click', () => setDim('3d', true));
+// Two quick taps on the board are two taps, not the kit's "reset the camera": that stays for a double
+// click off the squares.
+$('board').addEventListener('dblclick', (e) => { if (V3 && V3.cellAt(e.clientX, e.clientY) >= 0) e.stopPropagation(); }, true);
+// Turning a phone over changes the default camera, unless someone picked one.
+addEventListener('resize', () => { if (V3 && !viewPref.cam) setCam(camDefault(), false); });
+// For the Playwright checks: read-only views and the entry points they drive.
+window.__ttt3 = { get V3() { return V3; }, get view3d() { return view3d; }, setDim, setCam };
+
+// ---------- boot ----------
 newGame();
 renderHiScores();
+// 3D by default wherever WebGL works; 2D if that was the last choice, or as the fallback.
+$('to3d').hidden = !can3d();
+if (viewPref.dim !== '2d' && can3d()) setDim('3d', false);
 
 globalThis.__ttt = { LINES, winner, winLine, empties, isOver, completing, minimax, bestMoves, aiMove, other, applyStreak };
 </script>
