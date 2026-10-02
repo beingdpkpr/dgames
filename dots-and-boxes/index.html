@@ -108,6 +108,26 @@
     .score { font-size: 13px; gap: 6px; padding: 0 6px; }
     .score b { font-size: 18px; min-width: 18px; }
   }
+  /* ---- 3D table (body.v3d), drawn by ../lib/tabletop.js. The 2D board stays the fallback when WebGL is
+     missing and the choice for anyone who prefers it; nothing in this block applies without .v3d. The 3D
+     canvas covers the 2D canvas's own square (which stays in place, invisible), so the portrait, sideways
+     phone and desktop layouts above size the 3D board exactly as they size the 2D one. */
+  #c3d, #view3 { display: none; }
+  body.v3d #game { visibility: hidden; }
+  body.v3d #c3d { display: block; position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 16px; touch-action: none; outline: none; z-index: 1;
+    -webkit-tap-highlight-color: transparent; }
+  body.v3d #view3 { display: flex; position: absolute; top: 8px; right: 8px; gap: 6px; z-index: 2; }
+  body.v3d #over { z-index: 3; }
+  #view3 button { min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 22px; border: 1px solid rgba(43, 47, 92, .25);
+    background: rgba(255, 255, 255, .82); color: #2B2F5C; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+  #view3 button:hover { background: #fff; }
+  /* In 2D, a 3D button at the top right of the HUD. Taken out of the flow so the HUD is exactly as tall as
+     it was and the board, sized from what is left of the screen, loses nothing. */
+  #hud { position: relative; }
+  #to3d { position: absolute; right: 0; top: 5px; min-width: 44px; min-height: 44px; padding: 0 10px; border-radius: 22px;
+    background: transparent; font-size: 13px; font-weight: 700; z-index: 1; }
+  #to3d:hover { border-color: var(--p4); color: var(--p4); }
+  @media (orientation: landscape) and (max-height: 500px) { #to3d { top: 0; } }
 </style>
 </head>
 <body>
@@ -127,6 +147,7 @@
 <a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
 <div id="hud">
   <div class="top"><h1>DOTS <span>&amp;</span> BOXES</h1></div>
+  <button id="to3d" type="button" title="3D board" aria-label="Show the 3D board" hidden>3D</button>
   <div class="turn" id="turn"><span class="dot"></span><span class="name" id="turnName">Player 1</span></div>
   <div class="scores" id="scores"></div>
   <div class="controls">
@@ -151,11 +172,15 @@
 </div>
 <div id="wrap">
   <canvas id="game"></canvas>
+  <canvas id="c3d" aria-label="The board in 3D: tap between two pegs to draw a line. Drag to tilt, pinch to zoom."></canvas>
+  <div id="view3"><button id="camBtn" type="button" aria-label="Look straight down at the board">Top</button><button id="dimBtn" type="button" title="Flat 2D board" aria-label="Switch to the flat 2D board">2D</button></div>
   <div id="over"><div class="banner"><h2 id="winner"></h2><div class="count" id="count"></div><button class="primary" id="again">Play again</button></div></div>
 </div>
 <div class="hint">Click the gap between two dots. Complete a box and you go again.</div>
 <div id="hiscores" hidden></div>
 
+<script src="../lib/three.min.js"></script>
+<script src="../lib/tabletop.js"></script>
 <script>
 'use strict';
 // ---------- dgames high scores ----------
@@ -486,6 +511,7 @@ const SEAT_KINDS = [['human', 'Human'], ['easy', 'Computer · Easy'], ['normal',
 
 let S, size = 0, pad = 0, cell = 0, hoverEdge = null, particles = [], aiTimer = null, lastFrame = 0;
 const edgeAnim = new Map(), boxAnim = new Map();   // key -> timestamp the line / box appeared
+let lastEdge = null, loop2d = false;               // the line drawn last (the 3D board marks it); is the 2D loop running
 const scoreEls = {};                                // player -> { el, val }
 const opts = loadOpts();
 
@@ -574,10 +600,11 @@ function init() {
   for (const k of Object.keys(opts.seats)) if (+k > opts.players) delete opts.seats[k];
   saveOpts();
   S = newState(opts.grid, opts.players);
-  hoverEdge = null; particles = []; edgeAnim.clear(); boxAnim.clear();
+  hoverEdge = null; particles = []; edgeAnim.clear(); boxAnim.clear(); lastEdge = null;
   ui.over.classList.remove('show');
   buildSeats(); buildScores();
   layout(); drawHUD(false);
+  if (V3) V3.newGame();
   if (!ui.hiscores.hidden) renderHiScores();
   if (isAiTurn()) scheduleAi();
 }
@@ -597,6 +624,7 @@ function layout() {
   canvas.style.width = canvas.style.height = size + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   pad = size * 0.1; cell = (size - 2 * pad) / (S.n - 1);
+  if (V3) V3.resize();
 }
 
 const dotPos = (r, c) => [pad + c * cell, pad + r * cell];
@@ -760,7 +788,8 @@ function play(e) {
     spawnParticles(x + cell / 2, y + cell / 2, COLORS[p]);
   }
   if (claimed.length) popScore(p);
-  hoverEdge = null;
+  hoverEdge = null; lastEdge = e;
+  if (V3) V3.played(e, p, claimed);
   drawHUD(S.player !== p);
   if (S.over) setTimeout(endGame, 650);
   else if (isAiTurn()) scheduleAi();
@@ -806,6 +835,9 @@ function handleClick(ev) {
 }
 
 function gameLoop(now) {
+  // The 3D board draws itself, and only when something changes; setDim() restarts this loop for 2D.
+  if (V3) { loop2d = false; return; }
+  loop2d = true;
   const dt = Math.min(3, (now - lastFrame) / 16.67 || 1); lastFrame = now;
   drawBackground(now); drawBoxes(now); drawEdges(now); drawDots(now);
   updateParticles(dt); drawParticles();
@@ -826,8 +858,514 @@ window.addEventListener('keydown', (ev) => {
   if (ev.key === 'n' || ev.key === 'N') init();
 });
 
+// ---------- the 3D table ----------
+// The same game on a wooden pegboard on Penfight's desk, drawn by the shared kit in ../lib/tabletop.js.
+// It only reads the game as the UI above keeps it (S and the last line) and answers a tap with play(), so
+// the rules, the computer and the flow are the 2D page's. Nothing waits on an animation: a line is in the
+// game the moment it is drawn, the computer answers on the same 480 ms timer, and the board catches up.
+// Sizes are centimetres. The pegs span 30 cm whatever the grid, as the 2D dots span 80% of the canvas.
+let V3 = null, view3d = null, lost3d = false;
+const VIEW_KEY = 'dgames.dots-and-boxes.view';
+const viewPref = (() => { try { const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; } })();
+const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(viewPref)); } catch (e) { /* ignore */ } };
+// A portrait phone opens top-down, the way every other 3D board here does.
+const portraitPhone = () => innerHeight > innerWidth && innerWidth < 700;
+const camDefault = () => viewPref.cam || (portraitPhone() ? 'top' : 'angled');
+const can3d = () => !!window.Tabletop && !lost3d && !(view3d && !view3d.ok) && !/[?&]no3d\b/.test(location.search);
+
+function makeView3d() {
+  if (!window.Tabletop) return { ok: false, reason: 'the tabletop kit did not load' };
+  let q = null;
+  try { q = new URLSearchParams(location.search).get('q'); } catch (e) { /* ignore */ }
+  const c3 = $('c3d');
+  const kit = Tabletop.create({ canvas: c3, quality: q || 'auto', onTap: tap3d, onLost: () => { lost3d = true; setDim('2d', false); } });
+  if (!kit.ok) return { ok: false, reason: kit.reason };
+  // A scene that fails half way must not leave its WebGL context and frame loop running behind the 2D board.
+  try { return buildView3d(kit, c3); } catch (e) { try { kit.dispose(); } catch (e2) { /* already gone */ } throw e; }
+}
+
+function buildView3d(kit, cv) {
+  const THREE = kit.THREE, hi = kit.quality === 'high', M = Tabletop.math, lerp = M.lerp, E = Tabletop.ease;
+  const F = 30, MARGIN = 3.6, B = F + 2 * MARGIN, TOP = 1.8;
+  const rnd = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  const tex = (c) => { const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t; };
+  const softTex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); return tex(c); };
+  const lin = {}; for (let p = 1; p <= MAX_PLAYERS; p++) lin[p] = Tabletop.col(COLORS[p]);
+
+  // ---- per grid size: N dots a side, SP cm between pegs. Pegs and sticks thin out on a big grid the way
+  // the 2D dots and lines keep their size while the cells shrink.
+  let N = 0, SP = 0, pegR = 0, stickW = 0, stickH = 0, tileW = 0, board = null, pegs = null;
+  const X = (c) => -F / 2 + c * SP, Z = (r) => -F / 2 + r * SP;
+
+  function grain(g, x, y, w, h, ppc, r, rgb, n, alpha) {
+    g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
+    for (let i = 0; i < n; i++) {
+      const y0 = y + r() * h, amp = (0.04 + r() * 0.2) * ppc, f = (2 * Math.PI) / ((8 + r() * 24) * ppc), ph = r() * 6.28;
+      g.strokeStyle = 'rgba(' + rgb + ',' + (alpha * (0.4 + r())).toFixed(3) + ')';
+      g.lineWidth = (0.03 + r() * 0.07) * ppc;
+      g.beginPath();
+      for (let xx = x - 2; xx <= x + w + 4; xx += Math.max(3, 0.3 * ppc)) { const yy = y0 + Math.sin(xx * f + ph) * amp; if (xx === x - 2) g.moveTo(xx, yy); else g.lineTo(xx, yy); }
+      g.stroke();
+    }
+    g.restore();
+  }
+  // The board face: a cherry frame round a lighter field, a brass inlay, a shallow routed groove along every
+  // line there is to draw (the 2D page's faint lattice), and a drilled hole under each peg.
+  function drawBoard(g, w, h, ppc) {
+    const r = rnd(4207), at = (v) => (v + B / 2) * ppc, f0 = at(-F / 2 - 1.7), fn = at(F / 2 + 1.7);
+    g.fillStyle = '#4C2B18'; g.fillRect(0, 0, w, h);
+    grain(g, 0, 0, w, h, ppc, r, '24,9,3', 70, 0.16);
+    g.fillStyle = '#8A5A33'; g.fillRect(f0, f0, fn - f0, fn - f0);
+    grain(g, f0, f0, fn - f0, fn - f0, ppc, r, '58,28,10', 70, 0.14);
+    g.strokeStyle = 'rgba(232,199,126,.75)'; g.lineWidth = 0.12 * ppc;
+    g.strokeRect(f0 - 0.35 * ppc, f0 - 0.35 * ppc, fn - f0 + 0.7 * ppc, fn - f0 + 0.7 * ppc);
+    const gw = Math.max(0.16, Math.min(0.3, SP * 0.06)) * ppc;
+    g.lineCap = 'round';
+    const groove = (x1, y1, x2, y2) => {
+      const line = (dx, dy, width, style) => { g.strokeStyle = style; g.lineWidth = width; g.beginPath(); g.moveTo(x1 + dx, y1 + dy); g.lineTo(x2 + dx, y2 + dy); g.stroke(); };
+      const vert = x1 === x2, o = gw * 0.38;
+      line(0, 0, gw + 0.08 * ppc, 'rgba(255,226,180,.16)');
+      line(0, 0, gw, 'rgba(46,22,8,.55)');
+      line(vert ? o : 0, vert ? 0 : o, gw * 0.3, 'rgba(255,214,160,.22)');
+    };
+    for (let rr = 0; rr < N; rr++) for (let c = 0; c < N - 1; c++) groove(at(X(c)), at(Z(rr)), at(X(c + 1)), at(Z(rr)));
+    for (let rr = 0; rr < N - 1; rr++) for (let c = 0; c < N; c++) groove(at(X(c)), at(Z(rr)), at(X(c)), at(Z(rr + 1)));
+    for (let rr = 0; rr < N; rr++) for (let c = 0; c < N; c++) {
+      const x = at(X(c)), y = at(Z(rr));
+      g.fillStyle = 'rgba(255,224,170,.22)'; g.beginPath(); g.arc(x, y, pegR * 1.45 * ppc, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#2A1407'; g.beginPath(); g.arc(x, y, pegR * 1.2 * ppc, 0, Math.PI * 2); g.fill();
+    }
+  }
+
+  // Deep enough that the angled camera sees desk, not the room, above the board's far edge.
+  kit.setDesk({ w: 90, d: 84 });
+
+  // ---- materials, made once
+  const pegMat = Tabletop.mat.metal('#D4AC55', { roughness: 0.3, envMapIntensity: 1.2 });
+  // Sticks are one instanced mesh, each instance painted its player's colour.
+  const stickMat = Tabletop.mat.lacquer('#ffffff', { roughness: 0.26 });
+  // A box's tile: lacquered in the owner's colour, with a pale stamp carrying the seat number on top, so the
+  // owner reads without telling five colours apart.
+  const tileTop = {}, tileSide = {};
+  for (let p = 1; p <= MAX_PLAYERS; p++) {
+    const t = softTex(256, 256, (g, w) => {
+      g.fillStyle = COLORS[p]; g.fillRect(0, 0, w, w);
+      g.strokeStyle = 'rgba(255,255,255,.3)'; g.lineWidth = 10; g.strokeRect(16, 16, w - 32, w - 32);
+      g.fillStyle = 'rgba(255,255,255,.5)'; g.beginPath(); g.arc(w / 2, w / 2, 70, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(30,24,48,.3)'; g.lineWidth = 5; g.stroke();
+      g.fillStyle = 'rgba(28,24,46,.82)'; g.font = 'bold 92px "Segoe UI", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(String(p), w / 2, w / 2 + 5);
+    });
+    t.offset.set(0.5, 0.5);
+    tileTop[p] = Tabletop.mat.lacquer('#ffffff', { map: t, roughness: 0.3 });
+    tileSide[p] = Tabletop.mat.lacquer(COLORS[p], { roughness: 0.3 });
+  }
+  // Soft additive glows: a capsule (stretched along a line) and a rounded square (under a tile).
+  const capsuleTex = softTex(512, 64, (g, w, h) => {
+    const r = h / 2;
+    for (let k = 0; k < 14; k++) {
+      const t = k / 13, rr = r * (1 - t * 0.78);
+      g.fillStyle = 'rgba(255,255,255,' + (0.07 + t * 0.09).toFixed(3) + ')';
+      g.beginPath(); g.moveTo(r, r - rr); g.lineTo(w - r, r - rr); g.arc(w - r, r, rr, -Math.PI / 2, Math.PI / 2); g.lineTo(r, r + rr); g.arc(r, r, rr, Math.PI / 2, Math.PI * 1.5); g.fill();
+    }
+  });
+  const squareTex = softTex(128, 128, (g, w) => {
+    for (let k = 0; k < 12; k++) {
+      const t = k / 11, i = 4 + t * 26, rr = 26 - t * 12;
+      g.fillStyle = 'rgba(255,255,255,' + (0.05 + t * 0.07).toFixed(3) + ')';
+      g.beginPath(); g.moveTo(i + rr, i); g.arcTo(w - i, i, w - i, w - i, rr); g.arcTo(w - i, w - i, i, w - i, rr); g.arcTo(i, w - i, i, i, rr); g.arcTo(i, i, w - i, i, rr); g.fill();
+    }
+  });
+  const glowMat = (map, color) => { const m = new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }); if (color) m.color = Tabletop.col(color); return m; };
+  const plane = (m) => { const me = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), m); me.visible = false; me.renderOrder = 2; kit.scene.add(me); return me; };
+
+  const CAP_S = 2 * 2 * 8 * 7, CAP_T = 2 * 7 * 7;
+  const sticks = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), stickMat, CAP_S);
+  const tiles = {};
+  // instanceColor is sized from the instance count the first time it is set, so it is set at full capacity.
+  for (let i = 0; i < CAP_S; i++) sticks.setColorAt(i, lin[1]);
+  for (const m of [sticks]) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; kit.scene.add(m); }
+  for (let p = 1; p <= MAX_PLAYERS; p++) {
+    const m = tiles[p] = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), [tileTop[p], tileSide[p]], CAP_T);
+    m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; m.visible = false; kit.scene.add(m);
+  }
+  // The glow under the tiles of a run (a chain being taken), in the taker's colour.
+  const runGlowMat = glowMat(squareTex);
+  const runGlow = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), runGlowMat, CAP_T);
+  for (let i = 0; i < CAP_T; i++) runGlow.setColorAt(i, lin[1]);
+  runGlow.frustumCulled = false; runGlow.count = 0; runGlow.renderOrder = 2; kit.scene.add(runGlow);
+  // The last line drawn: a warm glow along it, as the 2D page's freshly drawn line glows.
+  const lastGlowMat = glowMat(capsuleTex, '#FFD98A');
+  const lastGlow = plane(lastGlowMat);
+  // One line closing two boxes at once (the double-cross): a gold flash across both.
+  const dxMat = glowMat(capsuleTex, '#FFE7A0');
+  const dxFlash = plane(dxMat);
+  // The ghost: the stick the pointer is over (a mouse), or the one a tap picked and a second tap confirms.
+  const ghostMat = Tabletop.mat.lacquer('#ffffff', { transparent: true, opacity: 0.45, depthWrite: false });
+  const ghostMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), ghostMat);
+  ghostMesh.visible = false; ghostMesh.renderOrder = 3; kit.scene.add(ghostMesh);
+
+  function setGrid(n) {
+    if (n === N) return;
+    N = n; SP = F / (N - 1);
+    pegR = M.clamp(SP * 0.11, 0.5, 0.8);
+    stickW = M.clamp(SP * 0.15, 0.64, 1.0);
+    stickH = stickW * 0.78;
+    tileW = SP - stickW - 0.7;
+    if (board) { kit.scene.remove(board); kit.disposeTree(board); }
+    board = kit.board({ w: B, d: B, h: TOP, radius: 1.3, bevel: 0.35, draw: drawBoard, side: Tabletop.mat.lacquer('#4A2916', { roughness: 0.34, envMapIntensity: 0.7 }) });
+    board.material[0].roughness = 0.46; board.material[0].envMapIntensity = 0.5;
+    kit.add(board);
+    // Brass pins: a shaft and a domed head, all N x N merged into one mesh.
+    if (pegs) { kit.scene.remove(pegs); pegs.geometry.dispose(); }
+    const seg = hi ? 16 : 10, ph = stickH + 0.55, parts = [];
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      parts.push(new THREE.CylinderGeometry(pegR * 0.62, pegR * 0.7, ph, seg, 1, true).translate(X(c), TOP + ph / 2, Z(r)));
+      parts.push(new THREE.SphereGeometry(pegR, seg, Math.max(4, seg / 2), 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.62, 1).translate(X(c), TOP + ph, Z(r)));
+    }
+    pegs = new THREE.Mesh(Tabletop.geo.merge(parts), pegMat);
+    parts.forEach((g) => g.dispose());
+    pegs.castShadow = true; pegs.receiveShadow = true; kit.scene.add(pegs);
+    // A stick spans the gap between two pins' shafts; a tile fills a box inside its four sticks.
+    const len = SP - pegR * 1.24 - 0.08, bev = Math.min(0.14, stickH * 0.25);
+    const sg = Tabletop.geo.slab(len, stickW, stickH, stickW / 2, bev);
+    for (const m of [sticks, ghostMesh]) { if (m.geometry) m.geometry.dispose(); m.geometry = sg; }
+    const tg = Tabletop.geo.slab(tileW, tileW, 0.34, Math.min(0.6, tileW * 0.1), 0.09);
+    for (let p = 1; p <= MAX_PLAYERS; p++) { tiles[p].geometry.dispose(); tiles[p].geometry = tg; tileTop[p].map.repeat.set(1 / tileW, 1 / tileW); }
+  }
+
+  // ---- what is on the board. A record per stick and per tile; sync() writes them into the instances.
+  let aSticks = new Map(), aTiles = [], gone = [], runP = 0, run = [], lastKey = null;
+  const dummy = new THREE.Object3D();
+  function stickRec(e, p) {
+    const h = e.t === 'h';
+    return { kind: 's', e, p, x: h ? (X(e.c) + X(e.c + 1)) / 2 : X(e.c), z: h ? Z(e.r) : (Z(e.r) + Z(e.r + 1)) / 2, yaw: h ? 0 : Math.PI / 2, y: 0, roll: 0, s: 1 };
+  }
+  const tileRec = (r, c, p) => ({ kind: 't', r, c, p, x: X(c) + SP / 2, z: Z(r) + SP / 2, y: 0, s: 1, lift: 0, glow: 0 });
+  let needSync = false;
+  const touch = () => { needSync = true; kit.invalidate(); };
+  function sync() {
+    let i = 0;
+    const putStick = (s) => {
+      if (s.s <= 0.001) return;
+      dummy.position.set(s.x, TOP + s.y, s.z); dummy.rotation.set(s.roll, s.yaw, 0, 'YXZ'); dummy.scale.setScalar(s.s); dummy.updateMatrix();
+      sticks.setMatrixAt(i, dummy.matrix); sticks.setColorAt(i, lin[s.p]); i++;
+    };
+    for (const s of aSticks.values()) putStick(s);
+    for (const g of gone) if (g.kind === 's') putStick(g);
+    sticks.count = i; sticks.instanceMatrix.needsUpdate = true; sticks.instanceColor.needsUpdate = true;
+    const per = {};
+    for (let p = 1; p <= MAX_PLAYERS; p++) per[p] = 0;
+    let gi = 0;
+    const putTile = (t) => {
+      if (t.s <= 0.001) return;
+      dummy.position.set(t.x, TOP + t.y + t.lift, t.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(t.s, t.s, t.s); dummy.updateMatrix();
+      tiles[t.p].setMatrixAt(per[t.p]++, dummy.matrix);
+      if (t.glow > 0.002) {
+        dummy.position.set(t.x, TOP + 0.03, t.z); dummy.scale.set(tileW * 1.5, 1, tileW * 1.5); dummy.updateMatrix();
+        runGlow.setMatrixAt(gi, dummy.matrix); runGlow.setColorAt(gi, lin[t.p].clone().multiplyScalar(t.glow)); gi++;
+      }
+    };
+    for (const t of aTiles) putTile(t);
+    for (const g of gone) if (g.kind === 't') putTile(g);
+    for (let p = 1; p <= MAX_PLAYERS; p++) { const m = tiles[p]; m.count = per[p]; m.visible = per[p] > 0; m.instanceMatrix.needsUpdate = true; }
+    runGlow.count = gi; runGlow.visible = gi > 0; runGlow.instanceMatrix.needsUpdate = true; if (runGlow.instanceColor) runGlow.instanceColor.needsUpdate = true;
+  }
+  kit.onFrame(() => { if (needSync) { needSync = false; sync(); } return false; });
+
+  function lineGlow(m, e, len, wid, y) {
+    const s = stickRec(e, 1);
+    m.position.set(s.x, TOP + y, s.z); m.rotation.set(0, s.yaw, 0); m.scale.set(len, 1, wid);
+  }
+  function markLast(e, k) {
+    lastKey = e ? edgeKey(e) : null;
+    lastGlow.visible = !!e;
+    if (e) { lineGlow(lastGlow, e, SP * 1.08, stickW * 3.6, 0.02); lastGlowMat.opacity = k == null ? 1 : k; }
+  }
+
+  // ---- animation. Every one is short and none is waited on by the game.
+  // A drawn line: the stick drops from 3.5 cm and bounces into the grooves, rocking a little as it lands.
+  function dropStick(rec) {
+    const roll = (Math.random() < 0.5 ? -1 : 1) * 0.35, y0 = 3.5;
+    rec.y = y0; rec.roll = roll;
+    kit.tween({ ms: 380, ease: 'linear', update: (k) => {
+      rec.y = lerp(y0, 0, E.outBounce(k));
+      rec.roll = roll * (1 - E.outCubic(Math.min(1, k * 1.5))) * Math.cos(k * 9);
+      touch();
+    }, done: () => { rec.y = 0; rec.roll = 0; touch(); } });
+  }
+  // A claimed box: its tile pops up out of the board and lands; while its owner is still on a run (a chain
+  // being taken) it hovers a few millimetres up over a glow in their colour, so the chain reads as one
+  // group as it grows. When the run ends the whole group sets down together.
+  function popTile(rec, delay, big) {
+    rec.s = 0.001; rec.y = 0;
+    const t0 = delay || 0, ms = 420 + t0;
+    kit.tween({ ms, ease: 'linear', update: (k) => {
+      const u = M.clamp((k * ms - t0) / 420, 0, 1);
+      rec.s = Math.max(0.001, lerp(0.2, 1, E.outBack(u)) * (u > 0 ? 1 : 0));
+      rec.y = Math.sin(Math.PI * Math.min(1, u * 1.25)) * (big ? 2.2 : 1.4);
+      rec.lift = lerp(0, 0.45, E.outCubic(u)); rec.glow = E.outCubic(u) * 0.9;
+      touch();
+    }, done: () => { rec.s = 1; rec.y = 0; touch(); } });
+  }
+  function endRun() {
+    if (!run.length) { runP = 0; return; }
+    const group = run; run = []; runP = 0;
+    const from = group.map((t) => t.lift), g0 = group.map((t) => t.glow);
+    kit.tween({ ms: 300, ease: 'linear', update: (k) => {
+      group.forEach((t, j) => { t.lift = from[j] * (1 - E.inQuad(k)); t.glow = g0[j] * (1 - k); });
+      touch();
+    }, done: () => { for (const t of group) { t.lift = 0; t.glow = 0; } touch(); } });
+  }
+  function doubleCross(e) {
+    const s = stickRec(e, 1);
+    dxFlash.position.set(s.x, TOP + 0.05, s.z);
+    dxFlash.rotation.set(0, s.yaw + Math.PI / 2, 0);
+    dxFlash.visible = true;
+    kit.tween({ ms: 900, ease: 'linear', update: (k) => {
+      const sc = lerp(0.8, 1.12, E.outCubic(k));
+      dxFlash.scale.set(SP * 2.3 * sc, 1, SP * 1.35 * sc);
+      dxMat.opacity = k < 0.2 ? k / 0.2 : 1 - E.inQuad((k - 0.2) / 0.8);
+    }, done: () => { dxFlash.visible = false; } });
+  }
+  // The game's last line: the leader's tiles (every leader's, on a tie) lift in a wave across the board.
+  function finale() {
+    const lead = ranking(S).filter((x) => x.rank === 1).map((x) => x.p);
+    const ts = aTiles.filter((t) => lead.includes(t.p));
+    if (!ts.length) return;
+    kit.tween({ ms: 1500, ease: 'linear', update: (k) => {
+      const t = k * 1500;
+      for (const tl of ts) {
+        const u = (t - 380 - (tl.r + tl.c) * 60) / 520;
+        tl.y = u > 0 && u < 1 ? Math.sin(Math.PI * u) * 1.6 : 0;
+      }
+      touch();
+    }, done: () => { for (const tl of ts) tl.y = 0; touch(); } });
+  }
+  function played(e, p, claimed) {
+    setGhost(null);
+    const rec = stickRec(e, p);
+    aSticks.set(edgeKey(e), rec);
+    dropStick(rec);
+    markLast(e, 0);
+    kit.tween({ ms: 260, ease: 'linear', update: (k) => { lastGlowMat.opacity = M.clamp((k - 0.4) / 0.6, 0, 1); } });
+    if (claimed.length) {
+      if (runP !== p) endRun();
+      runP = p;
+      for (const [r, c] of claimed) { const t = tileRec(r, c, p); aTiles.push(t); run.push(t); popTile(t, 110, claimed.length === 2); }
+      if (claimed.length === 2) doubleCross(e);
+    } else endRun();
+    if (S.over) { endRun(); finale(); }
+    touch();
+  }
+
+  // Start over from the game as it stands (a switch into 3D, a new grid size): no animation.
+  let warmed = false;
+  function rebuild() {
+    kit.finishAll();
+    setGrid(S.n);
+    aSticks = new Map(); aTiles = []; gone = []; run = []; runP = 0;
+    S.h.forEach((row, r) => row.forEach((p, c) => { if (p) aSticks.set(edgeKey({ t: 'h', r, c }), stickRec({ t: 'h', r, c }, p)); }));
+    S.v.forEach((row, r) => row.forEach((p, c) => { if (p) aSticks.set(edgeKey({ t: 'v', r, c }), stickRec({ t: 'v', r, c }, p)); }));
+    S.boxes.forEach((row, r) => row.forEach((p, c) => { if (p) aTiles.push(tileRec(r, c, p)); }));
+    markLast(lastEdge); dxFlash.visible = false; setGhost(null);
+    sync();
+    kit.resize(); fit(true);
+    if (!warmed) warm();
+    kit.invalidate();
+  }
+  // A new game on the same grid: the sticks and tiles lift off and shrink away, the far ones last, the way
+  // a hand sweeps a board clear. The new game is playable at once; the sweep only finishes the picture.
+  function newGame() {
+    if (S.n !== N) { rebuild(); return; }
+    kit.finishAll();
+    const list = Array.from(aSticks.values()).concat(aTiles);
+    aSticks = new Map(); aTiles = []; run = []; runP = 0;
+    markLast(null); dxFlash.visible = false; setGhost(null);
+    if (!list.length) { touch(); return; }
+    gone = list;
+    const s0 = list.map((g) => g.s), d = list.map((g) => (g.x + g.z + F) / (2 * F));
+    kit.tween({ ms: 520, ease: 'linear', update: (k) => {
+      const t = k * 520;
+      list.forEach((g, j) => {
+        const u = M.clamp((t - d[j] * 160) / 360, 0, 1);
+        g.y = E.outCubic(u) * 2.5; g.s = Math.max(0.001, s0[j] * (1 - E.inQuad(u)));
+      });
+      touch();
+    }, done: () => { gone = []; touch(); } });
+  }
+  // three.js compiles a material's shader the first time it is drawn: compile every piece and glow up front
+  // so the first line, the first box and the first double-cross do not hitch.
+  function warm() {
+    warmed = true;
+    const vis = [lastGlow, dxFlash, ghostMesh].map((m) => m.visible);
+    for (const m of [lastGlow, dxFlash, ghostMesh, sticks, runGlow]) m.visible = true;
+    sticks.count = Math.max(1, sticks.count); runGlow.count = Math.max(1, runGlow.count);
+    for (let p = 1; p <= MAX_PLAYERS; p++) { tiles[p].visible = true; tiles[p].count = Math.max(1, tiles[p].count); }
+    try { kit.renderer.compile(kit.scene, kit.camera); } catch (e) { /* only a warm-up */ }
+    [lastGlow.visible, dxFlash.visible, ghostMesh.visible] = vis;
+    sync();
+  }
+
+  // ---- the ghost stick
+  let ghost = null, ghostConfirm = false;
+  function setGhost(e, confirm) {
+    ghost = e || null; ghostConfirm = !!(e && confirm);
+    ghostMesh.visible = !!ghost;
+    if (ghost) {
+      const s = stickRec(ghost, S.player);
+      ghostMesh.position.set(s.x, TOP + (confirm ? 0.6 : 0.25), s.z); ghostMesh.rotation.set(0, s.yaw, 0);
+      ghostMat.color.copy(lin[S.player]); ghostMat.opacity = confirm ? 0.72 : 0.45;
+    }
+    kit.invalidate();
+  }
+
+  // ---- picking. A tap is turned into a line on the screen, not on the board: every peg is projected to
+  // the canvas and the nearest line by distance to its segment wins, with the 2D page's reach (22 px or
+  // 0.36 of the line, whichever is more; a little more for a finger). Measured on screen, the reach follows
+  // the perspective, so the far rows of the angled view are not stingier than the near ones. Three
+  // refusals keep a tap from drawing a line nobody meant: a tap nearest a line already drawn plays nothing;
+  // a tap about as near two lines (a box's middle; inside a corner, unless within ~37 degrees of one line)
+  // plays neither; and a tap on a peg plays none of the lines that meet there.
+  const pv = new THREE.Vector3();
+  function project(x, y, z, rect) { pv.set(x, y, z).project(kit.camera); return [rect.left + ((pv.x + 1) / 2) * rect.width, rect.top + ((1 - pv.y) / 2) * rect.height]; }
+  function pegScreen() {
+    const rect = cv.getBoundingClientRect(), P = [];
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) P.push(project(X(c), TOP + stickH * 0.5, Z(r), rect));
+    return P;
+  }
+  function lineAt(px, py, finger) {
+    if (!N) return null;
+    const P = pegScreen(), at = (r, c) => P[r * N + c];
+    let best = null, bd = Infinity, second = Infinity, ba = null, bb = null;
+    const consider = (t, r, c, a, b) => {
+      const d = distToSegment(px, py, a, b);
+      if (d < bd) { second = bd; bd = d; best = { t, r, c }; ba = a; bb = b; } else if (d < second) second = d;
+    };
+    for (let r = 0; r < N; r++) for (let c = 0; c < N - 1; c++) consider('h', r, c, at(r, c), at(r, c + 1));
+    for (let r = 0; r < N - 1; r++) for (let c = 0; c < N; c++) consider('v', r, c, at(r, c), at(r + 1, c));
+    if (!best || edgeAt(S, best)) return null;
+    const L = Math.hypot(bb[0] - ba[0], bb[1] - ba[1]);
+    if (bd > Math.max(finger ? 24 : 22, L * (finger ? 0.42 : 0.36))) return null;
+    if (second - bd < Math.max(4, L * 0.1) || second < bd * 1.3) return null;
+    if (Math.min(Math.hypot(px - ba[0], py - ba[1]), Math.hypot(px - bb[0], py - bb[1])) < Math.max(6, L * 0.2)) return null;
+    return best;
+  }
+  // Screen position of a line's middle and of a peg, for the tests.
+  function screenOfLine(e) {
+    const s = stickRec(e, 1);
+    return project(s.x, TOP + stickH * 0.5, s.z, cv.getBoundingClientRect());
+  }
+  const screenOfPeg = (r, c) => project(X(c), TOP + stickH * 0.5, Z(r), cv.getBoundingClientRect());
+  // The median on-screen length of a line: the gap a finger has to hit between two neighbours.
+  function spacing() {
+    const P = pegScreen(), L = [];
+    for (let r = 0; r < N; r++) for (let c = 0; c < N - 1; c++) { const a = P[r * N + c], b = P[r * N + c + 1]; L.push(Math.hypot(b[0] - a[0], b[1] - a[1])); }
+    for (let r = 0; r < N - 1; r++) for (let c = 0; c < N; c++) { const a = P[r * N + c], b = P[(r + 1) * N + c]; L.push(Math.hypot(b[0] - a[0], b[1] - a[1])); }
+    L.sort((a, b) => a - b);
+    return L[L.length >> 1];
+  }
+  // Is the point on the board at all (a double tap there is two taps, not a camera reset)?
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hitP = new THREE.Vector3(), boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TOP);
+  function onBoard(px, py) {
+    const rect = cv.getBoundingClientRect();
+    ndc.set(((px - rect.left) / rect.width) * 2 - 1, -((py - rect.top) / rect.height) * 2 + 1);
+    ray.setFromCamera(ndc, kit.camera);
+    return !!ray.ray.intersectPlane(boardPlane, hitP) && Math.abs(hitP.x) <= B / 2 && Math.abs(hitP.z) <= B / 2;
+  }
+  // Ghost-then-confirm is for fingers on lines under 32 px (as Go does for points): a mouse plays where it
+  // clicks, as in 2D.
+  const fingers = (() => { try { return matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0; } catch (e) { return true; } })();
+  const needConfirm = () => fingers && N > 0 && spacing() < 32;
+
+  // The camera frames the board with a strip of desk along its far edge, as wide as the view buttons in
+  // the stage's top corner need, so they sit on the desk rather than over the top row of lines.
+  function fit(instant) {
+    const top = kit.rig.view === 'top', s = Math.min(cv.clientWidth, cv.clientHeight) || 320;
+    const p = Math.min(0.3, 66 / s), strip = Math.max(0, (p * B - MARGIN) / (1 - p)) * (top ? 1 : 0.55);
+    kit.rig.fit({ w: B + 0.4, d: B + 0.4 + strip, cz: -strip / 2, h: 1.2, margin: 0.98, instant });
+    if (instant) kit.rig.step(1 / 60);
+  }
+  cv.addEventListener('pointermove', (ev) => {
+    if (ev.pointerType !== 'mouse' || ev.buttons) return;
+    if (S.over || isAiTurn()) { if (ghost) setGhost(null); return; }
+    const e = lineAt(ev.clientX, ev.clientY, false);
+    if ((e && edgeKey(e)) !== (ghost && edgeKey(ghost))) setGhost(e, false);
+    cv.style.cursor = e ? 'pointer' : 'default';
+  });
+  cv.addEventListener('pointerleave', () => { if (ghost && !ghostConfirm) setGhost(null); });
+
+  return {
+    ok: true, kit, rebuild, newGame, played, lineAt, onBoard, spacing, needConfirm, setGhost, screenOfLine, screenOfPeg,
+    get ghost() { return ghost; }, get ghostConfirm() { return ghostConfirm; },
+    resize() { kit.resize(); if (N) fit(true); },
+    setCam(name, instant) { kit.rig.setView(name, { instant }); if (N) fit(!!instant); },
+    get cam() { return kit.rig.view; },
+    probe: { get sticks() { return aSticks; }, get tiles() { return aTiles; }, get gone() { return gone; }, get run() { return run; }, get lastKey() { return lastKey; },
+      lastGlow, dxFlash, ghostMesh, meshes: { sticks, tiles, runGlow }, TOP, B, get N() { return N; }, get SP() { return SP; } },
+  };
+}
+
+// A tap on the 3D board: the same as a press on that line of the 2D canvas.
+const hintEl = document.querySelector('.hint'), hintText = hintEl.textContent;
+function tap3d(x, y, ev) {
+  if (!V3) return;
+  // The kit reports a tap on pointer-up, and the browser still sends that press's click afterwards, to
+  // whatever is under the finger by then. The one click this tap still owes is dropped.
+  const kill = (e2) => { e2.stopPropagation(); e2.preventDefault(); off(); };
+  const off = () => { removeEventListener('click', kill, true); clearTimeout(t); };
+  addEventListener('click', kill, true);
+  const t = setTimeout(off, 600);
+  if (S.over || isAiTurn()) return;
+  const finger = !ev || ev.pointerType !== 'mouse';
+  const e = V3.lineAt(x, y, finger);
+  if (finger && V3.needConfirm()) {
+    // Lines under 32 px on a touch screen: the first tap shows the stick, a second tap on it draws it.
+    if (e && V3.ghost && V3.ghostConfirm && edgeKey(e) === edgeKey(V3.ghost)) { hintEl.textContent = hintText; play(e); }
+    else if (e) { V3.setGhost(e, true); hintEl.textContent = 'Tap the line again to draw it.'; }
+    return;
+  }
+  if (e) play(e);
+}
+
+function setDim(dim, remember) {
+  if (dim === '3d' && !view3d && can3d()) {
+    // Anything that goes wrong building the scene leaves the 2D game playable rather than a blank board.
+    try { view3d = makeView3d(); } catch (e) { view3d = { ok: false, reason: String(e) }; try { console.warn('3D board failed, using 2D:', e); } catch (e2) { /* ignore */ } }
+  }
+  const on = dim === '3d' && !!view3d && view3d.ok && !lost3d;
+  document.body.classList.toggle('v3d', on);
+  V3 = on ? view3d : null;
+  if (remember) { viewPref.dim = on ? '3d' : '2d'; saveView(); }
+  $('to3d').hidden = on || !can3d();
+  hintEl.textContent = hintText;
+  if (on) { setCam(camDefault(), false, true); V3.rebuild(); }
+  else if (!loop2d) { particles = []; loop2d = true; lastFrame = performance.now(); requestAnimationFrame(gameLoop); }
+}
+function setCam(name, remember, instant) {
+  if (!V3) return;
+  V3.setCam(name, instant);
+  if (remember) { viewPref.cam = name; saveView(); }
+  $('camBtn').textContent = name === 'top' ? 'Angled' : 'Top';
+  $('camBtn').setAttribute('aria-label', name === 'top' ? 'Tilt the camera to an angled view' : 'Look straight down at the board');
+}
+$('camBtn').addEventListener('click', () => setCam(V3 && V3.cam === 'top' ? 'angled' : 'top', true));
+$('dimBtn').addEventListener('click', () => setDim('2d', true));
+$('to3d').addEventListener('click', () => setDim('3d', true));
+// Two quick taps on the board are two taps, not the kit's "reset the camera": that stays for a double
+// click on the desk.
+$('wrap').addEventListener('dblclick', (e) => { if (V3 && V3.onBoard(e.clientX, e.clientY)) e.stopPropagation(); }, true);
+// Turning a phone over changes the default camera, unless someone picked one.
+addEventListener('resize', () => { if (V3 && !viewPref.cam) setCam(camDefault(), false); });
+// For the Playwright checks: read-only views and the entry points they drive.
+window.__dab3 = { get V3() { return V3; }, get view3d() { return view3d; }, get S() { return S; }, setDim, setCam, play, opts, init };
+
+// ---------- boot ----------
 init();
 requestAnimationFrame(gameLoop);
+// 3D by default wherever WebGL works; 2D if that was the last choice, or as the fallback.
+$('to3d').hidden = !can3d();
+if (viewPref.dim !== '2d' && can3d()) setDim('3d', false);
 </script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 # lib — shared files for the 3D tabletop games
 
-The one place this repo breaks its "every game is a single self-contained file" rule, on purpose and only for the 3D tabletop games (Ludo, City Tycoon, Go, Troll Chess and Tic-tac-toe so far; Dots & Boxes, Battleship, Queens and Knight's Tour to follow). Bundling three.js into each of nine board games would ship the same ~600 KB nine times; one shared copy is downloaded once and cached by the service worker for all of them.
+The one place this repo breaks its "every game is a single self-contained file" rule, on purpose and only for the 3D tabletop games (Ludo, City Tycoon, Go, Troll Chess, Tic-tac-toe and Dots & Boxes so far; Battleship, Queens and Knight's Tour to follow). Bundling three.js into each of nine board games would ship the same ~600 KB nine times; one shared copy is downloaded once and cached by the service worker for all of them.
 
 | File | What |
 |---|---|
