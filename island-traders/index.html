@@ -398,7 +398,7 @@ function newGame(o) {
     bank: new Array(5).fill(BANK_EACH), deck: [],
     cur: 0, phase: 'setup', setup: { i: 0, order: [], need: 'village', last: -1 },
     turn: 0, rolled: false, cardPlayed: false, dice: null, discard: null, back: null, freeRoads: 0,
-    longest: -1, army: -1, roadLen: new Array(n).fill(0), winner: -1, target: o.target === 8 ? 8 : 10,
+    longest: -1, army: -1, roadLen: new Array(n).fill(0), winner: -1, target: o.target === 8 || o.target === 10 ? o.target : n === 2 ? 8 : 10,
     friendly: o.friendly === undefined ? n === 2 : !!o.friendly, tc: { bank: 0, offers: 0 }, log: [], rolls: new Array(13).fill(0),
   };
   for (let i = 0; i < n; i++) S.setup.order.push(i);
@@ -782,10 +782,16 @@ function deserialize(text) {
 // Computer players. Every decision is computed from what a player at the table could see: their
 // own hand, the board, everyone's card counts and public points. Nobody peeks at another hand.
 // ============================================================================================
+// Easy is a simpler player, not a broken one: it opens on one of the four best corners rather than
+// the best, has fixed whims about what to build (taste), sends the bandit about at random, makes
+// little of harbours, never counters an offer and answers offers a little unpredictably. It still
+// builds what it can afford and spends a big hand. Normal plans properly and goes for the Longest Road when it
+// is close (race 0.25); Hard races for both awards from further out (race 1) and bargains harder.
+// Measured in test/bots.js; the bands are guarded loosely in test/sim.js.
 const LEVEL = {
-  easy: { look: 1, trade: false, thr: -0.4, diversity: 0.4, ports: 0, offers: 0, bankTrades: 1, smartRobber: false, race: false },
-  normal: { look: 2, trade: true, thr: 0.1, diversity: 1, ports: 0.6, offers: 1, bankTrades: 3, smartRobber: true, race: false },
-  hard: { look: 3, trade: true, thr: 0.25, diversity: 1.2, ports: 1, offers: 2, bankTrades: 4, smartRobber: true, race: true },
+  easy: { look: 2, trade: true, thr: 0.1, diversity: 0.7, ports: 0.3, offers: 1, counter: false, respNoise: 0.6, bankTrades: 2, smartRobber: false, race: 0, setupPick: 4, taste: 0.3 },
+  normal: { look: 2, trade: true, thr: 0.1, diversity: 1, ports: 0.6, offers: 1, counter: true, respNoise: 0, bankTrades: 3, smartRobber: true, race: 0.25, setupPick: 1, taste: 0 },
+  hard: { look: 3, trade: true, thr: 0.25, diversity: 1.2, ports: 1, offers: 2, counter: true, respNoise: 0, bankTrades: 4, smartRobber: true, race: 1, setupPick: 1, taste: 0 },
 };
 const lvl = (S, p) => LEVEL[S.players[p].kind] || LEVEL.normal;
 // Ore and grain win the long game (towns); timber and clay win the opening (roads, villages).
@@ -850,6 +856,14 @@ function roadTargets(S, p, look) {
   return out;
 }
 function missing(have, cost) { return cost.map((c, r) => Math.max(0, c - have[r])); }
+// A player's fixed liking for one particular build, 0..1: the same every time it is asked during a
+// game, so a whimsical player still saves steadily for the thing it fancies.
+const GOAL_KIND = { town: 1, village: 2, road: 3, card: 4 };
+function liking(S, p, c) {
+  let h = (S.seed ^ Math.imul(p + 1, 0x9e3779b1) ^ Math.imul(GOAL_KIND[c.kind] * 1000 + (c.at === undefined ? 999 : c.at), 0x85ebca6b)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b); h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
 // The thing to save up for next.
 function aiGoal(S, p) {
   const P = S.players[p], L = lvl(S, p), rates = prodRates(S, p);
@@ -871,21 +885,22 @@ function aiGoal(S, p) {
       }
     }
   }
-  // Racing for the Longest Road: worth two points.
-  if (L.race && P.left.road > 0 && S.longest !== p) {
+  // Racing for the Longest Road: worth two points. Hard (race 1) chases it from two roads out; a
+  // lesser racer only once it is close, and values it less.
+  if (L.race > 0 && P.left.road > 0 && S.longest !== p) {
     const others = Math.max(0, ...S.roadLen.filter((x, q) => q !== p));
-    const mine = S.roadLen[p] || 0;
-    if (mine + 2 >= Math.max(5, others + 1)) {
+    const mine = S.roadLen[p] || 0, need = Math.max(5, others + 1), w = 0.5 + 0.5 * L.race;
+    if (mine + (L.race >= 1 ? 2 : 1) >= need) {
       for (const e of legalRoads(S, p)) {
         S.eOwn[e] = p; const l = roadLength(S, p); S.eOwn[e] = -1;
-        if (l > mine) cands.push({ kind: 'road', at: e, cost: l >= Math.max(5, others + 1) ? COST.road : COST.road.map((x) => x * 2), step: COST.road, value: l >= Math.max(5, others + 1) ? 16 : 10 });
+        if (l > mine) cands.push({ kind: 'road', at: e, cost: l >= need ? COST.road : COST.road.map((x) => x * 2), step: COST.road, value: (l >= need ? 16 : 10) * w });
       }
     }
   }
   if (S.deck.length) {
     let v = 7;
     const g = P.guards + P.cards.filter((c) => c.c === 'guard').length;
-    if (L.race && S.army !== p) { const top = Math.max(2, ...S.players.map((Q, q) => (q === p ? 0 : Q.guards))); if (g + 1 >= top) v += 3; }
+    if (L.race >= 1 && S.army !== p) { const top = Math.max(2, ...S.players.map((Q, q) => (q === p ? 0 : Q.guards))); if (g + 1 >= top) v += 3; }
     if (near) v += 2;
     if (!cands.some((c) => c.kind !== 'road' || c.aim !== undefined)) v += 3;
     cands.push({ kind: 'card', cost: COST.card, value: v });
@@ -896,7 +911,8 @@ function aiGoal(S, p) {
     const miss = missing(P.res, c.cost);
     let m = 0;
     miss.forEach((k, r) => { if (k) m += k * (rates[r] > 0 ? 9 / (1 + rates[r]) : 3.5); });
-    const s = c.value / (1 + 0.12 * m);
+    let s = c.value / (1 + 0.12 * m);
+    if (L.taste) s *= 1 + L.taste * (liking(S, p, c) - 0.5);
     if (s > bs) { bs = s; best = c; }
   }
   best.miss = missing(P.res, best.cost);
@@ -932,9 +948,9 @@ function aiRespond(S, p, q, give, get) {
   const vals = resValues(S, p);
   const gain = valueOf(vals, give) - valueOf(vals, get);
   let thr = L.thr;
-  if (P.kind === 'easy') thr += (rnd(S) - 0.5) * 0.6;
+  if (L.respNoise) thr += (rnd(S) - 0.5) * L.respNoise;
   if (gain >= thr) return 'accept';
-  if (P.kind === 'easy') return 'reject';
+  if (!L.counter) return 'reject';
   // Counter: ask for one more of what was offered, if that would make it worth it.
   const best = [0, 1, 2, 3, 4].filter((r) => give[r] > 0).sort((a, b) => vals[b] - vals[a])[0];
   if (best !== undefined && gain + vals[best] >= thr && sum(give) < 4) {
@@ -1016,8 +1032,8 @@ function aiRobber(S, p) {
 function aiSetupVillage(S, p) {
   const spots = legalVillages(S, p), rates = prodRates(S, p);
   const scored = spots.map((v) => ({ v, s: spotScore(S, p, v, rates) })).sort((a, b) => b.s - a.s);
-  if (S.players[p].kind === 'easy') return scored[Math.floor(rnd(S) * Math.min(8, scored.length))].v;
-  return scored[0].v;
+  const k = Math.min(lvl(S, p).setupPick, scored.length);
+  return k > 1 ? scored[Math.floor(rnd(S) * k)].v : scored[0].v;
 }
 function aiSetupRoad(S, p) {
   const v0 = S.setup.last, rates = prodRates(S, p);
@@ -1026,7 +1042,6 @@ function aiSetupRoad(S, p) {
     const u = otherEnd(e, v0);
     let s = 0;
     for (const e2 of VERTS[u].edges) { if (e2 === e) continue; const w = otherEnd(e2, u); if (vertexFree(S, w)) s = Math.max(s, spotScore(S, p, w, rates)); }
-    if (S.players[p].kind === 'easy') s = rnd(S);
     if (s > bs) { bs = s; best = e; }
   }
   return best;
@@ -1092,8 +1107,9 @@ function aiStep(S) {
     if (hasAll(P.res, COST.village) && P.left.village > 0) {
       const vs = legalVillages(S, p); if (vs.length) { const rates = prodRates(S, p); return { t: 'village', v: vs.sort((a, b) => spotScore(S, p, b, rates) - spotScore(S, p, a, rates))[0] }; }
     }
-    // Bank or harbour: swap a surplus for something missing.
-    if (S.tc.bank < L.bankTrades && sum(goal.miss) > 0) {
+    // Bank or harbour: swap a surplus for something missing (and keep going while the hand is big
+    // enough to invite the bandit).
+    if ((S.tc.bank < L.bankTrades || handSize(P) > 7) && sum(goal.miss) > 0) {
       const need = goal.miss.findIndex((x) => x > 0);
       let bestG = -1, bestSpare = 0;
       for (let r = 0; r < 5; r++) {
@@ -1102,7 +1118,7 @@ function aiStep(S) {
         const spare = P.res[r] - goal.cost[r] - rate;
         if (spare >= 0 && S.bank[need] > 0 && spare + rate > bestSpare) { bestSpare = spare + rate; bestG = r; }
       }
-      if (bestG >= 0 && (P.kind !== 'easy' || rnd(S) < 0.5)) return { t: 'bank', give: bestG, get: need };
+      if (bestG >= 0) return { t: 'bank', give: bestG, get: need };
     }
     const off = aiOffer(S, p);
     if (off) return { t: 'offer', give: off.give, get: off.get };
@@ -1364,7 +1380,9 @@ const view = (function () {
 
 // ------------------------------------------------------------ state, options, saving
 let S = null;
-const defaults = { seats: ['human', 'normal', 'normal', 'normal'], beginner: false, target: 10, fast: false, friendly: false };
+// target is for three or four players; target2 for two (a two-player game to 10 takes about 30
+// rounds against 17 for four, so it defaults to 8). Kept apart so each table size remembers its own choice.
+const defaults = { seats: ['human', 'normal', 'normal', 'normal'], beginner: false, target: 10, target2: 8, fast: false, friendly: false };
 let opts = Object.assign({}, defaults);
 try { const o = JSON.parse(localStorage.getItem(OPTS_KEY) || 'null'); if (o && Array.isArray(o.seats) && o.seats.length === 4) opts = Object.assign({}, defaults, o); } catch (e) { /* ignore */ }
 const saveOpts = () => { try { localStorage.setItem(OPTS_KEY, JSON.stringify(opts)); } catch (e) { /* ignore */ } };
@@ -1987,7 +2005,7 @@ function openRules() {
       <h3>Venture cards</h3><ul>${M.CARD_ORDER.map((c) => `<li><b>${M.CARDS[c].name}</b> (${M.CARDS[c].n}): ${M.CARDS[c].text}</li>`).join('')}</ul>
       <p>One card per turn, never on the turn you bought it. A Guard may be played before you roll.</p>
       <h3>Awards (2 points each)</h3><p><b>Longest Road</b>: the first unbroken road of 5 or more; someone must build a longer one to take it. Another player's village on your road breaks it. <b>Strongest Guard</b>: the first to play 3 Guards; someone must play more to take it.</p>
-      <h3>Computer players</h3><p>Easy builds where it likes and rarely trades. Normal plans its builds, uses harbours and trades. Hard also races for the awards, sends the bandit at the leader and bargains harder. None of them will trade with a player close to winning.</p>`;
+      <h3>Computer players</h3><p>Easy builds where it fancies, trades without haggling and sends the bandit anywhere. Normal plans its builds, uses harbours, trades and goes for the Longest Road when it is close. Hard races for both awards, sends the bandit at the leader and bargains harder. None of them will trade with a player close to winning.</p>`;
   });
 }
 const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
@@ -2012,19 +2030,19 @@ function showSetup() {
   const box = $('setup');
   const seatKinds = [['human', 'You'], ['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard'], ['off', 'Off']];
   const draw = () => {
-    const active = opts.seats.filter((k) => k !== 'off').length;
-    box.innerHTML = `<div class="logo">Island Traders<small>Settle, trade and build on a hex island. First to ${opts.target} points.</small></div>` +
+    const active = opts.seats.filter((k) => k !== 'off').length, tgt = active === 2 ? opts.target2 : opts.target;
+    box.innerHTML = `<div class="logo">Island Traders<small>Settle, trade and build on a hex island. First to ${tgt} points.</small></div>` +
       (badSave ? '<p class="muted">The saved game could not be read, so it was set aside. Start a fresh one.</p>' : '') +
       '<div class="setgrid"><div><div class="opt">Players (any seat human or computer; 2 to 4)</div>' +
       opts.seats.map((k, i) => `<div class="seat"><span class="dot" style="background:${COLORS[i]}"></span><div class="seg" data-seat="${i}">${seatKinds.filter(([kk]) => i > 1 || kk !== 'off').map(([kk, l]) => `<button data-k="${kk}" class="${k === kk ? 'on' : ''}">${kk === 'human' && i > 0 ? 'Human' : l}</button>`).join('')}</div></div>`).join('') +
       '</div><div><div class="opts2"><div>' + `<div class="opt">Island</div><div class="seg" id="sBoard"><button data-v="0" class="${opts.beginner ? '' : 'on'}">Random</button><button data-v="1" class="${opts.beginner ? 'on' : ''}">Beginner</button></div>` +
-      '</div><div>' + `<div class="opt">Points to win</div><div class="seg" id="sTarget"><button data-v="10" class="${opts.target === 10 ? 'on' : ''}">10</button><button data-v="8" class="${opts.target === 8 ? 'on' : ''}">8 (short)</button></div>` +
+      '</div><div>' + `<div class="opt">Points to win${active === 2 ? ' (8 for two)' : ''}</div><div class="seg" id="sTarget"><button data-v="10" class="${tgt === 10 ? 'on' : ''}">10</button><button data-v="8" class="${tgt === 8 ? 'on' : ''}">8 (short)</button></div>` +
       '</div><div>' + `<div class="opt">Computer speed</div><div class="seg" id="sFast"><button data-v="0" class="${opts.fast ? '' : 'on'}">Normal</button><button data-v="1" class="${opts.fast ? 'on' : ''}">Fast</button></div>` +
       '</div><div>' + `<div class="opt">Friendly bandit${active === 2 ? ' (on for two)' : ''}</div><div class="seg" id="sFriendly"><button data-v="0" class="${opts.friendly || active === 2 ? '' : 'on'}">Off</button><button data-v="1" class="${opts.friendly || active === 2 ? 'on' : ''}">On</button></div>` +
       '</div></div><p class="muted" style="margin:6px 0 0">Friendly bandit: nobody on 2 points or fewer can be robbed.</p><div class="row" style="margin-top:10px" id="sBtns"></div></div></div>';
     box.querySelectorAll('.seat .seg').forEach((sg) => sg.querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.seats[+sg.dataset.seat] = b.dataset.k; saveOpts(); draw(); }; }));
     $('sBoard').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.beginner = b.dataset.v === '1'; saveOpts(); draw(); }; });
-    $('sTarget').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.target = +b.dataset.v; saveOpts(); draw(); }; });
+    $('sTarget').querySelectorAll('button').forEach((b) => { b.onclick = () => { if (active === 2) opts.target2 = +b.dataset.v; else opts.target = +b.dataset.v; saveOpts(); draw(); }; });
     $('sFast').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.fast = b.dataset.v === '1'; saveOpts(); draw(); }; });
     $('sFriendly').querySelectorAll('button').forEach((b) => { b.onclick = () => { opts.friendly = b.dataset.v === '1'; saveOpts(); draw(); }; });
     const row = $('sBtns');
@@ -2040,7 +2058,7 @@ function startNew(seed) {
   let hn = 0;
   const nH = seats.filter((s) => s.k === 'human').length;
   const players = seats.map((s, j) => ({ kind: s.k, name: s.k === 'human' ? (nH === 1 ? 'You' : 'Player ' + (++hn)) : CPU_NAMES[j] }));
-  S = M.newGame({ seed: seed || (Date.now() % 2147483647), players, beginner: opts.beginner, target: opts.target, friendly: opts.friendly || players.length === 2 });
+  S = M.newGame({ seed: seed || (Date.now() % 2147483647), players, beginner: opts.beginner, target: players.length === 2 ? opts.target2 : opts.target, friendly: opts.friendly || players.length === 2 });
   badSave = false;
   ui.viewer = -1; ui.mode = null; ui.sel = null;
   view.mount($('board'));

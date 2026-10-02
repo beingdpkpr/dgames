@@ -440,6 +440,9 @@ function bruteRoad(S, p) {
   const E = blank(3); E.target = 8; [10, 14, 30].forEach((v) => put(E, 0, v, 2)); put(E, 0, 50);
   give(E, 0, [0, 0, 0, 2, 3]);
   ok(M.act(E, { t: 'town', v: 50 }).ok && E.phase === 'over', 'the short game ends at 8');
+  const tg = (n, target) => M.newGame({ seed: 3, players: Array.from({ length: n }, () => ({ kind: 'human' })), target }).target;
+  ok(tg(2) === 8 && tg(3) === 10 && tg(4) === 10, 'unless told otherwise, two players play to 8 and three or four to 10');
+  ok(tg(2, 10) === 10 && tg(4, 8) === 8 && tg(3, 9) === 10, 'and either table can choose 8 or 10 (nothing else)');
 }
 
 // ------------------------------------------------------------ save and resume

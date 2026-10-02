@@ -39,6 +39,7 @@ for (const kinds of [['normal', 'normal', 'normal', 'normal'], ['normal', 'hard'
 const LINEUPS = [
   ['hard', 'normal', 'easy'],
   ['hard', 'normal', 'normal', 'normal'],
+  ['easy', 'normal', 'normal', 'normal'],
   ['normal', 'easy', 'easy', 'easy'],
   ['hard', 'easy', 'easy', 'easy'],
   ['hard', 'hard', 'normal', 'normal'],
