@@ -1541,6 +1541,11 @@ function toast(msg, ms) {
   if (!$('cover').hidden) return;
   const t = $('toast');
   t.textContent = msg; t.hidden = false;
+  // Over the top of the map, not at a fixed height: a fixed 24% from the bottom sat exactly on the
+  // claim panel's title on a portrait phone (route name and cost hidden while you choose how to pay).
+  const mr = $('map').getBoundingClientRect();
+  t.style.bottom = 'auto'; t.style.top = Math.round(Math.max(8, mr.top + 10)) + 'px';
+  t.style.left = Math.round(mr.left + mr.width / 2) + 'px';
   t.style.animation = 'none'; void t.offsetWidth; t.style.animation = '';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.hidden = true; }, ms || 2200);
