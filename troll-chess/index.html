@@ -77,7 +77,9 @@
   }
   @media (orientation: landscape) {
     #app { grid-template-columns: minmax(0, 330px) var(--bs); column-gap: 24px;
-      grid-template-rows: auto 1fr auto auto auto auto 1fr;
+      /* minmax(0, 1fr): a plain 1fr spacer let the board spanning every row push the page 10px past the
+         screen in Fusion Chess, which has no control row */
+      grid-template-rows: auto minmax(0, 1fr) auto auto auto auto minmax(0, 1fr);
       grid-template-areas: "head stage" ". stage" "top stage" "cards stage" "ctrl stage" "bot stage" ". stage"; }
     #stage { align-self: center; }
   }
@@ -163,7 +165,7 @@
   .btn kbd { font: 600 11px var(--sans); opacity: .7; border: 1px solid currentColor; border-radius: 5px; padding: 1px 5px; }
 
   /* ---- the board ---- */
-  #stage { grid-area: stage; width: var(--bs); height: var(--bs); position: relative; perspective: 1400px; }
+  #stage { grid-area: stage; width: var(--bs); height: var(--bh, var(--bs)); position: relative; perspective: 1400px; }
   #board { position: absolute; inset: 0; padding: var(--frame); border-radius: 12px; background: var(--frame-bg); box-shadow: var(--shadow); }
   #board.spin { animation: spin .8s cubic-bezier(.5, 0, .3, 1) both; }
   @keyframes spin { from { transform: rotate(-180deg); } }
@@ -247,6 +249,23 @@
   #over.peek { background: transparent; pointer-events: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   #over.peek .panel { display: none; }
 
+  /* ---- 3D table (body.v3d), drawn by ../lib/tabletop.js. The 2D grid stays the fallback when WebGL is
+     missing and the choice for anyone who prefers it; nothing in this block applies without .v3d. The
+     stage is the whole space beside or under the HUD rather than the board's square (layout() sizes it). */
+  #c3d, #view3 { display: none; }
+  body.v3d #board { display: none; }
+  body.v3d #c3d { display: block; position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 14px; touch-action: none; outline: none;
+    cursor: pointer; box-shadow: var(--shadow); }
+  body.v3d #view3 { display: flex; position: absolute; top: 8px; right: 8px; gap: 6px; z-index: 4; }
+  /* on a wide stage (captured rows beside the board) the board fills the height: the buttons stack in the
+     strip of desk beside it rather than over the far corner squares */
+  body.v3d #view3.stack { flex-direction: column; top: 6px; right: 4px; }
+  #view3.stack button { width: 44px; padding: 0; font-size: 11px; }
+  #view3 button { min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 22px; border: 1px solid rgba(43, 47, 92, .25);
+    background: rgba(255, 255, 255, .82); color: #2B2F5C; font: 700 13px var(--sans); cursor: pointer; }
+  #view3 button:hover { background: #fff; }
+  #to3d { font: 700 13px var(--sans); }
+
   @media (prefers-reduced-motion: reduce) {
     #deck.ready .back:last-of-type, .tray .tp.can, #pile .card.flip, #board.spin, .pc.pop, .veil, .panel { animation: none; }
     #banner.show { animation-duration: 2.2s; }
@@ -272,6 +291,7 @@
 <div id="app">
   <header>
     <h1>Troll Chess<small id="sub">Draw a card, then play it</small></h1>
+    <button class="iconbtn" id="to3d" type="button" title="3D board" aria-label="Show the 3D board" hidden>3D</button>
     <button class="iconbtn" id="rulesBtn" type="button" title="Rules" aria-label="Rules">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M10 9.5a2.2 2.2 0 1 1 3 2c-.7.3-1 .8-1 1.5v.5"/><circle cx="12" cy="16.8" r=".6" fill="currentColor"/></svg>
     </button>
@@ -283,6 +303,8 @@
   <div id="stage">
     <div id="board"><div id="grid" role="grid" aria-label="Board"></div></div>
     <div id="flyer" hidden></div>
+    <canvas id="c3d" aria-label="The chessboard in 3D: tap a piece, then a square. Drag to tilt, pinch to zoom."></canvas>
+    <div id="view3"><button id="camBtn" type="button" aria-label="Look straight down at the board">Top</button><button id="dimBtn" type="button" title="Flat 2D board" aria-label="Switch to the flat 2D board">2D</button></div>
     <div id="banner" hidden></div>
   </div>
   <div class="strip" id="bot"><div class="who"><i class="army"></i><span class="nm"></span></div><div class="tray"></div></div>
@@ -373,6 +395,9 @@
   </div>
 </div>
 
+<!-- The 3D table: three.js and the shared tabletop kit. Missing (opened without ../lib), the game plays in 2D. -->
+<script src="../lib/three.min.js"></script>
+<script src="../lib/tabletop.js"></script>
 <script>
 'use strict';
 // ---------- rules, cards and computer player (pure: no DOM, no clock, no Math.random) ----------
@@ -1149,6 +1174,29 @@ function layout() {
   const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
   const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
   const W = innerWidth, H = innerHeight, rowGap = parseFloat(cs.rowGap) || 0, colGap = parseFloat(cs.columnGap) || 0;
+  const root = document.documentElement.style, hdr = document.querySelector('header');
+  const others = () => ['top', 'bot', 'cards', 'ctrl'].reduce((a, id) => a + $(id).getBoundingClientRect().height, 0) + hdr.getBoundingClientRect().height;
+  // The 3D table takes the whole stage beside or under the HUD rather than the board's square: the
+  // captured pieces stand beside the board. Portrait, the column is the screen's width and the stage
+  // gets the height the other rows leave.
+  if (V3) {
+    let sw, sh;
+    if (W > H) {
+      sw = Math.min(W - padX - colGap - Math.min(330, Math.max(280, W * 0.26)), 1600);
+      sh = Math.min(H - padY, 1000);
+    } else {
+      sw = Math.min(W - padX, 820);
+      root.setProperty('--bs', Math.floor(sw) + 'px');
+      const rows = cs.gridTemplateRows.trim().split(/\s+/).length;
+      sh = Math.min(H - padY - others() - (rows - 1) * rowGap, sw * 1.3);
+    }
+    root.setProperty('--bs', Math.max(200, Math.floor(sw)) + 'px');
+    root.setProperty('--bh', Math.max(200, Math.floor(sh)) + 'px');
+    hdr.style.paddingLeft = Math.max(0, 62 - hdr.getBoundingClientRect().left) + 'px';
+    V3.resize();
+    return;
+  }
+  root.removeProperty('--bh');
   let bs;
   if (W > H) bs = Math.min(H - padY, W - padX - colGap - 280, 820);
   else {
@@ -1173,6 +1221,7 @@ function render() {
   // The board turns whenever the army at the bottom changes: after a Reverse against the computer, and
   // at every hand-over in a two-player game.
   const nowFlipped = S.army[viewer()] === 'b';
+  if (V3) V3.setFlip(nowFlipped, rendered);
   if (nowFlipped !== flipped && rendered) { const b = $('board'); b.classList.remove('spin'); void b.offsetWidth; b.classList.add('spin'); }
   flipped = nowFlipped; rendered = true;
   // Draw 2: preselect the most valuable captured piece that has somewhere to go
@@ -1189,6 +1238,7 @@ function render() {
   const movable = new Set(S.phase === 'move' ? legal.map((m) => m.from) : S.phase === 'wild' && human ? C.wildOptions(S) : []);
   const checks = ['w', 'b'].filter((c) => C.inCheck(S.pos, c)).map((c) => C.findKing(S.pos, c));
   const last = S.last || {};
+  const mk = { sel, quad: [...quad], checks, tg: [], tset: new Set(targets), last: [last.from, last.to, last.escape].filter((x) => x >= 0) };
   for (let s = 0; s < 64; s++) {
     const el = cells[viewIndex(s)], r = s >> 3, c = s & 7, p = S.pos.b[s];
     el.dataset.s = s;
@@ -1200,6 +1250,7 @@ function render() {
     if (movable.has(s)) cls += ' mine';
     // a target holding one of our own pieces is a fusion
     if (targets.includes(s)) cls += ' tgt' + (p && p[0] === col ? ' fuse' : placeMode ? ' place' : p ? ' cap' : '');
+    if (targets.includes(s)) mk.tg.push([s, p && p[0] === col ? 'fuse' : placeMode ? 'place' : p ? 'cap' : 'dot']);
     el.className = cls;
     const vi = viewIndex(s), vr = vi >> 3, vc = vi & 7;
     let html = '';
@@ -1210,6 +1261,7 @@ function render() {
     el.setAttribute('aria-label', C.sqName(s) + (p ? ' ' + ({ w: 'white ', b: 'black ' }[p[0]]) + PIECE_NAME[p[1]] : ''));
   }
   popSq = -1;
+  if (V3) V3.update(mk);
   renderStrips(); renderCards(); renderCtrl();
 }
 
@@ -1328,9 +1380,17 @@ async function doAction(a) {
   const piece = a.type === 'move' ? S.pos.b[a.m.from] : a.type === 'wild' ? S.pos.b[a.from] : null;
   busy = true;
   try {
-    if (a.type === 'move') await flyPiece(a.m.from, a.m.to, piece);
-    if (a.type === 'wild') await flyPiece(a.from, a.to, piece);
+    if (a.type === 'move' && !V3) await flyPiece(a.m.from, a.m.to, piece);
+    if (a.type === 'wild' && !V3) await flyPiece(a.from, a.to, piece);
     const res = C.apply(S, a);
+    // The kit stops drawing in a hidden tab, and its animations with it: if the tab is hidden mid-move,
+    // the move is finished at once rather than left to stall the computer's turn.
+    if (V3) {
+      const v = V3, p = v.play(a, res);
+      let iv = 0;
+      await Promise.race([p, new Promise((r) => { iv = setInterval(() => { if (document.hidden) r(); }, 400); })]);
+      clearInterval(iv); v.kit.finishAll();
+    }
     if (a.type === 'revive') popSq = a.sq; else if (a.type === 'wild') popSq = a.to;
     sel = -1; selType = '';
     render();
@@ -1456,7 +1516,9 @@ $('startBtn').addEventListener('click', () => {
   $('pile').querySelectorAll('.card').forEach((e) => e.remove());
   $('setup').hidden = true;
   started = true; rendered = false;
-  render(); layout(); render();
+  render();
+  if (V3) V3.reset();
+  layout(); render();
   tick();
 });
 $('newBtn').addEventListener('click', openSetup);
@@ -1493,11 +1555,634 @@ function overReason() {
 $('againBtn').addEventListener('click', openSetup);
 $('viewBtn').addEventListener('click', () => { $('over').classList.add('peek'); setTimeout(() => addEventListener('pointerdown', () => $('over').classList.remove('peek'), { once: true }), 0); });
 
+// ---------- the 3D table ----------
+// The same game on an inlaid wooden board on Penfight's desk, drawn by the shared kit in ../lib/tabletop.js.
+// Like the 2D grid it only reads S and the marks render() works out, and it answers a tap with onSquare(),
+// so the rules and the flow are the 2D ones. Sizes are centimetres: 5 cm squares, Staunton-style pieces
+// turned on a lathe (a king of 7.7 cm), the captured pieces standing in two rows beside the board.
+let V3 = null, view3d = null, lost3d = false;
+const VIEW_KEY = 'dgames.troll-chess.view';
+const viewPref = (() => { try { const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; } })();
+const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(viewPref)); } catch (e) { /* ignore */ } };
+// A portrait phone opens top-down: the angled view foreshortens the far ranks to a few pixels a square.
+const portraitPhone = () => innerHeight > innerWidth && innerWidth < 700;
+const camDefault = () => viewPref.cam || (portraitPhone() ? 'top' : 'angled');
+const can3d = () => !!window.Tabletop && !lost3d && !(view3d && !view3d.ok) && !/[?&]no3d\b/.test(location.search);
+
+function makeView3d() {
+  if (!window.Tabletop) return { ok: false, reason: 'the tabletop kit did not load' };
+  let q = null;
+  try { q = new URLSearchParams(location.search).get('q'); } catch (e) { /* ignore */ }
+  const canvas = $('c3d');
+  const kit = Tabletop.create({ canvas, quality: q || 'auto', onTap: tap3d, onLost: () => { lost3d = true; setDim('2d', false); } });
+  if (!kit.ok) return { ok: false, reason: kit.reason };
+  // A scene that fails half way must not leave its WebGL context and frame loop running behind the 2D board.
+  try { return buildView3d(kit, canvas); } catch (e) { try { kit.dispose(); } catch (e2) { /* already gone */ } throw e; }
+}
+
+function buildView3d(kit, canvas) {
+  const THREE = kit.THREE, col = Tabletop.col, hi = kit.quality === 'high', M = Tabletop.math, lerp = M.lerp;
+  const SQ = 5, FR = 2.8, B = 8 * SQ + 2 * FR, TOP = 2.2;
+  // The captured pieces: a row of pieces beside the board and a row of pawns outside it, per colour.
+  const ROW0 = B / 2 + 3.3, ROW_GAP = 4.3, FULL = 2 * (ROW0 + ROW_GAP + 1.9);
+  const SEG = hi ? 32 : 18, CAP = 20, KNIGHT_YAW = 1.4;
+  let gen = 0, dirty = true, lay = '', yawFlip = false, marks = null, liftSq = -1, warmed = false;
+  const FILES = C.FILES;
+  const sqXZ = (s) => [((s & 7) - 3.5) * SQ, ((s >> 3) - 3.5) * SQ];
+  const rnd = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+
+  // ---- the board: maple and walnut squares, a mahogany frame with an inlaid line and the coordinates
+  function grain(g, x, y, w, h, ppc, r, rgb, n, alpha, vertical) {
+    g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
+    if (vertical) { g.translate(x + w / 2, y + h / 2); g.rotate(Math.PI / 2); [x, y, w, h] = [-h / 2, -w / 2, h, w]; }
+    for (let i = 0; i < n; i++) {
+      const y0 = y + r() * h, amp = (0.04 + r() * 0.2) * ppc, f = (2 * Math.PI) / ((8 + r() * 24) * ppc), ph = r() * 6.28;
+      g.strokeStyle = 'rgba(' + rgb + ',' + (alpha * (0.4 + r())).toFixed(3) + ')';
+      g.lineWidth = (0.03 + r() * 0.07) * ppc;
+      g.beginPath();
+      for (let xx = x - 2; xx <= x + w + 4; xx += Math.max(3, 0.3 * ppc)) { const yy = y0 + Math.sin(xx * f + ph) * amp; if (xx === x - 2) g.moveTo(xx, yy); else g.lineTo(xx, yy); }
+      g.stroke();
+    }
+    g.restore();
+  }
+  function drawBoard(g, w, h, ppc) {
+    const r = rnd(4242), x0 = FR * ppc, s = SQ * ppc;
+    g.fillStyle = '#5B2F1B'; g.fillRect(0, 0, w, h);
+    grain(g, 0, 0, w, h, ppc, r, '28,10,3', 90, 0.14, false);
+    g.fillStyle = '#D9B47A'; g.fillRect(x0 - 0.5 * ppc, x0 - 0.5 * ppc, 8 * s + ppc, 8 * s + ppc);
+    g.fillStyle = '#2A1208'; g.fillRect(x0 - 0.28 * ppc, x0 - 0.28 * ppc, 8 * s + 0.56 * ppc, 8 * s + 0.56 * ppc);
+    for (let rr = 0; rr < 8; rr++) for (let cc = 0; cc < 8; cc++) {
+      const dark = (rr + cc) & 1, x = x0 + cc * s, y = x0 + rr * s;
+      // maple a shade deeper than the 2D board's, so ivory pieces seen from straight above stand out from it
+      g.fillStyle = dark ? '#8E5934' : '#DDBC86'; g.fillRect(x, y, s, s);
+      // the grain turns square to square, the way an inlaid board is glued up
+      grain(g, x, y, s, s, ppc, r, dark ? '55,24,8' : '150,102,50', 9, dark ? 0.18 : 0.13, (rr + cc + (rr & 1)) & 1);
+    }
+    g.fillStyle = '#EED9B0'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '600 ' + Math.round(1.55 * ppc) + 'px Georgia, "Times New Roman", serif';
+    const mid = FR * ppc / 2;
+    const text = (t, x, y, turn) => { g.save(); g.translate(x, y); g.rotate(turn); g.fillText(t, 0, 0); g.restore(); };
+    for (let i = 0; i < 8; i++) {
+      const c = x0 + (i + 0.5) * s;
+      // White reads the near edge and the left side, Black the far edge and the right side
+      text(FILES[i], c, h - mid, 0); text(FILES[i], c, mid, Math.PI);
+      text(String(8 - i), mid, c, 0); text(String(8 - i), w - mid, c, Math.PI);
+    }
+  }
+  const board = kit.board({ w: B, d: B, h: TOP, radius: 0.7, bevel: 0.3, draw: drawBoard, side: Tabletop.mat.lacquer('#55291A', { roughness: 0.3, envMapIntensity: 0.7 }) });
+  board.material[0].roughness = 0.36; board.material[0].envMapIntensity = 0.5;
+  kit.add(board);
+  kit.setDesk({ w: 104, d: 104 });
+
+  // ---- Staunton pieces, turned: profiles in (radius, height), cm
+  const V2 = (r, y) => new THREE.Vector2(Math.max(0.0005, r), y);
+  function shade(g, v) {
+    const n = g.attributes.position.count, a = new Float32Array(n * 3);
+    for (let i = 0; i < n * 3; i++) a[i] = v;
+    g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+    return g;
+  }
+  const lathe = (pts, segs) => shade(new THREE.LatheGeometry(pts.map(([r, y]) => V2(r, y)), segs || SEG), 1);
+  const arcPts = (cx, cy, r, a0, a1, n) => { const o = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; o.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); } return o; };
+  const foot = (R) => [[0, 0], [R * 0.97, 0], [R, 0.08], [R, 0.24], [R * 0.95, 0.36], [R * 0.85, 0.44], [R * 0.88, 0.54], [R * 0.8, 0.62], [R * 0.68, 0.7]];
+  const box = (w, h, d, x, y, z) => shade(new THREE.BoxGeometry(w, h, d).translate(x, y, z), 1);
+  const ball = (r, x, y, z, v) => shade(new THREE.SphereGeometry(r, hi ? 12 : 8, hi ? 8 : 6).translate(x, y, z), v == null ? 1 : v);
+  // merge keeps each part's own normals
+  const merge = (list) => { const g = Tabletop.geo.merge(list); list.forEach((x) => x.dispose()); return g; };
+
+  function pawn() {
+    return merge([lathe([...foot(1.38), [0.8, 0.82], [0.6, 1.15], [0.5, 1.6], [0.46, 2.0], [0.84, 2.12], [0.87, 2.24], [0.52, 2.34], ...arcPts(0, 3.03, 0.84, -0.95, Math.PI / 2, hi ? 12 : 8)])]);
+  }
+  function rook() {
+    const parts = [lathe([...foot(1.55), [0.98, 0.82], [0.9, 1.1], [0.86, 2.6], [0.9, 3.2], [1.12, 3.36], [1.14, 3.5], [1.0, 3.58], [1.1, 3.66], [1.14, 4.12], [0.84, 4.12], [0.8, 3.86], [0, 3.86]])];
+    // six merlons round the top
+    for (let i = 0; i < 6; i++) parts.push(box(0.64, 0.5, 0.32, 0, 4.36, 0.98).rotateY(i * Math.PI / 3 + Math.PI / 6));
+    return merge(parts);
+  }
+  function bishop() {
+    const mitre = [], n = hi ? 26 : 16;
+    for (let i = 1; i <= n; i++) { const t = i / n; mitre.push([0.9 * Math.pow(Math.sin(Math.PI * Math.pow(0.06 + 0.94 * t, 0.82)), 0.85), 3.8 + 1.56 * t]); }
+    const prof = [...foot(1.6), [0.95, 0.82], [0.72, 1.3], [0.55, 2.3], [0.47, 3.1], [0.84, 3.25], [0.87, 3.38], [0.6, 3.48], [0.86, 3.58], [0.88, 3.66], [0.5, 3.78], ...mitre,
+      ...arcPts(0, 5.6, 0.26, -1.2, Math.PI / 2, hi ? 8 : 5)], segs = hi ? 40 : 24, g = lathe(prof, segs);
+    // The mitre's slit: a groove cut on a slant into the right half of the head, darkened, so it reads as a cut.
+    const p = g.attributes.position, c = g.attributes.color, nx = 0.6, ny = 0.8, y0 = 4.7, w = 0.11;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      if (y < 3.85 || y > 5.3 || x < -0.15) continue;
+      const d = nx * x + ny * (y - y0);
+      if (Math.abs(d) >= w) continue;
+      const k = 1 - Math.abs(d) / w, rr = Math.hypot(x, z) || 1, cut = 0.24 * k * Math.min(1, (x + 0.15) / 0.4);
+      p.setXYZ(i, x - (x / rr) * cut, y, z - (z / rr) * cut);
+      const v = 1 - 0.7 * k; c.setXYZ(i, v, v, v);
+    }
+    g.computeVertexNormals();
+    // the lathe's seam has its vertices twice: give both copies the same normal, or a line shows
+    const nn = g.attributes.normal, L = prof.length;
+    for (let j = 0; j < L; j++) {
+      const i0 = j, i1 = segs * L + j, x = nn.getX(i0) + nn.getX(i1), y = nn.getY(i0) + nn.getY(i1), z = nn.getZ(i0) + nn.getZ(i1), l = Math.hypot(x, y, z) || 1;
+      nn.setXYZ(i0, x / l, y / l, z / l); nn.setXYZ(i1, x / l, y / l, z / l);
+    }
+    return merge([g]);
+  }
+  function queen() {
+    const parts = [lathe([...foot(1.8), [1.05, 0.84], [0.8, 1.4], [0.6, 2.6], [0.5, 3.9], [0.96, 4.05], [0.99, 4.18], [0.66, 4.28], [0.93, 4.38], [0.96, 4.47], [0.55, 4.58],
+      [0.6, 5.0], [0.8, 5.5], [1.02, 5.95], [1.12, 6.12], [1.0, 6.2], [0.82, 6.14], [0.62, 6.22], [0.48, 6.4], [0.22, 6.48], ...arcPts(0, 6.66, 0.24, -1.3, Math.PI / 2, hi ? 8 : 5)])];
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; parts.push(ball(0.18, Math.sin(a) * 1.03, 6.26, Math.cos(a) * 1.03)); }
+    return merge(parts);
+  }
+  function king() {
+    return merge([lathe([...foot(1.9), [1.1, 0.86], [0.84, 1.5], [0.64, 2.8], [0.54, 4.25], [1.0, 4.4], [1.03, 4.53], [0.7, 4.63], [0.98, 4.73], [1.0, 4.82], [0.58, 4.93],
+      [0.64, 5.4], [0.85, 5.9], [1.08, 6.3], [1.12, 6.42], [0.95, 6.5], [0.7, 6.62], [0.38, 6.72], [0.28, 6.8], [0, 6.82]]),
+    box(0.32, 0.98, 0.28, 0, 7.24, 0), box(0.84, 0.28, 0.28, 0, 7.36, 0)]);
+  }
+  function knight() {
+    // A carved horse's head on a turned foot. The profile is drawn facing +u and extruded, then turned to face -z.
+    const s = new THREE.Shape(), o = -0.35;
+    const P = (u, v) => [u + o, v];
+    s.moveTo(...P(-1.25, 0.86)); s.lineTo(...P(1.15, 0.86));
+    s.quadraticCurveTo(...P(1.4, 1.65), ...P(0.95, 2.3));
+    s.quadraticCurveTo(...P(0.72, 2.75), ...P(1.15, 3.05));
+    s.lineTo(...P(1.95, 3.22));
+    s.quadraticCurveTo(...P(2.4, 3.32), ...P(2.33, 3.74));
+    s.quadraticCurveTo(...P(2.28, 4.08), ...P(1.9, 4.16));
+    s.quadraticCurveTo(...P(1.2, 4.42), ...P(0.8, 4.86));
+    s.lineTo(...P(0.82, 5.38)); s.lineTo(...P(0.38, 5.02));
+    s.quadraticCurveTo(...P(-0.55, 5.02), ...P(-1.05, 4.3));
+    s.quadraticCurveTo(...P(-1.6, 3.4), ...P(-1.48, 2.4));
+    s.quadraticCurveTo(...P(-1.4, 1.5), ...P(-1.25, 0.86));
+    const depth = 1.12, bev = 0.2;
+    const head = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: true, bevelThickness: bev, bevelSize: 0.17, bevelSegments: hi ? 3 : 2, curveSegments: hi ? 8 : 4 });
+    head.translate(0, 0, -depth / 2);
+    shade(head, 1);
+    // eyes and the mane's dark crest line
+    const eyes = [ball(0.13, 1.1 + o, 4.28, depth / 2 + bev - 0.02, 0.18), ball(0.13, 1.1 + o, 4.28, -depth / 2 - bev + 0.02, 0.18)];
+    const head2 = Tabletop.geo.merge([head, ...eyes]); head.dispose(); eyes.forEach((e) => e.dispose());
+    head2.rotateY(Math.PI / 2);
+    const foot2 = lathe([...foot(1.62), [1.12, 0.8], [1.16, 0.96], [0, 0.98]]);
+    const g = merge([foot2, head2]);
+    head2.dispose();
+    return g.rotateY(KNIGHT_YAW);
+  }
+  const GEO = { P: pawn(), N: knight(), B: bishop(), R: rook(), Q: queen(), K: king() };
+  // A fused piece: its rook, bishop or king a size down at the back left, the knight smaller at the front
+  // right (as the 2D board draws them), both on one brass plate.
+  const PLATE = 0.24;
+  for (const [f, base] of [['M', 'R'], ['A', 'B'], ['E', 'K']]) {
+    const a = GEO[base].clone().scale(0.8, 0.8, 0.8).translate(-0.62, PLATE, -0.62);
+    const b = GEO.N.clone().scale(0.6, 0.6, 0.6).translate(0.95, PLATE, 0.95);
+    GEO[f] = Tabletop.geo.merge([a, b]); a.dispose(); b.dispose();
+  }
+  const HEIGHT = { P: 3.9, N: 5.4, B: 5.9, R: 4.6, Q: 6.9, K: 7.7, M: 4.0, A: 5.0, E: 6.4 };
+  const RAD = { P: 1.35, N: 1.5, B: 1.45, R: 1.5, Q: 1.6, K: 1.65, M: 2.0, A: 2.0, E: 2.0 };
+
+  // glossy lacquer: ivory and ebony; the vertex colour only darkens details (the slit, the eyes)
+  const ivory = Tabletop.mat.lacquer('#F1E6CF', { vertexColors: true, roughness: 0.26, envMapIntensity: 0.8 });
+  const ebony = Tabletop.mat.lacquer('#2A2320', { vertexColors: true, roughness: 0.2, envMapIntensity: 1.0 });
+  const inst = {};
+  for (const c of 'wb') for (const t of 'PNBRQKMAE') {
+    const m = new THREE.InstancedMesh(GEO[t], c === 'w' ? ivory : ebony, CAP);
+    m.count = 0; m.visible = false; m.frustumCulled = false; m.castShadow = true; m.receiveShadow = hi;
+    inst[c + t] = m; kit.add(m);
+  }
+  const plateGeo = Tabletop.geo.slab(4.5, 4.5, PLATE, 0.7, 0.06);
+  const plates = new THREE.InstancedMesh(plateGeo, Tabletop.mat.metal('#D8A646', { roughness: 0.32 }), 32);
+  plates.count = 0; plates.visible = false; plates.frustumCulled = false; plates.castShadow = true; kit.add(plates);
+
+  // ---- marks on the board: last move, selection, revive quarter, check, and the targets
+  const flat = (g) => g.rotateX(-Math.PI / 2);
+  const sqGeo = flat(new THREE.PlaneGeometry(SQ, SQ)), dotGeo = flat(new THREE.CircleGeometry(0.78, 28));
+  const ringGeo = flat(new THREE.RingGeometry(1.92, 2.34, 40)), placeGeo = flat(new THREE.CircleGeometry(0.95, 28));
+  function overlay(geo, color, opacity, cap, order, map) {
+    const mat = new THREE.MeshBasicMaterial({ color: col(color), transparent: true, opacity, depthWrite: false, map: map || null,
+      polygonOffset: true, polygonOffsetFactor: -1 - order, polygonOffsetUnits: -1 - order });
+    const m = new THREE.InstancedMesh(geo, mat, cap);
+    m.count = 0; m.visible = false; m.frustumCulled = false; m.renderOrder = order; kit.add(m); return m;
+  }
+  const glow = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const x = c.getContext('2d'), gr = x.createRadialGradient(64, 64, 4, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,40,30,1)'); gr.addColorStop(0.55, 'rgba(235,30,30,.85)'); gr.addColorStop(1, 'rgba(220,30,30,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t;
+  })();
+  const OV = {
+    quad: overlay(sqGeo, '#16A34A', 0.26, 16, 1), last: overlay(sqGeo, '#FACC15', 0.5, 4, 2), sel: overlay(sqGeo, '#4F46E5', 0.5, 2, 3),
+    chk: overlay(flat(new THREE.PlaneGeometry(SQ * 1.3, SQ * 1.3)), '#FFFFFF', 1, 2, 4, glow),
+    dot: overlay(dotGeo, '#1E1E3C', 0.45, 64, 5), cap: overlay(ringGeo, '#1E1E3C', 0.55, 64, 5),
+    fuse: overlay(ringGeo, '#E08A12', 0.95, 64, 5), place: overlay(placeGeo, '#16A34A', 0.8, 64, 5),
+  };
+  const dummy = new THREE.Object3D();
+  function fillOv(m, list, y) {
+    let n = 0;
+    const cap = m.instanceMatrix.count;
+    for (const s of list) {
+      if (n >= cap || !(s >= 0 && s < 64)) continue;
+      const [x, z] = sqXZ(s);
+      dummy.position.set(x, TOP + y, z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
+      m.setMatrixAt(n++, dummy.matrix);
+    }
+    m.count = n; m.visible = n > 0; m.instanceMatrix.needsUpdate = true;
+  }
+
+  // ---- picking: a flat tile per square and, on an occupied square, a post as tall as its piece
+  const hideMat = new THREE.MeshBasicMaterial({ visible: false });
+  const tileGeo = new THREE.BoxGeometry(SQ, 0.2, SQ), postGeo = new THREE.CylinderGeometry(1, 1, 1, 10);
+  const posts = [];
+  for (let s = 0; s < 64; s++) {
+    const [x, z] = sqXZ(s);
+    const tile = new THREE.Mesh(tileGeo, hideMat); tile.position.set(x, TOP - 0.1, z); tile.updateMatrixWorld(); kit.add(tile); kit.pick.add(tile, { sq: s });
+    // a piece's outline, roughly: a wide body and a narrower head, so a tap on a pawn's head showing over
+    // the shoulders of the king in front of it reaches the pawn
+    const post = new THREE.Group(), body = new THREE.Mesh(postGeo, hideMat), crown = new THREE.Mesh(postGeo, hideMat);
+    body.position.y = 0.275; body.scale.set(0.9, 0.55, 0.9); crown.position.y = 0.775; crown.scale.set(0.62, 0.45, 0.62);
+    post.add(body, crown); post.visible = false; kit.add(post); kit.pick.add(post, { sq: s, piece: true });
+    posts.push(post);
+  }
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hitV = new THREE.Vector3();
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TOP);
+  function planeSquare(cx, cy) {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, kit.camera);
+    if (!ray.ray.intersectPlane(plane, hitV)) return -1;
+    const c = Math.floor(hitV.x / SQ + 4), rr = Math.floor(hitV.z / SQ + 4);
+    return c >= 0 && c < 8 && rr >= 0 && rr < 8 ? rr * 8 + c : -1;
+  }
+  // The piece the finger is on wins, unless the board point under it is a target square and the piece is
+  // not: in the angled view a tall piece can stand in front of the square someone is aiming at.
+  function squareAt(cx, cy) {
+    const hit = kit.pick.at(cx, cy);
+    if (!hit) return -1;
+    const ps = planeSquare(cx, cy);
+    if (hit.piece && ps >= 0 && ps !== hit.sq && marks && marks.tset.has(ps) && !marks.tset.has(hit.sq)) return ps;
+    return hit.sq;
+  }
+  // CSS px of a point on the board (for the tests and the tap coverage check)
+  function screenOf(s, h) {
+    const [x, z] = sqXZ(s);
+    hitV.set(x, TOP + (h || 0), z).project(kit.camera);
+    const r = canvas.getBoundingClientRect();
+    return [r.left + ((hitV.x + 1) / 2) * r.width, r.top + ((1 - hitV.y) / 2) * r.height];
+  }
+
+  // ---- what is drawn: every piece is a record { p, c, t, x, y, z, ry, rx, rz, s }, instanced each dirty frame
+  const recs = new Map(), line = { w: [], b: [] }, extra = new Set();
+  const yawOf = (c) => (c === 'w' ? 0 : Math.PI);
+  const mkRec = (p, x, y, z) => ({ p, c: p[0], t: p[1], x, y, z, ry: yawOf(p[0]), rx: 0, rz: 0, s: 1 });
+  const onSq = (p, s) => { const [x, z] = sqXZ(s); return mkRec(p, x, TOP, z); };
+  // Captured pieces: Black's beside White's right hand, running from White's end; White's mirrored on
+  // the other side. On a tall stage they stand at the ends of the board instead.
+  function slotXZ(c, list, i) {
+    const pawn = list[i] === 'P';
+    let k = 0;
+    for (let j = 0; j < i; j++) if ((list[j] === 'P') === pawn) k++;
+    const off = ROW0 + (pawn ? ROW_GAP : 0) + (k >= 8 ? ROW_GAP * 2 : 0), along = -17.5 + (k % 8) * SQ;
+    let x = lay === 'ends' ? along : off, z = lay === 'ends' ? off : -along;
+    if (c === 'w') { x = -x; z = -z; }
+    return [x, z];
+  }
+  function fallXZ(c) {
+    const off = ROW0 + ROW_GAP / 2, along = 23.5;
+    let x = lay === 'ends' ? along : off, z = lay === 'ends' ? off : -along;
+    if (c === 'w') { x = -x; z = -z; }
+    return [x, z];
+  }
+  function layLine(c, slide) {
+    const list = S.captured[c];
+    line[c].forEach((v, i) => {
+      const [x, z] = slotXZ(c, list, i);
+      if (slide && Math.hypot(v.x - x, v.z - z) > 0.05) {
+        const a = [v.x, v.z];
+        kit.tween({ ms: 260, ease: 'inOutQuad', update: (k) => { v.x = lerp(a[0], x, k); v.z = lerp(a[1], z, k); dirty = true; } });
+      } else { v.x = x; v.z = z; }
+      v.y = 0;
+    });
+    dirty = true;
+  }
+  // Make the drawing match the game exactly. After an animation this changes nothing; after a new game, a
+  // switch into 3D or anything unexpected, it puts every piece where the game says, at once.
+  function sync(slide) {
+    const b = S.pos.b;
+    for (let s = 0; s < 64; s++) {
+      const p = b[s], v = recs.get(s);
+      if (p && (!v || v.p !== p)) recs.set(s, onSq(p, s));
+      else if (!p && v) recs.delete(s);
+      else if (v) { const [x, z] = sqXZ(s); Object.assign(v, { x, z, y: TOP + (s === liftSq ? 0.7 : 0), rx: 0, rz: 0, s: 1, ry: yawOf(v.c) }); }
+    }
+    for (const c of 'wb') {
+      const want = S.captured[c], pool = line[c].slice(), out = [];
+      for (const t of want) {
+        const j = pool.findIndex((v) => v.t === t);
+        out.push(j >= 0 ? pool.splice(j, 1)[0] : mkRec(c + t, 0, 0, 0));
+      }
+      line[c] = out;
+      layLine(c, slide);
+    }
+    dirty = true;
+  }
+  function rebuild() {
+    dirty = false;
+    const n = {};
+    let np = 0;
+    const put = (v) => {
+      const k = v.c + v.t, m = inst[k];
+      if (!m || (n[k] || 0) >= CAP) return;
+      dummy.position.set(v.x, v.y, v.z); dummy.rotation.set(v.rx, v.ry, v.rz, 'YXZ'); dummy.scale.set(v.s, v.s, v.s); dummy.updateMatrix();
+      m.setMatrixAt((n[k] = (n[k] || 0) + 1) - 1, dummy.matrix);
+      if ('MAE'.includes(v.t) && np < 32) plates.setMatrixAt(np++, dummy.matrix);
+    };
+    recs.forEach(put); line.w.forEach(put); line.b.forEach(put); extra.forEach(put);
+    for (const k in inst) { const m = inst[k]; m.count = n[k] || 0; m.visible = m.count > 0; m.instanceMatrix.needsUpdate = true; }
+    plates.count = np; plates.visible = np > 0; plates.instanceMatrix.needsUpdate = true;
+  }
+  kit.onFrame(() => { if (dirty) rebuild(); return false; });
+
+  // ---- animation
+  const wait = (ms) => kit.tween({ ms, ease: 'linear' }).promise;
+  const tw = (ms, ease, update) => kit.tween({ ms, ease, update: (k) => { update(k); dirty = true; } }).promise;
+  const moveMs = (dist, hop) => (hop ? 380 : 300) + dist * 11;
+  // Lift, glide and set down (a hop is one arc instead). The piece leans back as it sets off and forward
+  // as it stops, the way a piece carried by its head does.
+  function glide(v, x, y, z, o) {
+    o = o || {};
+    const a = [v.x, v.y, v.z], dist = Math.hypot(x - a[0], z - a[2]), ms = o.ms || moveMs(dist, o.hop);
+    const H = o.height || (o.hop ? Math.max(3.4, dist * 0.42) : 1.3), dx = (x - a[0]) / (dist || 1), dz = (z - a[2]) / (dist || 1);
+    const cs = Math.cos(v.ry), sn = Math.sin(v.ry), lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;
+    return tw(ms, 'linear', (k) => {
+      const e = M.ease.inOutCubic(k);
+      v.x = lerp(a[0], x, e); v.z = lerp(a[2], z, e);
+      if (o.hop) v.y = lerp(a[1], y, k) + M.arc(k, H);
+      else { const up = Math.max(0, Math.min(1, k / 0.22, (1 - k) / 0.22)); v.y = lerp(a[1], y, e) + H * M.ease.inOutQuad(up); }
+      const lean = (o.hop ? 0.1 : 0.13) * -Math.sin(2 * Math.PI * k) * Math.min(1, dist / SQ);
+      v.rx = lean * lz; v.rz = -lean * lx;
+    }).then(() => { v.x = x; v.y = y; v.z = z; v.rx = v.rz = 0; dirty = true; });
+  }
+  // Knocked off the board: one long arc to its place beside the board, turning as it goes.
+  function knock(v, x, z, delay) {
+    const a = [v.x, v.y, v.z], dist = Math.hypot(x - a[0], z - a[2]), spin = (x > 0 ? 1 : -1) * (0.6 + (dist % 3) * 0.15), ry0 = v.ry;
+    return wait(delay || 0).then(() => tw(480 + dist * 9, 'inOutQuad', (k) => {
+      const p = M.flightSample(a, [x, 0, z], k, Math.max(5, dist * 0.32));
+      v.x = p[0]; v.y = p[1]; v.z = p[2];
+      v.ry = ry0 + spin * Math.PI * 2 * k; v.rx = 0.9 * Math.sin(Math.PI * k);
+    })).then(() => { v.ry = yawOf(v.c); v.rx = 0; return tw(160, 'linear', (k) => { v.y = 0.35 * Math.sin(Math.PI * k) * (1 - k); }); });
+  }
+  const pop = (v) => tw(280, 'outBack', (k) => { v.s = 0.82 + 0.18 * k; });
+  // A king that is taken falls over beside its captured army.
+  function fall(v) {
+    const [x, z] = fallXZ(v.c), a = [v.x, v.y, v.z], along = lay === 'ends' ? 0 : Math.PI / 2;
+    return tw(620, 'inOutQuad', (k) => {
+      const p = M.flightSample(a, [x, 1.55, z], k, 6);
+      v.x = p[0]; v.y = p[1]; v.z = p[2]; v.ry = lerp(yawOf(v.c), along, k); v.rz = (Math.PI / 2) * M.ease.inQuad(k);
+    });
+  }
+
+  async function playMove(res) {
+    const m = res.m, from = m.from, to = m.to, my = gen;
+    const mover = recs.get(from);
+    if (!mover) return;
+    recs.delete(from); extra.add(mover);
+    const dr = (to >> 3) - (from >> 3), dc = (to & 7) - (from & 7);
+    const hop = 'NMA'.includes(mover.t) && Math.abs(dr * dc) === 2;
+    const capSq = res.captured ? (m.ep ? (from >> 3) * 8 + (to & 7) : to) : -1;
+    const victim = capSq >= 0 ? recs.get(capSq) : null;
+    if (victim) { recs.delete(capSq); extra.add(victim); }
+    const partner = m.fuse ? recs.get(to) : null;
+    if (partner) { recs.delete(to); extra.add(partner); }
+    const [tx, tz] = sqXZ(to), dist = Math.hypot(dr, dc) * SQ, ms = moveMs(dist, hop);
+    const jobs = [glide(mover, tx, TOP, tz, { hop, ms })];
+    if (m.castle) {
+      const rf = m.castle === 'K' ? from + 3 : from - 4, rt = m.castle === 'K' ? from + 1 : from - 1, rook = recs.get(rf);
+      if (rook) { recs.delete(rf); extra.add(rook); const [rx, rz] = sqXZ(rt); jobs.push(wait(ms * 0.3).then(() => glide(rook, rx, TOP, rz, { hop: true, height: 3.2, ms: ms * 0.75 })).then(() => { extra.delete(rook); recs.set(rt, rook); })); }
+    }
+    if (victim) jobs.push(wait(ms * 0.62).then(() => (my === gen ? capture(victim, res) : null)));
+    await Promise.all(jobs);
+    if (my !== gen) return;
+    extra.delete(mover);
+    if (partner) { extra.delete(partner); const f = onSq(S.pos.b[to] || mover.p, to); recs.set(to, f); await pop(f); return; }
+    recs.set(to, mover);
+    const now = S.pos.b[to];
+    if (m.promo && now && now[1] !== mover.t) {
+      // Promotion: the pawn rises turning, becomes the new piece at the top of the turn, and sets down.
+      const r0 = mover.ry;
+      await tw(300, 'outQuad', (k) => { mover.y = TOP + 2.4 * k; mover.ry = r0 + Math.PI * 2 * k; mover.s = 1 + 0.15 * k; });
+      mover.p = now; mover.t = now[1];
+      await tw(380, 'outBounce', (k) => { mover.y = TOP + 2.4 * (1 - k); mover.ry = r0 + Math.PI * 2 + Math.PI * 2 * k; mover.s = 1.15 - 0.15 * k; });
+      mover.ry = yawOf(mover.c);
+    }
+  }
+  // The taken piece goes to its army's row; a fused one comes apart there; a Kning's king steps away.
+  async function capture(v, res) {
+    const vc = v.c, list = S.captured[vc], parts = C.partsOf(v.p).filter((t) => t !== 'K');
+    const kingFalls = res.escape < 0 && (v.t === 'K' || (v.t === 'E' && S.phase === 'over'));
+    extra.delete(v);
+    const jobs = [];
+    const first = list.length - parts.length;
+    parts.forEach((t, i) => {
+      const r = mkRec(vc + t, v.x + (i ? 0.9 : -0.6), v.y, v.z + (i ? 0.9 : -0.6)); r.ry = v.ry;
+      line[vc].push(r);
+      const [x, z] = slotXZ(vc, list, first + i);
+      jobs.push(knock(r, x, z, i * 90));
+    });
+    if (res.escape >= 0) {
+      const k = mkRec(vc + 'K', v.x, v.y, v.z); extra.add(k);
+      const [x, z] = sqXZ(res.escape);
+      jobs.push(wait(120).then(() => glide(k, x, TOP, z, { height: 2.2, ms: 520 })).then(() => { extra.delete(k); recs.set(res.escape, k); }));
+    } else if (kingFalls) {
+      const k = mkRec(vc + 'K', v.x, v.y, v.z); extra.add(k);
+      jobs.push(fall(k));
+    }
+    dirty = true;
+    await Promise.all(jobs);
+  }
+  async function playRevive(a) {
+    const p = S.pos.b[a.sq];
+    if (!p) return;
+    const c = p[0], j = line[c].findIndex((v) => v.t === a.t);
+    if (j < 0) return;
+    const v = line[c].splice(j, 1)[0], partner = recs.get(a.sq);
+    extra.add(v);
+    if (partner) { recs.delete(a.sq); extra.add(partner); }
+    layLine(c, true);
+    const [x, z] = sqXZ(a.sq), dist = Math.hypot(x - v.x, z - v.z);
+    await tw(420 + dist * 8, 'inOutQuad', (k) => { const q = M.flightSample([v.x, v.y, v.z], [x, TOP, z], k, Math.max(6, dist * 0.35)); v.x = q[0]; v.y = q[1]; v.z = q[2]; }).then(() => { v.x = x; v.y = TOP; v.z = z; });
+    extra.delete(v);
+    if (partner) extra.delete(partner);
+    const r = onSq(p, a.sq); recs.set(a.sq, r);
+    await pop(r);
+  }
+  async function playWild(a) {
+    const v = recs.get(a.from), p = S.pos.b[a.to];
+    if (!v || !p) return;
+    recs.delete(a.from); extra.add(v);
+    const partner = recs.get(a.to);
+    if (partner) { recs.delete(a.to); extra.add(partner); }
+    const [x, z] = sqXZ(a.to), dist = Math.hypot(x - v.x, z - v.z);
+    // lifted high, carried across in one arc
+    await glide(v, x, TOP, z, { hop: true, height: Math.max(6, dist * 0.4), ms: 520 + dist * 8 });
+    extra.delete(v);
+    if (partner) { extra.delete(partner); const r = onSq(p, a.to); recs.set(a.to, r); await pop(r); } else recs.set(a.to, v);
+  }
+  // Called between applying an action and painting it. Resolves when the board has caught up.
+  async function play(a, res) {
+    const my = gen;
+    // the choice is made: its targets and the selection go at once, the last move and check at the repaint
+    for (const k of ['dot', 'cap', 'fuse', 'place', 'quad', 'sel']) fillOv(OV[k], [], 0);
+    if (marks) marks.tset = new Set();
+    if (liftSq >= 0) { const v = recs.get(liftSq); liftSq = -1; if (v && a.type !== 'move' && a.type !== 'wild') v.y = TOP; }
+    try {
+      if (a.type === 'move' && res && res.m) await playMove(res);
+      else if (a.type === 'revive') await playRevive(a);
+      else if (a.type === 'wild') await playWild(a);
+    } finally {
+      if (my === gen) { extra.forEach((v) => { if (v.t !== 'K' || S.phase !== 'over') extra.delete(v); }); sync(true); kit.invalidate(); }
+    }
+  }
+
+  // ---- layout and camera
+  // Beside the board on a wide stage, at its ends on a tall one -- and on a big, nearly square stage too,
+  // where the angled camera foreshortens the ends and the board can stay larger.
+  const wantLay = () => {
+    const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1, a = w / h;
+    return a >= 1.05 && (a >= 1.3 || Math.min(w, h) < 560) ? 'side' : 'ends';
+  };
+  function placeLines() {
+    lay = wantLay();
+    $('view3').classList.toggle('stack', lay === 'side');
+    layLine('w', false); layLine('b', false);
+    extra.forEach((v) => { if (v.t === 'K' && S.phase === 'over') { const [x, z] = fallXZ(v.c); v.x = x; v.z = z; v.ry = lay === 'ends' ? 0 : Math.PI / 2; } });
+  }
+  // The camera frames the board and as much of the captured rows as the stage has room for beside it: on a
+  // phone the board keeps its size and the rows peek in from the edges rather than shrinking the squares.
+  function fit(instant) {
+    const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1, a = w / h;
+    const big = Math.max(0, Math.min(1, (Math.min(w, h) - 420) / 260)), top = kit.rig.view === 'top';
+    let bw = B + 0.6, bd = B + 0.6;
+    if (lay === 'side') bw = (top ? Math.min(FULL, Math.max(bw, bw * a)) : bw) * (1 - big) + FULL * big;
+    else bd = (top ? Math.min(FULL, Math.max(bd, bd / a)) : bd) * (1 - big) + FULL * big;
+    // the far row of captured pieces stands taller than the board: leave it head room when it is framed
+    kit.rig.fit({ w: bw, d: bd, h: TOP + 3 + 5 * big, margin: big ? 0.95 : 0.975, instant });
+    if (instant) kit.rig.step(1 / 60);
+  }
+  // three.js compiles a material's shader the first time it is drawn, and most marks start hidden: compile
+  // them up front so the first selection or check does not hitch.
+  function warm() {
+    warmed = true;
+    const all = Object.values(inst).concat(Object.values(OV), [plates]), was = all.map((m) => m.visible);
+    all.forEach((m) => { m.visible = true; });
+    try { kit.renderer.compile(kit.scene, kit.camera); } catch (e) { /* only a warm-up */ }
+    all.forEach((m, i) => { m.visible = was[i]; });
+  }
+  // Start over from the game as it stands: new game, a switch into 3D. Anything mid-flight is finished
+  // and forgotten (gen), so a chained animation can never land on a board that moved on.
+  function reset() {
+    gen++; kit.finishAll();
+    recs.clear(); line.w = []; line.b = []; extra.clear(); liftSq = -1;
+    yawFlip = flipped; kit.rig.setYaw(flipped ? Math.PI : 0, true);
+    placeLines(); fit(true);
+    if (!warmed) warm();
+    sync(false);
+    kit.invalidate();
+  }
+  // render() hands over what it worked out for the 2D grid: highlights and targets.
+  function update(mk) {
+    marks = mk;
+    if (!kit.busy()) sync(false);
+    fillOv(OV.last, mk.last, 0.02); fillOv(OV.sel, mk.sel >= 0 ? [mk.sel] : [], 0.03); fillOv(OV.quad, mk.quad, 0.02);
+    fillOv(OV.chk, mk.checks, 0.035);
+    for (const k of ['dot', 'cap', 'fuse', 'place']) fillOv(OV[k], mk.tg.filter((x) => x[1] === k).map((x) => x[0]), 0.05);
+    for (let s = 0; s < 64; s++) {
+      const p = S.pos.b[s], post = posts[s];
+      post.visible = !!p;
+      if (p) { const [x, z] = sqXZ(s), h = HEIGHT[p[1]], r = RAD[p[1]]; post.scale.set(r, h, r); post.position.set(x, TOP, z); post.updateMatrixWorld(true); }
+    }
+    // the selected piece rises a little off its square
+    const want = mk.sel >= 0 && recs.get(mk.sel) ? mk.sel : -1;
+    if (want !== liftSq) {
+      const down = recs.get(liftSq), up = recs.get(want);
+      liftSq = want;
+      if (down) { const y0 = down.y; tw(140, 'outQuad', (k) => { down.y = lerp(y0, TOP, k); }); }
+      if (up) { const y0 = up.y; tw(160, 'outBack', (k) => { up.y = lerp(y0, TOP + 0.7, k); }); }
+    }
+    dirty = true; kit.invalidate();
+  }
+  function setFlip(f, animate) {
+    if (f === yawFlip) return;
+    yawFlip = f;
+    kit.rig.setYaw(f ? Math.PI : 0, !animate);
+    if (!animate) fit(true);
+  }
+
+  return {
+    ok: true, kit, reset, update, play, setFlip, squareAt, screenOf, sqXZ,
+    resize() {
+      kit.resize();
+      if (wantLay() !== lay) placeLines();
+      fit(true);
+    },
+    setCam(name, instant) { kit.rig.setView(name, { instant }); fit(!!instant); },
+    get cam() { return kit.rig.view; },
+    get lay() { return lay; },
+    probe: { recs, line, extra, inst, OV, TOP, HEIGHT },
+  };
+}
+
+// A tap on the 3D board: the same as a press on that square of the 2D grid.
+function tap3d(x, y) {
+  if (!V3 || !S) return;
+  const s = V3.squareAt(x, y);
+  if (s < 0) return;
+  // The kit reports a tap on pointer-up, and the browser still sends that press's click afterwards, to
+  // whatever is under the finger by then (City Tycoon found its cards closing as they opened). The one
+  // click this tap still owes is dropped.
+  const kill = (e) => { e.stopPropagation(); e.preventDefault(); off(); };
+  const off = () => { removeEventListener('click', kill, true); clearTimeout(t); };
+  addEventListener('click', kill, true);
+  const t = setTimeout(off, 600);
+  onSquare(s);
+}
+
+function setDim(dim, remember) {
+  // Never mid-animation: the old view's moves would be awaited on a board that is gone.
+  if (busy) { setTimeout(() => setDim(dim, remember), 150); return; }
+  if (dim === '3d' && !view3d && can3d()) {
+    // Anything that goes wrong building the scene leaves the 2D game playable rather than a blank board.
+    try { view3d = makeView3d(); } catch (e) { view3d = { ok: false, reason: String(e) }; try { console.warn('3D board failed, using 2D:', e); } catch (e2) { /* ignore */ } }
+  }
+  const on = dim === '3d' && !!view3d && view3d.ok && !lost3d;
+  document.body.classList.toggle('v3d', on);
+  V3 = on ? view3d : null;
+  if (remember) { viewPref.dim = on ? '3d' : '2d'; saveView(); }
+  $('to3d').hidden = on || !can3d();
+  layout();
+  if (on) { setCam(camDefault(), false, true); V3.reset(); }
+  if (S) render();
+}
+function setCam(name, remember, instant) {
+  if (!V3) return;
+  V3.setCam(name, instant);
+  if (remember) { viewPref.cam = name; saveView(); }
+  $('camBtn').textContent = name === 'top' ? 'Angled' : 'Top';
+  $('camBtn').setAttribute('aria-label', name === 'top' ? 'Tilt the camera to an angled view' : 'Look straight down at the board');
+}
+$('camBtn').addEventListener('click', () => setCam(V3 && V3.cam === 'top' ? 'angled' : 'top', true));
+$('dimBtn').addEventListener('click', () => setDim('2d', true));
+$('to3d').addEventListener('click', () => setDim('3d', true));
+// Two quick taps on the board (a piece, then its square) are two taps, not the kit's "reset the camera":
+// that stays for a double click off the board.
+$('stage').addEventListener('dblclick', (e) => { if (V3 && V3.squareAt(e.clientX, e.clientY) >= 0) e.stopPropagation(); }, true);
+// Turning a phone over changes the default camera, unless someone picked one.
+addEventListener('resize', () => { if (V3 && !viewPref.cam) setCam(camDefault(), false); });
+// For the Playwright checks: read-only views and the entry points they drive.
+window.__tc3 = { get V3() { return V3; }, get view3d() { return view3d; }, setDim, setCam };
+
 // ---- boot ----
 addEventListener('resize', layout);
 S = C.newGame({ seed: 7, fusion: VARIANTS[prefs.variant].fusion, cards: VARIANTS[prefs.variant].cards });
 mode = prefs.mode; level = prefs.level;
 render(); layout(); render();
+// 3D by default wherever WebGL works; 2D if that was the last choice, or as the fallback.
+$('to3d').hidden = !can3d();
+if (viewPref.dim !== '2d' && can3d()) setDim('3d', false);
 openSetup();
 </script>
 </body>
