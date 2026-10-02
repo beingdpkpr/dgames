@@ -69,6 +69,9 @@ const GAMES = [
     } },
   // Whodunit opens on its setup sheet (with Resume when a case is saved); Start goes to the house with your roll waiting.
   { name: 'whodunit', file: 'whodunit/index.html', enter: async (p) => { await p.click('#suGo'); await p.waitForTimeout(900); } },
+  // World Conquest opens on its setup card (with Resume when a game is saved); Start deals the world and
+  // lands on your Reinforce, or on the first computer's turn.
+  { name: 'world-conquest', file: 'world-conquest/index.html', enter: async (p) => { await p.click('[data-s="start"]'); await p.waitForTimeout(900); } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,

@@ -167,6 +167,16 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "World Conquest",
+      "url": "world-conquest/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
