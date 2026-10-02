@@ -187,6 +187,16 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "Rail Routes",
+      "url": "rail-routes/index.html",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

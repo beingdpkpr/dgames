@@ -74,6 +74,8 @@ const GAMES = [
   { name: 'world-conquest', file: 'world-conquest/index.html', enter: async (p) => { await p.click('[data-s="start"]'); await p.waitForTimeout(900); } },
   // Island Traders opens on its setup card (with Resume when a game is saved); Start goes to the island with your first village to place.
   { name: 'island-traders', file: 'island-traders/index.html', enter: async (p) => { await p.click('#btnStart'); await p.waitForTimeout(900); } },
+  // Rail Routes opens on its setup sheet (with Resume when a game is saved); Start goes to the map with your starting tickets to choose.
+  { name: 'rail-routes', file: 'rail-routes/index.html', enter: async (p) => { await p.click('#suGo'); await p.waitForTimeout(900); } },
 ];
 
 // A game that repaints every frame never reaches the "stable" state Playwright waits for by default,
