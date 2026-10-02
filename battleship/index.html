@@ -177,6 +177,28 @@
      board does not jump. The fleet strip under your board also goes during placement: it repeated the
      chips directly above it. Scoped to placement and battle (body.playing) as the setup form is fine. */
   #placeTip { display: none; }
+  /* ---- 3D boards (body.v3d), drawn by ../lib/tabletop.js. The 2D boards stay the fallback when WebGL is
+     missing and the choice for anyone who prefers them; nothing in this block applies without .v3d. Each 3D
+     canvas covers its 2D canvas's inner square (the 2D canvas stays in place under it, keeping its border and
+     the glow that marks the board in play), so every layout above sizes the 3D boards as it sizes the 2D. */
+  .cvbox { position: relative; width: 100%; }
+  .board canvas.c3, .view3 { display: none; }
+  body.v3d .board canvas.c3 { display: block; position: absolute; left: 1px; top: 1px; width: calc(100% - 2px); height: calc(100% - 2px); border: 0; border-radius: 13px; box-shadow: none; aspect-ratio: auto;
+    touch-action: none; outline: none; z-index: 1; -webkit-tap-highlight-color: transparent; }
+  body.v3d .board canvas.c3.armed { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%232ee6c5' stroke-width='2'/%3E%3Cpath d='M16 1v8M16 23v8M1 16h8M23 16h8' stroke='%232ee6c5' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='1.8' fill='%23ffd54a'/%3E%3C/svg%3E") 16 16, crosshair; }
+  body.v3d .view3.host { display: flex; position: absolute; top: 7px; right: 7px; gap: 6px; z-index: 2; pointer-events: none; }
+  .view3 button { pointer-events: auto; }
+  .view3 button { min-width: 44px; min-height: 44px; padding: 0 12px; border-radius: 22px; border: 1px solid rgba(43, 47, 92, .25);
+    background: rgba(255, 255, 255, .82); color: #2B2F5C; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .view3 button:hover { background: #fff; }
+  /* In 2D, a 3D button at the top right of the page, mirroring the back button at the top left. Out of the flow,
+     so nothing moves. Where the boards sit side by side on a short screen the message line runs along the top
+     right, so it gives up the button's width. */
+  #to3d { position: absolute; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); z-index: 5;
+    min-width: 44px; min-height: 44px; padding: 0 10px; border-radius: 22px; font-size: 13px; }
+  @media (orientation: landscape) and (max-height: 500px) {
+    body.playing.has3d:not(.v3d) #msg { right: 60px; width: calc(2 * var(--cv) + 10px - 52px); }
+  }
   @media (max-width: 560px) and (orientation: portrait) {
     body.playing main { padding-top: 8px; gap: 6px; }
     /* The back button is fixed at 8..52px; a 44px header row puts the title beside it, not under it. */
@@ -229,6 +251,7 @@
   .dg-home:hover, .dg-home:focus-visible { background: rgba(8, 18, 30, .92); border-color: #ffd54a; color: #ffd54a; }
 </style>
 <a class="dg-home" href="../index.html" title="All games" aria-label="Back to all games">&#8592;</a>
+<button class="btn ghost" id="to3d" type="button" title="3D boards" aria-label="Show the 3D boards" hidden>3D</button>
 <main>
   <header>
     <h1>BATTLE<span>SHIP</span></h1>
@@ -282,13 +305,15 @@
     <button type="button" data-view="enemy">Enemy waters</button>
   </div>
   <div class="grids" id="grids">
-    <div class="board" id="boardFleet"><h2 id="fleetTitle">Your Fleet</h2><canvas id="cvFleet"></canvas><div class="strip" id="stripFleet"></div></div>
-    <div class="board" id="boardEnemy"><h2 id="enemyTitle">Enemy Waters</h2><canvas id="cvEnemy"></canvas><div class="strip" id="stripEnemy"></div></div>
+    <div class="board" id="boardFleet"><h2 id="fleetTitle">Your Fleet</h2><div class="cvbox"><canvas id="cvFleet"></canvas><canvas class="c3" id="c3Fleet" aria-label="Your fleet in 3D: tap a cell to place the selected ship. Drag to tilt, pinch to zoom."></canvas><div class="view3" id="view3Fleet"><button class="camBtn" type="button" aria-label="Look straight down at the board">Top</button><button class="dimBtn" type="button" title="Flat 2D boards" aria-label="Switch to the flat 2D boards">2D</button></div></div><div class="strip" id="stripFleet"></div></div>
+    <div class="board" id="boardEnemy"><h2 id="enemyTitle">Enemy Waters</h2><div class="cvbox"><canvas id="cvEnemy"></canvas><canvas class="c3" id="c3Enemy" aria-label="Enemy waters in 3D: tap a cell to fire. Drag to tilt, pinch to zoom."></canvas><div class="view3" id="view3Enemy"><button class="camBtn" type="button" aria-label="Look straight down at the board">Top</button><button class="dimBtn" type="button" title="Flat 2D boards" aria-label="Switch to the flat 2D boards">2D</button></div></div><div class="strip" id="stripEnemy"></div></div>
   </div>
 </main>
 
 <div id="overlay" hidden><div class="panel card"><h2 id="ovTitle"></h2><div id="ovBody"></div><div class="btns" id="ovBtns"></div></div></div>
 
+<script src="../lib/three.min.js"></script>
+<script src="../lib/tabletop.js"></script>
 <script>
 'use strict';
 // ---------- dgames high scores ----------
@@ -925,6 +950,9 @@ function drawView(view, board, showAll, t, now) {
   updateParticles(view); drawParticles(view); drawPing(view, now);
 }
 function gameLoop(now) {
+  // The 3D boards draw themselves, and only when something changes; setDim() restarts this loop for 2D.
+  if (V3) { loop2d = false; return; }
+  loop2d = true;
   const t = now / 1000, v = state.viewer;
   drawView(fleetView, state.boards[v], true, t, now);
   drawView(enemyView, state.boards[1 - v], state.phase === 'gameover', t, now);
@@ -1092,6 +1120,7 @@ function updateHUD() {
   $('boardEnemy').classList.toggle('active', p === 'battle' && !state.busy && state.current === v);
   $('cvEnemy').classList.toggle('armed', p === 'battle' && !state.busy && state.current === v);
   $('cvFleet').classList.toggle('placing', p === 'placement');
+  if (V3) V3.sync();
 }
 function render() {
   const p = state.phase;
@@ -1149,7 +1178,792 @@ $('confirm').addEventListener('click', confirmFleet);
 $('restart').addEventListener('click', showSetup);
 $('soundBtn').addEventListener('click', () => { sound.on = !sound.on; store.set('bs.sound', sound.on); if (sound.on) sound.play('place'); render(); });
 
+// ---------- the 3D table ----------
+// Each ocean is a shallow plastic tray of water on Penfight's desk, drawn by the shared kit in
+// ../lib/tabletop.js: one kit per board, each canvas laid exactly over its 2D canvas, so every layout above
+// sizes the 3D boards as it sizes the 2D ones. The 3D side only reads the game (state, the boards) and turns
+// a tap into the same handleCellClick() a click on the 2D canvas makes, so the rules, the computer, the
+// turns and the hand-over screens are the 2D page's. Nothing waits on an animation: a shot is resolved the
+// moment it is fired and the board catches up (shell, splash or fire, then the peg).
+// Sizes are centimetres: a 3.2 cm cell, a 32 cm ocean.
+let V3 = null, view3d = null, lost3d = false, loop2d = false;
+const VIEW_KEY = 'dgames.battleship.view';
+const viewPref = (() => { try { const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; } })();
+const saveView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(viewPref)); } catch (e) { /* ignore */ } };
+// A portrait phone opens top-down, the way every other 3D board here does.
+const portraitPhone = () => innerHeight > innerWidth && innerWidth < 700;
+const camDefault = () => viewPref.cam || (portraitPhone() ? 'top' : 'angled');
+const can3d = () => !!window.Tabletop && !lost3d && !(view3d && !view3d.ok) && !/[?&]no3d\b/.test(location.search);
+const fingers3d = (() => { try { return matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0; } catch (e) { return true; } })();
+// Case colours: Player 1 (you, against the computer) has the blue case, Player 2 (or the computer) the red.
+const CASE = ['#3A6FB8', '#C4473D'];
+
+function makeView3d() {
+  if (!window.Tabletop) return { ok: false, reason: 'the tabletop kit did not load' };
+  let q = null;
+  try { q = new URLSearchParams(location.search).get('q'); } catch (e) { /* ignore */ }
+  const kits = [], trays = {};
+  // A scene that fails half way must not leave a WebGL context and frame loop running behind the 2D boards.
+  const drop = () => { for (const k of kits) { try { k.dispose(); } catch (e) { /* already gone */ } } };
+  try {
+    for (const which of ['fleet', 'enemy']) {
+      const cv = $(which === 'fleet' ? 'c3Fleet' : 'c3Enemy');
+      const kit = Tabletop.create({ canvas: cv, quality: q || 'auto', onTap: (x, y, ev) => tap3d(which, x, y, ev),
+        onLost: () => { lost3d = true; setDim('2d', false); } });
+      if (!kit.ok) { drop(); return { ok: false, reason: kit.reason }; }
+      kits.push(kit);
+      trays[which] = buildTray(kit, cv, which);
+    }
+  } catch (e) { drop(); throw e; }
+  return makeV3(trays);
+}
+
+function buildTray(kit, cv, which) {
+  const THREE = kit.THREE, M = Tabletop.math, E = Tabletop.ease, lerp = M.lerp, hi = kit.quality === 'high';
+  const incoming = which === 'fleet';             // shells land here from the far side; the enemy tray is fired at from your side
+  const C = 3.2, G = C * GRID_SIZE, RL = 2.5, RT = 2.5, RR = 1.1, RB = 1.1;
+  const TW = G + RL + RR, TD = G + RT + RB;
+  const GX = -TW / 2 + RL, GZ = -TD / 2 + RT;     // the ocean's far-left corner (A1 is far left, as in 2D)
+  const BASE = 1.1, FRAME = 1.0, WATER = BASE + 0.42;
+  const cx = (c) => GX + (c + 0.5) * C, cz = (r) => GZ + (r + 0.5) * C;
+  const col = Tabletop.col;
+  const canvasTex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = Math.min(4, kit.renderer.capabilities.getMaxAnisotropy()); t.userData = { c, draw }; return t; };
+
+  // Deep enough that the angled camera sees desk, not the room, beyond the tray's far edge.
+  kit.setDesk({ w: 86, d: 100 });
+  const tray = new THREE.Group();
+  kit.scene.add(tray);
+
+  // ---- the case: a plastic base, a raised frame round the water with the coordinates moulded into it
+  const caseMat = Tabletop.mat.plastic(CASE[0], { roughness: 0.38, envMapIntensity: 0.7 });
+  const base = new THREE.Mesh(Tabletop.geo.slab(TW, TD, BASE, 1.5, 0.3), caseMat);
+  base.castShadow = true; base.receiveShadow = true; tray.add(base);
+  const ppc = Math.round((hi ? 2048 : 1024) / TW);
+  let caseHex = CASE[0];
+  function drawFrame(g, w, h) {
+    const at = (v, o) => (v + o / 2) * ppc;
+    g.fillStyle = caseHex; g.fillRect(0, 0, w, h);
+    const sh = g.createLinearGradient(0, 0, 0, h); sh.addColorStop(0, 'rgba(255,255,255,.14)'); sh.addColorStop(1, 'rgba(0,0,0,.12)');
+    g.fillStyle = sh; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(255,255,255,.92)'; g.font = `700 ${Math.round(1.6 * ppc)}px Rajdhani, "Segoe UI", system-ui, sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (let i = 0; i < GRID_SIZE; i++) {
+      g.fillText(String.fromCharCode(65 + i), at(cx(i), TW), at(GZ - RT / 2 + 0.1, TD));
+      g.fillText(String(i + 1), at(GX - RL / 2 + 0.05, TW), at(cz(i), TD));
+    }
+  }
+  const frameTex = canvasTex(Math.round(TW * ppc), Math.round(TD * ppc), drawFrame);
+  // The coordinates are in the page's font, which may arrive after the board is built.
+  try { document.fonts.ready.then(() => { drawFrame(frameTex.userData.c.getContext('2d'), frameTex.userData.c.width, frameTex.userData.c.height); frameTex.needsUpdate = true; kit.invalidate(); }); } catch (e) { /* no font API */ }
+  frameTex.repeat.set(1 / TW, 1 / TD); frameTex.offset.set(0.5, 0.5);
+  const frameTop = Tabletop.mat.plastic('#ffffff', { map: frameTex, roughness: 0.4, envMapIntensity: 0.6 });
+  {
+    const shape = Tabletop.geo.roundRectShape(TW, TD, 1.5), m = 0.25;
+    const hole = new THREE.Path();
+    const x0 = GX - m, x1 = GX + G + m, y0 = -(GZ + G + m), y1 = -(GZ - m);
+    hole.moveTo(x0, y0); hole.lineTo(x1, y0); hole.lineTo(x1, y1); hole.lineTo(x0, y1); hole.lineTo(x0, y0);
+    shape.holes.push(hole);
+    const bev = 0.18;
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: FRAME - 2 * bev, bevelEnabled: true, bevelThickness: bev, bevelSize: bev * 0.6, bevelSegments: 2, curveSegments: 5 });
+    geo.rotateX(-Math.PI / 2); geo.translate(0, BASE + bev, 0);
+    const frame = new THREE.Mesh(geo, [frameTop, caseMat]);
+    frame.castShadow = true; frame.receiveShadow = true; tray.add(frame);
+  }
+
+  // ---- the water: a glossy sea whose ripple texture drifts only while something is happening on this board
+  const rippleTex = canvasTex(256, 256, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, '#2A86B4'); gr.addColorStop(1, '#2378A6');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    let a = 9173; const r = () => { a = (a * 16807) % 2147483647; return a / 2147483647; };
+    for (let i = 0; i < 46; i++) {
+      const x = r() * w, y = r() * h, rad = 8 + r() * 30, al = 0.04 + r() * 0.08;
+      for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) {
+        const q = g.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, rad);
+        q.addColorStop(0, `rgba(170,240,245,${al})`); q.addColorStop(1, 'rgba(170,240,245,0)');
+        g.fillStyle = q; g.fillRect(x + dx - rad, y + dy - rad, 2 * rad, 2 * rad);
+      }
+    }
+    g.strokeStyle = 'rgba(210,248,255,.10)'; g.lineWidth = 2;
+    for (let i = 0; i < 18; i++) { const y = r() * h, x = r() * w, l = 20 + r() * 40; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + l / 2, y - 4, x + l, y); g.stroke(); }
+  });
+  rippleTex.wrapS = rippleTex.wrapT = THREE.RepeatWrapping; rippleTex.repeat.set(2.5, 2.5);
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(G + 0.5, G + 0.5).rotateX(-Math.PI / 2),
+    Tabletop.mat.lacquer('#ffffff', { map: rippleTex, roughness: 0.2, envMapIntensity: 0.9 }));
+  water.position.set(GX + G / 2, WATER, GZ + G / 2); water.receiveShadow = true; tray.add(water);
+  // The pegboard over it: faint grid lines and a peg hole at the middle of every cell.
+  const gridTex = canvasTex(hi ? 1024 : 640, hi ? 1024 : 640, (g, w) => {
+    const k = w / GRID_SIZE;
+    g.clearRect(0, 0, w, w);
+    g.strokeStyle = 'rgba(225,246,255,.42)'; g.lineWidth = Math.max(1.5, w / 420);
+    g.beginPath(); for (let i = 1; i < GRID_SIZE; i++) { g.moveTo(i * k, 0); g.lineTo(i * k, w); g.moveTo(0, i * k); g.lineTo(w, i * k); } g.stroke();
+    for (let r = 0; r < GRID_SIZE; r++) for (let c = 0; c < GRID_SIZE; c++) {
+      g.fillStyle = 'rgba(8,40,62,.55)'; g.beginPath(); g.arc((c + 0.5) * k, (r + 0.5) * k, k * 0.09, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(220,245,255,.28)'; g.lineWidth = Math.max(1, w / 700); g.beginPath(); g.arc((c + 0.5) * k, (r + 0.5) * k, k * 0.13, 0, Math.PI * 2); g.stroke();
+    }
+  });
+  const gridMesh = new THREE.Mesh(new THREE.PlaneGeometry(G, G).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: gridTex, transparent: true, depthWrite: false }));
+  gridMesh.position.set(GX + G / 2, WATER + 0.02, GZ + G / 2); gridMesh.renderOrder = 1; tray.add(gridMesh);
+
+  // ---- ships: one merged mesh each, grey and glossy, with each class's own silhouette (the 2D page's)
+  // and a little superstructure. Parts carry vertex colours so a whole ship is one draw call.
+  const shipMat = Tabletop.mat.lacquer('#ffffff', { vertexColors: true, roughness: 0.32, metalness: 0.1, envMapIntensity: 0.62 });
+  const wreckMat = Tabletop.mat.plastic('#6F6660', { vertexColors: true, roughness: 0.75, envMapIntensity: 0.35 });
+  const FREE = { Submarine: 0.3 }, DRAFT = 0.5, BEAM = C * 0.68;
+  function hullShape(kind, L, B) {
+    const s = new THREE.Shape(), hl = L / 2, hb = B / 2;
+    if (kind === 'Submarine') {
+      const r = hb;
+      s.moveTo(-hl + r, -hb); s.lineTo(hl - r, -hb); s.absarc(hl - r, 0, r, -Math.PI / 2, Math.PI / 2, false);
+      s.lineTo(-hl + r, hb); s.absarc(-hl + r, 0, r, Math.PI / 2, Math.PI * 1.5, false);
+    } else if (kind === 'Carrier') {
+      const n = hb * 0.28;
+      s.moveTo(hl, -hb + n); s.lineTo(hl, hb - n); s.lineTo(hl - n, hb); s.lineTo(-hl + n * 1.4, hb);
+      s.quadraticCurveTo(-hl, hb, -hl, hb * 0.5); s.lineTo(-hl, -hb * 0.5); s.quadraticCurveTo(-hl, -hb, -hl + n * 1.4, -hb); s.lineTo(hl - n, -hb);
+    } else {
+      const bow = Math.min(B * 1.15, L * 0.34);
+      s.moveTo(hl, 0); s.quadraticCurveTo(hl - bow * 0.3, -hb * 0.96, hl - bow, -hb); s.lineTo(-hl + hb * 0.45, -hb);
+      s.quadraticCurveTo(-hl, -hb, -hl, -hb * 0.6); s.lineTo(-hl, hb * 0.6); s.quadraticCurveTo(-hl, hb, -hl + hb * 0.45, hb);
+      s.lineTo(hl - bow, hb); s.quadraticCurveTo(hl - bow * 0.3, hb * 0.96, hl, 0);
+    }
+    return s;
+  }
+  const paint = (g, hex) => {
+    const c = col(hex), n = g.attributes.position.count, a = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g;
+  };
+  const HULL = '#8C98A3', DECK = '#6F7C87', GUN = '#55606B', DARK = '#3F4952';
+  const shipGeos = {};
+  function shipGeo(name, len) {
+    if (shipGeos[name]) return shipGeos[name];
+    const L = len * C - 0.6, B = BEAM, free = FREE[name] || 0.62, parts = [], seg = hi ? 14 : 9, bev = 0.12;
+    const hull = new THREE.ExtrudeGeometry(hullShape(name, L - 2 * bev, B - 2 * bev), { depth: free + DRAFT - 2 * bev, bevelEnabled: true, bevelThickness: bev, bevelSize: bev, bevelSegments: 2, curveSegments: hi ? 10 : 6 });
+    hull.rotateX(-Math.PI / 2); hull.translate(0, -DRAFT + bev, 0);
+    parts.push(paint(hull, HULL));
+    const box = (w, h, d, x, y, z, hex) => parts.push(paint(new THREE.BoxGeometry(w, h, d).translate(x, y + h / 2, z), hex));
+    const cyl = (r0, r1, h, x, y, z, hex) => parts.push(paint(new THREE.CylinderGeometry(r0, r1, h, seg).translate(x, y + h / 2, z), hex));
+    const hl = L / 2, top = free;
+    const turret = (x, dir, s) => {
+      s = s || 1;
+      cyl(0.36 * s, 0.4 * s, 0.26 * s, x, top, 0, GUN);
+      for (const zz of [-0.1, 0.1]) box(0.62 * s, 0.09 * s, 0.09 * s, x + dir * 0.48 * s, top + 0.1 * s, zz * s, DARK);
+    };
+    if (name === 'Carrier') {
+      // The flight deck overhangs the hull; the island stands to starboard.
+      box(L - 0.3, 0.14, B + 0.36, -0.05, top, 0, DARK);
+      box(L - 0.9, 0.02, 0.06, 0, top + 0.14, 0, '#E9EEF2');
+      box(0.85, 0.75, 0.5, -0.25, top + 0.14, B / 2 - 0.12, DECK);
+      box(0.5, 0.45, 0.36, -0.3, top + 0.89, B / 2 - 0.12, GUN);
+      cyl(0.04, 0.04, 0.6, -0.3, top + 1.3, B / 2 - 0.12, DARK);
+    } else if (name === 'Submarine') {
+      // A conning tower amidships and a periscope; no guns.
+      parts.push(paint(new THREE.CylinderGeometry(0.34, 0.42, 0.62, seg).scale(1.7, 1, 0.75).translate(0.05, top + 0.28, 0), DECK));
+      cyl(0.05, 0.05, 0.5, 0.25, top + 0.85, 0, DARK);
+      box(0.5, 0.06, 0.9, -0.15, top + 0.5, 0, DECK);
+    } else if (name === 'Battleship') {
+      turret(hl - C * 0.55, 1); turret(hl - C * 1.25, 1, 0.9);
+      box(1.05, 0.55, B * 0.6, -C * 0.28, top, 0, DECK); box(0.7, 0.45, B * 0.42, -C * 0.33, top + 0.55, 0, DECK);
+      box(0.36, 0.36, 0.36, -C * 0.33, top + 1.0, 0, GUN); cyl(0.04, 0.04, 0.7, -C * 0.33, top + 1.36, 0, DARK);
+      cyl(0.22, 0.26, 0.6, -C * 0.75, top, 0, GUN);
+      turret(-hl + C * 0.5, -1);
+    } else if (name === 'Cruiser') {
+      turret(hl - C * 0.5, 1);
+      box(0.95, 0.5, B * 0.56, 0, top, 0, DECK); box(0.55, 0.4, B * 0.4, -0.05, top + 0.5, 0, GUN);
+      cyl(0.04, 0.04, 0.6, -0.05, top + 0.9, 0, DARK);
+      cyl(0.26, 0.3, 0.7, -hl + C * 0.48, top, 0, DARK);
+    } else {
+      // Destroyer, two cells: one gun forward, a small bridge and a funnel behind it.
+      turret(hl - C * 0.45, 1, 0.85);
+      box(0.75, 0.45, B * 0.52, -C * 0.18, top, 0, DECK); box(0.42, 0.3, B * 0.36, -C * 0.2, top + 0.45, 0, GUN);
+      cyl(0.2, 0.24, 0.5, -C * 0.55, top, 0, DARK);
+    }
+    const g = Tabletop.geo.merge(parts);
+    parts.forEach((p) => p.dispose());
+    return (shipGeos[name] = g);
+  }
+  // The deck point of a ship's k-th cell, in the ship's own frame: where a red peg goes into it.
+  const deckOf = (name) => (name === 'Carrier' ? (FREE.Carrier || 0.62) + 0.14 : FREE[name] || 0.62);
+
+  // ---- pegs: white for a miss, red for a hit, each colour one instanced mesh
+  const pegGeo = (() => {
+    const seg = hi ? 12 : 8;
+    const parts = [new THREE.CylinderGeometry(0.24, 0.24, 1.0, seg).translate(0, 0.5, 0),
+      new THREE.SphereGeometry(0.56, seg, Math.max(4, seg / 2)).scale(1, 0.8, 1).translate(0, 1.1, 0)];
+    const g = Tabletop.geo.merge(parts); parts.forEach((p) => p.dispose()); return g;
+  })();
+  const pegMats = { 1: Tabletop.mat.plastic('#F5F3EC', { roughness: 0.32 }), 2: Tabletop.mat.lacquer('#E2342A', { roughness: 0.22 }) };
+  const pegMesh = {};
+  for (const t of [1, 2]) {
+    const m = pegMesh[t] = new THREE.InstancedMesh(pegGeo, pegMats[t], GRID_SIZE * GRID_SIZE);
+    m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; tray.add(m);
+  }
+
+  // ---- effects: one point cloud (spray, fire, smoke), a pooled shell, rings on the water
+  const dotTex = canvasTex(64, 64, (g, w) => { const q = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); q.addColorStop(0, 'rgba(255,255,255,1)'); q.addColorStop(0.45, 'rgba(255,255,255,.55)'); q.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = q; g.fillRect(0, 0, w, w); });
+  const PCAP = 260, pPos = new Float32Array(PCAP * 3), pCol = new Float32Array(PCAP * 4), pSize = new Float32Array(PCAP);
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3).setUsage(THREE.DynamicDrawUsage));
+  pGeo.setAttribute('rgba', new THREE.BufferAttribute(pCol, 4).setUsage(THREE.DynamicDrawUsage));
+  pGeo.setAttribute('size', new THREE.BufferAttribute(pSize, 1).setUsage(THREE.DynamicDrawUsage));
+  const pMat = new THREE.ShaderMaterial({
+    uniforms: { map: { value: dotTex }, scale: { value: 400 } }, transparent: true, depthWrite: false,
+    vertexShader: 'attribute vec4 rgba; attribute float size; uniform float scale; varying vec4 vC; void main(){ vC = rgba; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = size * scale / -mv.z; gl_Position = projectionMatrix * mv; }',
+    fragmentShader: 'uniform sampler2D map; varying vec4 vC; void main(){ float a = texture2D(map, gl_PointCoord).a * vC.a; if (a < 0.01) discard; gl_FragColor = vec4(vC.rgb, a); }',
+  });
+  const points = new THREE.Points(pGeo, pMat); points.frustumCulled = false; points.renderOrder = 5; points.visible = false; tray.add(points);
+  let parts = [];
+  const hex3 = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
+  const FX = { spray: hex3('#E8F7FF'), fire: hex3('#FF8A2A'), fire2: hex3('#FFD24A'), smoke: hex3('#5C6066'), steam: hex3('#C9D3DA'), spark: hex3('#FFE9A8') };
+  const dens = () => (kit.reducedMotion ? 0.3 : 1);
+  function emit(n, o) {
+    n = Math.max(1, Math.round(n * dens()));
+    for (let i = 0; i < n && parts.length < PCAP; i++) {
+      const a = Math.random() * Math.PI * 2, sp = lerp(o.sp0 || 0, o.sp1 || 0, Math.random());
+      parts.push({ x: o.x + (Math.random() - 0.5) * (o.jx || 0), y: o.y, z: o.z + (Math.random() - 0.5) * (o.jz == null ? o.jx || 0 : o.jz),
+        vx: Math.cos(a) * sp, vz: Math.sin(a) * sp, vy: lerp(o.up0 || 0, o.up1 || 0, Math.random()), g: o.g || 0,
+        life: -(o.delay || 0) * Math.random(), max: lerp(o.life0 || 0.6, o.life1 || 1, Math.random()),
+        s0: o.size0 || 0.5, s1: o.size1 || o.size0 || 0.5, rgb: o.rgb, rgb2: o.rgb2, a: o.alpha || 1 });
+    }
+    points.visible = true; activity();
+  }
+  function stepParts(dt) {
+    if (!parts.length) { if (points.visible) { points.visible = false; return true; } return false; }
+    const keep = [];
+    for (const p of parts) {
+      p.life += dt;
+      if (p.life < 0) { keep.push(p); continue; }
+      p.vy -= p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      if (p.life < p.max) keep.push(p);
+    }
+    parts = keep;
+    let n = 0;
+    for (const p of parts) {
+      if (p.life < 0) continue;
+      const k = p.life / p.max, c = p.rgb2 ? [lerp(p.rgb[0], p.rgb2[0], k), lerp(p.rgb[1], p.rgb2[1], k), lerp(p.rgb[2], p.rgb2[2], k)] : p.rgb;
+      pPos[n * 3] = p.x; pPos[n * 3 + 1] = p.y; pPos[n * 3 + 2] = p.z;
+      pCol[n * 4] = c[0]; pCol[n * 4 + 1] = c[1]; pCol[n * 4 + 2] = c[2]; pCol[n * 4 + 3] = p.a * (1 - k) * Math.min(1, p.life * 12);
+      pSize[n] = lerp(p.s0, p.s1, k); n++;
+    }
+    pGeo.setDrawRange(0, n);
+    for (const k of ['position', 'rgba', 'size']) pGeo.attributes[k].needsUpdate = true;
+    return true;
+  }
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 8).scale(1, 1, 1.6), Tabletop.mat.metal('#4A5058', { roughness: 0.35 }));
+  shell.castShadow = true; shell.visible = false; tray.add(shell);
+  const rings = [];
+  const ringGeo = new THREE.RingGeometry(0.84, 1, hi ? 48 : 32).rotateX(-Math.PI / 2);
+  function ring(x, z, o) {
+    let m = rings.find((q) => !q.visible);
+    if (!m) { m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); m.renderOrder = 3; rings.push(m); tray.add(m); }
+    m.material.color = col(o.color); m.position.set(x, WATER + 0.05, z); m.visible = true; m.scale.setScalar(0.01);
+    activity();
+    return kit.tween({ ms: o.ms || 700, ease: 'linear', update: (k) => { const u = Math.max(0, k * (o.ms || 700) - (o.delay || 0)) / ((o.ms || 700) - (o.delay || 0)); m.scale.setScalar(0.01 + E.outCubic(u) * o.r); m.material.opacity = u > 0 ? (o.alpha || 0.9) * (1 - u) : 0; },
+      done: () => { m.visible = false; } });
+  }
+
+  // ---- hover and ghost: a translucent ship footprint in placement, a reticle when firing
+  const footMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false });
+  const foot = new THREE.Mesh(Tabletop.geo.slab(1, 1, 1, 0.12, 0), footMat);
+  foot.visible = false; foot.renderOrder = 4; tray.add(foot);
+  const reticle = (() => {
+    const parts2 = [new THREE.RingGeometry(C * 0.3, C * 0.37, 32).rotateX(-Math.PI / 2)];
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const g = new THREE.PlaneGeometry(dx ? C * 0.22 : 0.12, dz ? C * 0.22 : 0.12).rotateX(-Math.PI / 2);
+      parts2.push(g.translate(dx * C * 0.44, 0, dz * C * 0.44));
+    }
+    const g = Tabletop.geo.merge(parts2); parts2.forEach((p) => p.dispose());
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: col('#2EE6C5'), transparent: true, opacity: 0.95, depthWrite: false }));
+    const sq = new THREE.Mesh(new THREE.PlaneGeometry(C - 0.2, C - 0.2).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: col('#2EE6C5'), transparent: true, opacity: 0.22, depthWrite: false }));
+    sq.position.y = -0.02;
+    const grp = new THREE.Group(); grp.add(m, sq); grp.visible = false; grp.renderOrder = 4; m.renderOrder = 4; sq.renderOrder = 4;
+    tray.add(grp); grp.userData = { ringMat: m.material, sqMat: sq.material };
+    return grp;
+  })();
+  const pingRing = new THREE.Mesh(new THREE.RingGeometry(0.95, 1, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: col('#2EE6C5'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  pingRing.visible = false; pingRing.renderOrder = 3; pingRing.position.set(GX + G / 2, WATER + 0.06, GZ + G / 2); tray.add(pingRing);
+
+  // ---- what is on the board
+  let cur = { board: null, covered: false, reveal: false };
+  let ships = new Map();                 // ship index -> rec { mesh, key, sunk, y, roll, pitch, s }
+  let pegs = new Map();                  // cell key -> { r, c, t, drop, s }
+  let needSync = false;
+  const touch = () => { needSync = true; kit.invalidate(); };
+  const dummy = new THREE.Object3D(), mtx = new THREE.Matrix4(), local = new THREE.Matrix4();
+  function shipPose(rec) {
+    const s = rec.ship, len = s.length, m = rec.mesh;
+    const x = s.horizontal ? GX + (s.c + len / 2) * C : cx(s.c), z = s.horizontal ? cz(s.r) : GZ + (s.r + len / 2) * C;
+    m.position.set(x, WATER + rec.y, z);
+    m.rotation.set(rec.roll, s.horizontal ? 0 : -Math.PI / 2, rec.pitch, 'YXZ');
+    m.scale.setScalar(Math.max(0.001, rec.s));
+    m.visible = rec.s > 0.002;
+    m.updateMatrix();
+  }
+  function sync() {
+    const n = { 1: 0, 2: 0 };
+    for (const p of pegs.values()) {
+      if (p.s <= 0.002) continue;
+      const idx = cur.board.grid[p.r][p.c], rec = p.t === 2 && idx >= 0 ? ships.get(idx) : null;
+      if (rec && rec.mesh.visible) {
+        // A red peg goes into the deck of a ship you can see, and lists and settles with it.
+        const s = rec.ship, k = s.horizontal ? p.c - s.c : p.r - s.r;
+        local.makeTranslation((k - (s.length - 1) / 2) * C, deckOf(s.name) - 0.35 + p.drop, 0);
+        mtx.multiplyMatrices(rec.mesh.matrix, local);
+        dummy.matrix.copy(mtx); dummy.matrix.scale(dummy.scale.set(p.s, p.s, p.s));
+        pegMesh[p.t].setMatrixAt(n[p.t]++, dummy.matrix);
+      } else {
+        dummy.position.set(cx(p.c), WATER - 0.55 + p.drop, cz(p.r)); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(p.s); dummy.updateMatrix();
+        pegMesh[p.t].setMatrixAt(n[p.t]++, dummy.matrix);
+      }
+    }
+    for (const t of [1, 2]) { pegMesh[t].count = n[t]; pegMesh[t].instanceMatrix.needsUpdate = true; }
+  }
+  // Water drifts only while something is going on, easing to a stop, and never with reduced motion.
+  let activeUntil = 0, flow = 0, clockMs = 0;
+  function activity(ms) { activeUntil = Math.max(activeUntil, clockMs + (ms || 1600)); kit.invalidate(); }
+  kit.onFrame((dt) => {
+    dt *= kit.timeScale;
+    clockMs += dt * 1000;
+    let busy = stepParts(dt);
+    for (const rec of ships.values()) if (rec.dirty) { rec.dirty = false; shipPose(rec); needSync = true; }
+    if (needSync) { needSync = false; sync(); }
+    const want = !kit.reducedMotion && clockMs < activeUntil ? 1 : 0;
+    flow += (want - flow) * Math.min(1, dt * 2.5);
+    if (flow < 0.01 && !want) flow = 0;
+    if (flow > 0) {
+      rippleTex.offset.x = (rippleTex.offset.x + dt * 0.018 * flow) % 1;
+      rippleTex.offset.y = (rippleTex.offset.y + dt * 0.011 * flow) % 1;
+      busy = true;
+    }
+    return busy;
+  });
+
+  function shipRec(i, s) {
+    const mesh = new THREE.Mesh(shipGeo(s.name, s.length), s.sunk ? wreckMat : shipMat);
+    mesh.castShadow = true; mesh.receiveShadow = true; mesh.matrixAutoUpdate = false;
+    tray.add(mesh);
+    const rec = { i, ship: s, mesh, key: s.r + ',' + s.c + ',' + s.horizontal, sunk: s.sunk, y: 0, roll: 0, pitch: 0, s: 1, dirty: true };
+    if (s.sunk) wreckPose(rec, 1);
+    ships.set(i, rec);
+    return rec;
+  }
+  function dropShip(i) { const rec = ships.get(i); if (!rec) return; tray.remove(rec.mesh); ships.delete(i); touch(); }
+  const rollSign = (s) => ((s.r * 7 + s.c * 3 + s.length) % 2 ? 1 : -1);
+  function wreckPose(rec, k) {
+    rec.roll = rollSign(rec.ship) * 0.3 * k; rec.pitch = 0.05 * k * rollSign(rec.ship); rec.y = -0.42 * k; rec.dirty = true;
+  }
+  // Lowered into the water from a little above, with a ring as it settles: a placed or moved ship.
+  function dropIn(rec) {
+    rec.y = 2.2; rec.dirty = true;
+    kit.tween({ ms: 420, ease: 'linear', update: (k) => { rec.y = lerp(2.2, 0, E.outBounce(k)); rec.dirty = true; kit.invalidate(); },
+      done: () => { rec.y = 0; rec.dirty = true; } });
+    const s = rec.ship, len = s.length;
+    later3(() => ring(s.horizontal ? GX + (s.c + len / 2) * C : cx(s.c), s.horizontal ? cz(s.r) : GZ + (s.r + len / 2) * C, { color: '#DDF6FF', r: C * (len * 0.6 + 0.4), ms: 600, alpha: 0.5 }), 180);
+  }
+  // A ship going down: a flash of fire along it, then it lists, settles lower and darkens; smoke drifts off.
+  function sink(rec, delay) {
+    const s = rec.ship;
+    const go = () => {
+      rec.s = 1; rec.revealed = true; rec.dirty = true;
+      for (const [r, c] of s.cells) {
+        emit(5, { x: cx(c), y: WATER + 0.8, z: cz(r), jx: 1.4, up0: 1.5, up1: 4, g: 1.5, sp0: 0.2, sp1: 1, life0: 0.4, life1: 0.9, size0: 1.0, size1: 0.3, rgb: FX.fire2, rgb2: FX.fire });
+        emit(4, { x: cx(c), y: WATER + 0.6, z: cz(r), jx: 1.2, up0: 1.2, up1: 2.6, sp0: 0.1, sp1: 0.6, life0: 1.2, life1: 2.0, size0: 1.0, size1: 2.6, rgb: FX.smoke, alpha: 0.55, delay: 0.5 });
+      }
+      activity(2600);
+      kit.tween({ ms: 1100, ease: 'linear', update: (k) => { if (k > 0.3) rec.mesh.material = wreckMat; wreckPose(rec, E.inOutCubic(k)); kit.invalidate(); },
+        done: () => { rec.mesh.material = wreckMat; wreckPose(rec, 1); } });
+      shake(0.45, 380);
+    };
+    if (delay > 0 && !kit.reducedMotion) { rec.s = rec.revealed ? 1 : 0; rec.dirty = true; later3(go, delay); } else go();
+  }
+  // The rest of the enemy fleet surfaces when the game is over (the 2D page shows it too).
+  function surface(rec, delay) {
+    rec.y = -1.6; rec.s = 1; rec.dirty = true;
+    kit.tween({ ms: 700 + delay, ease: 'linear', update: (k) => { const u = M.clamp((k * (700 + delay) - delay) / 700, 0, 1); rec.y = lerp(-1.6, 0, E.outBack(u)); rec.dirty = true; kit.invalidate(); },
+      done: () => { rec.y = 0; rec.dirty = true; } });
+  }
+  // A shot: the shell flies in a short arc to the cell, then a splash or a burst of fire, then the peg.
+  const SHELL_MS = 430;
+  function shot(r, c, t, sunkShip) {
+    const p = { r, c, t, drop: 0, s: 0 };
+    pegs.set(r * GRID_SIZE + c, p);
+    const x = cx(c), z = cz(r);
+    const land = () => {
+      p.s = 1; p.drop = 4.5; touch();
+      kit.tween({ ms: 380, ease: 'linear', update: (k) => { p.drop = lerp(4.5, 0, E.outBounce(k)); touch(); }, done: () => { p.drop = 0; touch(); } });
+      if (t === 1) {
+        ring(x, z, { color: '#E6F7FF', r: C * 0.85, ms: 750, alpha: 0.85 });
+        ring(x, z, { color: '#E6F7FF', r: C * 1.3, ms: 900, alpha: 0.5, delay: 150 });
+        emit(16, { x, y: WATER + 0.1, z, jx: 0.6, up0: 5, up1: 10, g: 22, sp0: 0.4, sp1: 2.2, life0: 0.45, life1: 0.8, size0: 0.55, size1: 0.3, rgb: FX.spray, alpha: 0.95 });
+      } else {
+        const y0 = WATER + 0.9;
+        emit(16, { x, y: y0, z, jx: 0.7, up0: 2.5, up1: 6, g: 3, sp0: 0.5, sp1: 2.6, life0: 0.35, life1: 0.75, size0: 2.2, size1: 0.6, rgb: FX.fire2, rgb2: FX.fire });
+        emit(8, { x, y: y0, z, jx: 0.3, up0: 4, up1: 9, g: 14, sp0: 1.5, sp1: 5, life0: 0.3, life1: 0.6, size0: 0.4, size1: 0.18, rgb: FX.spark });
+        emit(9, { x, y: y0 + 0.5, z, jx: 0.6, up0: 1.6, up1: 3.2, sp0: 0.1, sp1: 0.6, life0: 1.3, life1: 2.1, size0: 1.4, size1: 4.2, rgb: FX.smoke, alpha: 0.62, delay: 0.2 });
+        ring(x, z, { color: '#FF9A4A', r: C * 1.1, ms: 550, alpha: 0.9 });
+        if (!sunkShip) shake(0.22, 240);
+      }
+      activity(1800);
+    };
+    if (kit.reducedMotion) { land(); return; }
+    // From your side of the table to the enemy tray; from the far side onto your own.
+    const from = [x + (Math.random() - 0.5) * 8, 14, incoming ? GZ - 16 : GZ + G + 16];
+    shell.position.set(from[0], from[1], from[2]); shell.visible = true;
+    const h = 7;
+    let lastPuff = 0;
+    activity(2000);
+    kit.tween({ ms: SHELL_MS, ease: 'linear', update: (k) => {
+      const q = M.flightSample(from, [x, WATER + 0.3, z], k, h);
+      shell.position.set(q[0], q[1], q[2]);
+      shell.lookAt(x, WATER, z);
+      if (k - lastPuff > 0.07) { lastPuff = k; emit(1, { x: q[0], y: q[1], z: q[2], life0: 0.4, life1: 0.6, size0: 0.8, size1: 1.6, rgb: FX.steam, alpha: 0.55 }); }
+    }, done: () => { shell.visible = false; land(); } });
+  }
+
+  // A jolt on a hit. One at a time: a second shake started mid-way would remember the offset as home.
+  let shaking = false;
+  function shake(amp, ms) { if (shaking || kit.reducedMotion) return; shaking = true; kit.shake(tray, { amp, ms }).then(() => { shaking = false; tray.position.set(0, 0, 0); }); }
+
+  // ---- timers that belong to this board (cleared on a rebuild, so nothing from a finished game lands late)
+  let tms = [];
+  const later3 = (fn, ms) => { const t = setTimeout(() => { tms = tms.filter((x) => x !== t); fn(); }, ms / Math.max(0.01, kit.timeScale)); tms.push(t); };
+
+  // Bring the scene to the board as it stands, without animation (a switch into 3D, a new viewer, a new game).
+  function reset(board, o) {
+    kit.finishAll();
+    for (const t of tms) clearTimeout(t); tms = [];
+    for (const i of Array.from(ships.keys())) dropShip(i);
+    pegs = new Map(); parts = []; shell.visible = false; tray.position.set(0, 0, 0); for (const m of rings) m.visible = false; pingRing.visible = false;
+    cur = { board, covered: o.covered, reveal: o.reveal };
+    setCase(o.caseHex);
+    if (board) {
+      board.ships.forEach((s, i) => { if (showShip(s, o)) { const rec = shipRec(i, s); rec.revealed = true; } });
+      for (let r = 0; r < GRID_SIZE; r++) for (let c = 0; c < GRID_SIZE; c++) if (board.shots[r][c]) pegs.set(r * GRID_SIZE + c, { r, c, t: board.shots[r][c], drop: 0, s: 1 });
+    }
+    for (const rec of ships.values()) shipPose(rec);
+    sync(); kit.invalidate();
+  }
+  const showShip = (s, o) => !o.covered && s.placed && (o.reveal || s.sunk);
+  function setCase(hex) {
+    if (!hex || hex === caseHex) return;
+    caseHex = hex; caseMat.color = col(hex);
+    const d = frameTex.userData; d.draw(d.c.getContext('2d'), d.c.width, d.c.height); frameTex.needsUpdate = true;
+  }
+  // Bring the scene up to date with the board, animating whatever is new.
+  function update(board, o) {
+    if (board !== cur.board || o.covered !== cur.covered) { reset(board, o); return; }
+    cur.reveal = o.reveal;
+    setCase(o.caseHex);
+    // shots first, so a sinking ship can wait for the shell that sank it
+    const fresh = new Set();
+    for (let r = 0; r < GRID_SIZE; r++) for (let c = 0; c < GRID_SIZE; c++) {
+      const t = board.shots[r][c], k = r * GRID_SIZE + c;
+      if (t && !pegs.has(k)) {
+        const idx = board.grid[r][c], sunkNow = t === 2 && idx >= 0 && board.ships[idx].sunk;
+        shot(r, c, t, sunkNow); fresh.add(idx);
+      } else if (!t && pegs.has(k)) { pegs.delete(k); touch(); }
+    }
+    board.ships.forEach((s, i) => {
+      let rec = ships.get(i);
+      if (!showShip(s, o)) { if (rec) dropShip(i); return; }
+      const key = s.r + ',' + s.c + ',' + s.horizontal;
+      if (!rec) {
+        rec = shipRec(i, s);
+        if (s.sunk) { rec.sunk = true; rec.mesh.material = shipMat; wreckPose(rec, 0); rec.revealed = false; sink(rec, fresh.has(i) ? SHELL_MS + 60 : 0); }
+        else if (state.phase === 'placement') { rec.revealed = true; dropIn(rec); }
+        else { rec.revealed = true; surface(rec, i * 120); }
+        return;
+      }
+      if (rec.key !== key) { rec.key = key; rec.ship = s; dropIn(rec); }
+      if (s.sunk && !rec.sunk) { rec.sunk = true; sink(rec, fresh.has(i) ? SHELL_MS + 60 : 0); }
+      rec.dirty = true;
+    });
+    touch();
+  }
+  function ping() {
+    if (kit.reducedMotion) return;
+    pingRing.visible = true; activity(1600);
+    kit.tween({ ms: 1300, ease: 'linear', update: (k) => { pingRing.scale.setScalar(0.5 + k * G * 0.5); pingRing.material.opacity = (1 - k) * 0.85; }, done: () => { pingRing.visible = false; } });
+  }
+
+  // ---- hover / ghost visuals. kind: 'place' { r, c, len, horiz, ok } | 'aim' { r, c } | null
+  function showMark(m, strong) {
+    foot.visible = false; reticle.visible = false;
+    if (m && m.kind === 'place') {
+      const cells = shipCells(m.r, m.c, m.len, m.horiz).filter(([r, c]) => inBounds(r, c));
+      if (cells.length) {
+        const r0 = Math.min(...cells.map((q) => q[0])), r1 = Math.max(...cells.map((q) => q[0])), c0 = Math.min(...cells.map((q) => q[1])), c1 = Math.max(...cells.map((q) => q[1]));
+        const w = (c1 - c0 + 1) * C - 0.4, d = (r1 - r0 + 1) * C - 0.4;
+        foot.scale.set(w, strong ? 0.8 : 0.45, d); foot.position.set(GX + (c0 + c1 + 1) / 2 * C, WATER + 0.02, GZ + (r0 + r1 + 1) / 2 * C);
+        footMat.color = col(m.ok === 'turn' ? '#FFD54A' : m.ok ? '#50E696' : '#FF4646'); footMat.opacity = strong ? 0.62 : 0.42;
+        foot.visible = true;
+      }
+    } else if (m && m.kind === 'aim') {
+      reticle.position.set(cx(m.c), WATER + (strong ? 0.5 : 0.12), cz(m.r));
+      reticle.userData.ringMat.color = col(strong ? '#FFD54A' : '#2EE6C5'); reticle.userData.sqMat.opacity = strong ? 0.38 : 0.22;
+      reticle.visible = true;
+    }
+    kit.invalidate();
+  }
+
+  // ---- picking: a tap is turned into a cell on the plane through the ships' middles, as the 2D page turns
+  // a click into the cell under it.
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hitP = new THREE.Vector3(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(WATER + 0.35));
+  function cellAt(px, py) {
+    const rect = cv.getBoundingClientRect();
+    if (!rect.width) return null;
+    ndc.set(((px - rect.left) / rect.width) * 2 - 1, -((py - rect.top) / rect.height) * 2 + 1);
+    ray.setFromCamera(ndc, kit.camera);
+    if (!ray.ray.intersectPlane(plane, hitP)) return null;
+    const c = Math.floor((hitP.x - GX) / C), r = Math.floor((hitP.z - GZ) / C);
+    return inBounds(r, c) ? { r, c } : null;
+  }
+  function onTray(px, py) {
+    const rect = cv.getBoundingClientRect();
+    ndc.set(((px - rect.left) / rect.width) * 2 - 1, -((py - rect.top) / rect.height) * 2 + 1);
+    ray.setFromCamera(ndc, kit.camera);
+    return !!ray.ray.intersectPlane(plane, hitP) && Math.abs(hitP.x) <= TW / 2 && Math.abs(hitP.z) <= TD / 2;
+  }
+  const pv = new THREE.Vector3();
+  function project(x, y, z) { const rect = cv.getBoundingClientRect(); pv.set(x, y, z).project(kit.camera); return [rect.left + ((pv.x + 1) / 2) * rect.width, rect.top + ((1 - pv.y) / 2) * rect.height]; }
+  const screenOfCell = (r, c) => project(cx(c), WATER + 0.35, cz(r));
+  // The median on-screen size of a cell edge, as Go and Dots measure their spacing.
+  function spacing() {
+    const P = [];
+    for (let r = 0; r <= GRID_SIZE; r++) for (let c = 0; c <= GRID_SIZE; c++) P.push(project(GX + c * C, WATER + 0.35, GZ + r * C));
+    const L = [], at = (r, c) => P[r * (GRID_SIZE + 1) + c];
+    for (let r = 0; r <= GRID_SIZE; r++) for (let c = 0; c < GRID_SIZE; c++) { const a = at(r, c), b = at(r, c + 1); L.push(Math.hypot(b[0] - a[0], b[1] - a[1])); }
+    for (let r = 0; r < GRID_SIZE; r++) for (let c = 0; c <= GRID_SIZE; c++) { const a = at(r, c), b = at(r + 1, c); L.push(Math.hypot(b[0] - a[0], b[1] - a[1])); }
+    L.sort((a, b) => a - b);
+    return L[L.length >> 1];
+  }
+
+  // The camera frames the tray; the board hosting the view buttons also keeps a strip of desk along its far
+  // edge, so the buttons sit on the desk rather than over the ocean. The strip is measured, not guessed: it
+  // grows until the ocean's far edge is drawn at least 14 px below the buttons, or a finger aimed at the top
+  // row lands near enough to a button for the browser's touch adjustment to hand the tap to it.
+  let host = false;
+  const PILLS = 7 + 44 + 14;
+  function fit(instant) {
+    const top = kit.rig.view === 'top', s = Math.min(cv.clientWidth, cv.clientHeight) || 320;
+    const box = (st) => ({ w: TW + 0.4, d: TD + 0.4 + st, cz: -st / 2, h: 1.6, margin: 0.985 });
+    let strip = 0;
+    if (host && cv.clientHeight) {
+      const p = Math.min(0.3, 58 / s);
+      strip = Math.max(0, (p * TD - 0.4) / (1 - p)) * (top ? 1 : 0.5);
+      const saved = Object.assign({}, kit.rig.state);
+      for (let i = 0; i < 8; i++) {
+        kit.rig.fit(Object.assign(box(strip), { instant: true })); kit.rig.step(1 / 60);
+        const t0 = cv.getBoundingClientRect().top, y = project(GX + G / 2, WATER + 0.35, GZ)[1] - t0;
+        if (y >= PILLS) break;
+        const y1 = project(GX + G / 2, WATER + 0.35, GZ + C)[1] - t0;
+        strip += ((PILLS - y) / Math.max(1, (y1 - y) / C)) * 1.15 + 0.2;
+      }
+      Object.assign(kit.rig.state, saved);
+    }
+    kit.rig.fit(Object.assign(box(strip), { instant }));
+    if (instant) kit.rig.step(1 / 60);
+  }
+  function setScale() { const h = kit.renderer.getDrawingBufferSize(new THREE.Vector2()).y; pMat.uniforms.scale.value = h / (2 * Math.tan((kit.camera.fov * Math.PI) / 360)); }
+
+  // three.js compiles a material's shader the first time it is drawn: compile everything up front so the
+  // first shot, the first sinking and the first hover do not hitch.
+  let warmed = false;
+  function warm() {
+    if (warmed) return; warmed = true;
+    const tmp = new THREE.Mesh(shipGeo('Destroyer', 2), wreckMat); tray.add(tmp);
+    const vis = [foot.visible, reticle.visible, shell.visible, points.visible, pingRing.visible];
+    foot.visible = reticle.visible = shell.visible = points.visible = pingRing.visible = true;
+    const cnt = [pegMesh[1].count, pegMesh[2].count]; pegMesh[1].count = Math.max(1, cnt[0]); pegMesh[2].count = Math.max(1, cnt[1]);
+    ring(0, 0, { color: '#ffffff', r: 0.01, ms: 1 });
+    try { kit.renderer.compile(kit.scene, kit.camera); } catch (e) { /* only a warm-up */ }
+    tray.remove(tmp);
+    [foot.visible, reticle.visible, shell.visible, points.visible, pingRing.visible] = vis;
+    pegMesh[1].count = cnt[0]; pegMesh[2].count = cnt[1];
+  }
+
+  return {
+    kit, cv, which, reset, update, ping, showMark, cellAt, onTray, spacing, screenOfCell, warm,
+    get host() { return host; }, set host(v) { host = !!v; },
+    resize() { kit.resize(); setScale(); fit(true); },
+    fit, setScale,
+    probe: { get caseHex() { return caseHex; }, get ships() { return ships; }, get pegs() { return pegs; }, get parts() { return parts; }, pegMesh, shell, foot, reticle, get board() { return cur.board; }, get covered() { return cur.covered; }, C, WATER, TW, TD },
+  };
+}
+
+function makeV3(trays) {
+  const F = trays.fleet, En = trays.enemy;
+  let lastPing = 0, ghost = null, hover = null;
+  const trayOf = (which) => (which === 'fleet' ? F : En);
+  const viewOf = (which) => (which === 'fleet' ? fleetView : enemyView);
+  // While a hand-over screen is up in a two-player game, neither tray holds a single ship: the player taking
+  // the device must not see the other's fleet, not even for a frame, and the one handing it over has no need.
+  const covered = () => state.mode === '2p' && !$('overlay').hidden && (state.phase === 'placement' || state.phase === 'battle');
+  function optsFor(which) {
+    const v = state.viewer, me = which === 'fleet' ? v : 1 - v;
+    return { covered: covered(), reveal: which === 'fleet' || state.phase === 'gameover', caseHex: CASE[me] };
+  }
+  // What a tap on this cell would do now, as handleCellClick decides it, for the hover and the ghost.
+  function markFor(which, cell) {
+    if (!cell) return null;
+    if (which === 'fleet' && state.phase === 'placement') {
+      const board = state.boards[state.placing];
+      if (state.curShip >= 0) {
+        const s = board.ships[state.curShip];
+        if (canPlace(board, cell.r, cell.c, s.length, state.horizontal, state.curShip) || shipAt(board, cell.r, cell.c) < 0)
+          return { kind: 'place', r: cell.r, c: cell.c, len: s.length, horiz: state.horizontal, ok: canPlace(board, cell.r, cell.c, s.length, state.horizontal, state.curShip) };
+      }
+      const i = shipAt(board, cell.r, cell.c);
+      if (i < 0) return null;
+      // A tap on a placed ship turns it where it lies (gold), or picks it up if it cannot turn there (red).
+      const s = board.ships[i], ok = canPlace(board, s.r, s.c, s.length, !s.horizontal, i);
+      return { kind: 'place', r: s.r, c: s.c, len: s.length, horiz: ok ? !s.horizontal : s.horizontal, ok: ok ? 'turn' : false };
+    }
+    if (which === 'enemy' && state.phase === 'battle' && !state.busy && state.current === state.viewer) {
+      if (state.boards[1 - state.viewer].shots[cell.r][cell.c]) return null;
+      return { kind: 'aim', r: cell.r, c: cell.c };
+    }
+    return null;
+  }
+  function marks() {
+    for (const which of ['fleet', 'enemy']) {
+      const g = ghost && ghost.which === which ? markFor(which, ghost) : null;
+      if (ghost && ghost.which === which && !g) ghost = null;
+      const h = !g && hover && hover.which === which ? markFor(which, hover) : null;
+      trayOf(which).showMark(g || h, !!g);
+    }
+  }
+  const api = {
+    ok: true, trays, kits: [F.kit, En.kit],
+    // Called whenever the HUD is: brings both trays up to date with the game.
+    sync() {
+      const v = state.viewer;
+      F.update(state.boards[v], optsFor('fleet'));
+      En.update(state.boards[1 - v], optsFor('enemy'));
+      if (enemyView.ping && enemyView.ping !== lastPing) { lastPing = enemyView.ping; En.ping(); }
+      for (const t of [F, En]) t.kit.canvas.classList.toggle('armed', t === En && state.phase === 'battle' && !state.busy && state.current === state.viewer);
+      marks();
+    },
+    rebuild() {
+      const v = state.viewer;
+      lastPing = enemyView.ping;
+      ghost = null; hover = null;
+      F.reset(state.boards[v], optsFor('fleet'));
+      En.reset(state.boards[1 - v], optsFor('enemy'));
+      layout3d();
+      for (const t of [F, En]) t.warm();
+      api.sync();
+    },
+    cellAt: (which, x, y) => trayOf(which).cellAt(x, y),
+    needConfirm: (which) => fingers3d && trayOf(which).spacing() < 32,
+    get ghost() { return ghost; },
+    setGhost(which, cell) { ghost = cell ? { which, r: cell.r, c: cell.c } : null; marks(); },
+    setHover(which, cell) { hover = cell ? { which, r: cell.r, c: cell.c } : null; marks(); },
+    markFor,
+    setCam(name, instant) { for (const t of [F, En]) { t.kit.rig.setView(name, { instant }); t.fit(!!instant); } },
+    get cam() { return F.kit.rig.view; },
+    layout: () => layout3d(),
+  };
+  for (const t of [F, En]) {
+    const which = t.which;
+    t.cv.addEventListener('pointermove', (ev) => {
+      if (ev.pointerType !== 'mouse' || ev.buttons) return;
+      const cell = t.cellAt(ev.clientX, ev.clientY);
+      if (!hover || !cell || hover.which !== which || hover.r !== cell.r || hover.c !== cell.c) api.setHover(which, cell);
+      t.cv.style.cursor = cell && markFor(which, cell) ? (which === 'enemy' ? '' : 'pointer') : 'default';
+    });
+    t.cv.addEventListener('pointerleave', () => { if (hover && hover.which === which) api.setHover(null, null); });
+  }
+  return api;
+}
+
+// The 3D canvases cover the 2D canvases' inner squares exactly, by CSS (the 2D canvas keeps its border, and
+// with it the glow that marks the board in play). Where both boards are on screen, the view buttons sit on
+// your fleet's board; where the tabs show one at a time, on whichever is showing.
+function layout3d() {
+  if (!V3) return;
+  const both = $('boardFleet').offsetWidth > 0 && $('boardEnemy').offsetWidth > 0;
+  for (const [which, c3Id, boxId] of [['fleet', 'c3Fleet', 'view3Fleet'], ['enemy', 'c3Enemy', 'view3Enemy']]) {
+    const c3 = $(c3Id), t = V3.trays[which], W = c3.clientWidth;
+    const host = W > 0 && (!both || which === 'fleet');
+    $(boxId).classList.toggle('host', host);
+    if (host !== t.host || W !== t.lastW) { t.host = host; t.lastW = W; if (W) t.resize(); }
+  }
+}
+
+// A tap on a 3D board: the same as a click on that cell of the 2D canvas.
+function tap3d(which, x, y, ev) {
+  // The kit reports a tap on pointer-up, and the browser still sends that press's click afterwards, to
+  // whatever is under the finger by then. The one click this tap still owes is dropped.
+  const kill = (e2) => { e2.stopPropagation(); e2.preventDefault(); off(); };
+  const off = () => { removeEventListener('click', kill, true); clearTimeout(t); };
+  addEventListener('click', kill, true);
+  const t = setTimeout(off, 600);
+  if (!V3) return;
+  const view = which === 'fleet' ? fleetView : enemyView;
+  const cell = V3.cellAt(which, x, y);
+  if (!cell) { if (V3.ghost) V3.setGhost(null); return; }
+  const finger = !ev || ev.pointerType !== 'mouse';
+  const mark = V3.markFor(which, cell);
+  // Cells under 32 px on a touch screen: the first tap shows what would happen (the ship's footprint, or a
+  // gold reticle), a second tap on the same cell does it. A tap that would only say "already fired there"
+  // or "does not fit" needs no second tap.
+  if (finger && mark && V3.needConfirm(which)) {
+    const g = V3.ghost;
+    if (g && g.which === which && g.r === cell.r && g.c === cell.c) { V3.setGhost(null); handleCellClick(view, cell.r, cell.c); }
+    else {
+      V3.setGhost(which, cell);
+      if (mark.kind === 'aim') message(`Tap ${cellName(cell.r, cell.c)} again to fire.`);
+      else if (mark.ok === 'turn') message(`Tap again to turn the ${state.boards[state.placing].ships[shipAt(state.boards[state.placing], cell.r, cell.c)].name}.`);
+      else if (mark.ok) message(`Tap again to place the ${state.boards[state.placing].ships[state.curShip].name}.`);
+      else handleCellClick(view, cell.r, cell.c);
+    }
+    return;
+  }
+  if (V3.ghost) V3.setGhost(null);
+  handleCellClick(view, cell.r, cell.c);
+}
+
+function setDim(dim, remember) {
+  if (dim === '3d' && !view3d && can3d()) {
+    // Anything that goes wrong building the scene leaves the 2D game playable rather than blank boards.
+    try { view3d = makeView3d(); } catch (e) { view3d = { ok: false, reason: String(e) }; try { console.warn('3D board failed, using 2D:', e); } catch (e2) { /* ignore */ } }
+  }
+  const on = dim === '3d' && !!view3d && view3d.ok && !lost3d;
+  document.body.classList.toggle('v3d', on);
+  V3 = on ? view3d : null;
+  if (remember) { viewPref.dim = on ? '3d' : '2d'; saveView(); }
+  $('to3d').hidden = on || !can3d();
+  document.body.classList.toggle('has3d', can3d());
+  if (on) { V3.rebuild(); setCam(camDefault(), false, true); }
+  else if (!loop2d) { for (const v of [fleetView, enemyView]) { v.particles = []; v.flash = new Map(); } loop2d = true; requestAnimationFrame(gameLoop); }
+}
+function setCam(name, remember, instant) {
+  if (!V3) return;
+  V3.setCam(name, instant);
+  if (remember) { viewPref.cam = name; saveView(); }
+  for (const b of document.querySelectorAll('.camBtn')) {
+    b.textContent = name === 'top' ? 'Angled' : 'Top';
+    b.setAttribute('aria-label', name === 'top' ? 'Tilt the camera to an angled view' : 'Look straight down at the board');
+  }
+}
+for (const b of document.querySelectorAll('.camBtn')) b.addEventListener('click', () => setCam(V3 && V3.cam === 'top' ? 'angled' : 'top', true));
+for (const b of document.querySelectorAll('.dimBtn')) b.addEventListener('click', () => setDim('2d', true));
+$('to3d').addEventListener('click', () => setDim('3d', true));
+// Two quick taps on a board are two shots, not the kit's "reset the camera": that stays for the desk.
+for (const id of ['boardFleet', 'boardEnemy']) $(id).addEventListener('dblclick', (e) => {
+  if (V3 && V3.trays[id === 'boardFleet' ? 'fleet' : 'enemy'].onTray(e.clientX, e.clientY)) e.stopPropagation();
+}, true);
+// Turning a phone over changes the default camera, unless someone picked one; any resize re-lays the canvases.
+addEventListener('resize', () => { if (!V3) return; layout3d(); if (!viewPref.cam) setCam(camDefault(), false); });
+if (window.ResizeObserver) { const ro = new ResizeObserver(() => layout3d()); ro.observe($('c3Fleet')); ro.observe($('c3Enemy')); }
+// For the Playwright checks: read-only views and the entry points they drive.
+window.__bs3 = { get V3() { return V3; }, get view3d() { return view3d; }, state, setDim, setCam, layout3d, fleetView, enemyView, handleCellClick };
+
 resetGame(); render(); requestAnimationFrame(gameLoop);
+// 3D by default wherever WebGL works; 2D if that was the last choice, or as the fallback.
+document.body.classList.toggle('has3d', can3d());
+$('to3d').hidden = !can3d();
+if (viewPref.dim !== '2d' && can3d()) setDim('3d', false);
 </script>
 </body>
 </html>
